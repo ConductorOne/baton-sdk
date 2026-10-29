@@ -244,7 +244,7 @@ func TestLedgerPublicFinishedContinuationAfterDisposal(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, first.Sync(t.Context()))
 	syncID := first.(*syncer).syncID
-	before, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+	before, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 	require.NoError(t, err)
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
@@ -253,7 +253,7 @@ func TestLedgerPublicFinishedContinuationAfterDisposal(t *testing.T) {
 	require.NoError(t, err)
 	next.(*syncer).testHooks.ledgerWalk = func(entering bool) {
 		if entering {
-			bound, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			bound, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 			require.NoError(t, err)
 			require.Equal(t, before.GetStartedAt(), bound.GetStartedAt())
 			require.Equal(t, before.GetEndedAt(), bound.GetEndedAt())
@@ -262,7 +262,7 @@ func TestLedgerPublicFinishedContinuationAfterDisposal(t *testing.T) {
 	require.NoError(t, next.Sync(t.Context()))
 	require.Empty(t, connector.calls)
 	require.True(t, next.(*syncer).run.hasFact(factShouldSkipEntitlementsAndGrants))
-	after, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+	after, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 	require.NoError(t, err)
 	require.Equal(t, before.GetStartedAt(), after.GetStartedAt())
 	require.NotNil(t, after.GetEndedAt())
@@ -381,7 +381,7 @@ func TestLedgerFinishedRetentionUsesCurrentOptions(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, first.Sync(t.Context()))
 			syncID := first.(*syncer).syncID
-			before, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			before, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 			require.NoError(t, err)
 			require.NoError(t, f.store.Close(t.Context()))
 			f = openLedgerFixtureAt(t, f.path, false)
@@ -391,7 +391,7 @@ func TestLedgerFinishedRetentionUsesCurrentOptions(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, next.Sync(t.Context()))
 			require.Empty(t, c.calls, "an expansion pass over a skip collection lists nothing")
-			after, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			after, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 			require.NoError(t, err)
 			require.Equal(t, before.GetStartedAt(), after.GetStartedAt())
 			require.NotNil(t, after.GetEndedAt())

@@ -475,7 +475,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	if !ok {
 		return "", errors.New("compactPebbleFold: compacted store is not a pebble engine")
 	}
-	baseRec, err := destEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+	baseRec, err := destEng.SyncRuns().LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 	if err != nil {
 		return "", fmt.Errorf("compactPebbleFold: select base sync: %w", err)
 	}
@@ -530,7 +530,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 			return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
 		}
 		if srcSyncID == "" {
-			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+			rec, err := srcEng.SyncRuns().LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 			if err != nil {
 				err = fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", sourcePath, err)
 				return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
@@ -772,14 +772,14 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// file's one sync-run record now carries newSyncID. (The compactor
 	// GetSync's this id right after and asserts it matches — the
 	// engine's GetSyncRunRecord id-match guard enforces it.)
-	if err := destEng.PutSyncRunRecord(ctx, baseRec); err != nil {
+	if err := destEng.SyncRuns().PutSyncRunRecord(ctx, baseRec); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: persist folded sync_run: %w", err)
 	}
 	// The fold rewrote the keyspace, so the cached stats sidecar is
 	// stale. Recompute under the NEW id so the sidecar's SyncId — and
 	// the envelope manifest's sync-run projection built from it at save
 	// — match the renamed sync. Key-range counts, not full unmarshals.
-	if err := destEng.PersistSyncStats(ctx, newSyncID); err != nil {
+	if err := destEng.SyncRuns().PersistSyncStats(ctx, newSyncID); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: persist stats: %w", err)
 	}
 	// Best-effort: provenance never fails the compaction.
@@ -797,7 +797,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 			partialSyncIDs,
 			compactionRecordCounts(outputStats, &foldStats),
 		))
-		if err := destEng.PersistComputedSyncStats(ctx, newSyncID, outputStats); err != nil {
+		if err := destEng.SyncRuns().PersistComputedSyncStats(ctx, newSyncID, outputStats); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: persist provenance: %w", err)
 		}
 	}
@@ -1018,7 +1018,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			if !ok {
 				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s is not a pebble c1z", sourcePath)
 			}
-			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+			rec, err := srcEng.SyncRuns().LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 			if err != nil {
 				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: select source sync for %s: %w", sourcePath, err)
 			}
@@ -1123,7 +1123,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	// Set the compacted sync_run's type + ended_at to the union / max
 	// across the inputs so downstream gating (e.g. grant expansion)
 	// behaves identically to the sqlite path, then recompute stats.
-	rec, err := destEng.GetSyncRunRecord(ctx, newSyncId)
+	rec, err := destEng.SyncRuns().GetSyncRunRecord(ctx, newSyncId)
 	if err != nil {
 		return fmt.Errorf("compactPebble: load dest sync_run: %w", err)
 	}
@@ -1137,13 +1137,13 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	} else {
 		rec.SetSyncToken(tok)
 	}
-	if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
+	if err := destEng.SyncRuns().PutSyncRunRecord(ctx, rec); err != nil {
 		return fmt.Errorf("compactPebble: persist dest sync_run: %w", err)
 	}
 	// The merge accumulated the dest stats while writing winners, so
 	// persist those instead of re-scanning the freshly written output.
 	if statsRec == nil {
-		if err := destEng.PersistSyncStats(ctx, newSyncId); err != nil {
+		if err := destEng.SyncRuns().PersistSyncStats(ctx, newSyncId); err != nil {
 			return fmt.Errorf("compactPebble: persist stats: %w", err)
 		}
 		recomputed, statsErr := enginepkg.ReadSyncStatsRecord(ctx, destEng, newSyncId)
@@ -1163,7 +1163,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		statsRec.SetCompaction(buildCompactionProvenance(
 			nil, string(mode), rebuildBaseSyncID, rebuildPartialSyncIDs, compactionRecordCounts(statsRec, nil),
 		))
-		if err := destEng.PersistComputedSyncStats(ctx, newSyncId, statsRec); err != nil {
+		if err := destEng.SyncRuns().PersistComputedSyncStats(ctx, newSyncId, statsRec); err != nil {
 			return fmt.Errorf("compactPebble: persist stats: %w", err)
 		}
 	}

@@ -33,7 +33,7 @@ func stampSyncStats(t *testing.T, ctx context.Context, path, syncID string, gran
 	rec.SetConnectorCallStats(map[string]*v3.CallStat{
 		"list-grants": v3.CallStat_builder{Count: callCount, TotalMs: callTotalMs, MaxMs: callMaxMs}.Build(),
 	})
-	require.NoError(t, eng.PersistComputedSyncStats(ctx, syncID, rec))
+	require.NoError(t, eng.SyncRuns().PersistComputedSyncStats(ctx, syncID, rec))
 	require.True(t, enginepkg.MarkStoreDirty(w))
 	require.NoError(t, w.Close(ctx))
 }
@@ -58,7 +58,7 @@ func readSyncToken(t *testing.T, ctx context.Context, path, syncID string) strin
 	defer w.Close(ctx)
 	eng, ok := enginepkg.AsEngine(w)
 	require.True(t, ok, "store at %s is not a pebble engine", path)
-	rec, err := eng.GetSyncRunRecord(ctx, syncID)
+	rec, err := eng.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
 	return rec.GetSyncToken()
 }
@@ -226,7 +226,7 @@ func TestCompactionStatsWithAndWithoutExpansion(t *testing.T) {
 					require.NoError(t, err)
 					eng, ok := enginepkg.AsEngine(w)
 					require.True(t, ok)
-					sr, err := eng.GetSyncRunRecord(ctx, entry.SyncID)
+					sr, err := eng.SyncRuns().GetSyncRunRecord(ctx, entry.SyncID)
 					require.NoError(t, err)
 					sr.SetSyncToken(`{
 "version":1,
@@ -234,8 +234,8 @@ func TestCompactionStatsWithAndWithoutExpansion(t *testing.T) {
 "connector_call_stats":{"ListGrants":{"count":1,"total_ms":100,"max_ms":100}},
 "session_store_stats":{"Get":{"count":1,"total_ms":10,"max_ms":10}},
 "ingest_quality":{"source_cache_replay_blocked":false}}`)
-					require.NoError(t, eng.PutSyncRunRecord(ctx, sr))
-					require.NoError(t, eng.PersistSyncStats(ctx, entry.SyncID))
+					require.NoError(t, eng.SyncRuns().PutSyncRunRecord(ctx, sr))
+					require.NoError(t, eng.SyncRuns().PersistSyncStats(ctx, entry.SyncID))
 					require.True(t, enginepkg.MarkStoreDirty(w))
 					require.NoError(t, w.Close(ctx))
 				}
@@ -286,9 +286,9 @@ func TestCompactionStatsWithAndWithoutExpansion(t *testing.T) {
 					stats.SetConnectorCallStats(original.GetConnectorCallStats())
 					stats.SetSessionStoreStats(original.GetSessionStoreStats())
 					stats.SetIngestQuality(original.GetIngestQuality())
-					require.NoError(t, eng.PersistComputedSyncStats(ctx, out.SyncID, stats))
+					require.NoError(t, eng.SyncRuns().PersistComputedSyncStats(ctx, out.SyncID, stats))
 					assertCompactedCollectionStatsEmpty(t, stats)
-					require.NoError(t, eng.PersistSyncStats(ctx, out.SyncID))
+					require.NoError(t, eng.SyncRuns().PersistSyncStats(ctx, out.SyncID))
 					recomputed, err := enginepkg.ReadSyncStatsRecord(ctx, eng, out.SyncID)
 					require.NoError(t, err)
 					assertCompactedCollectionStatsEmpty(t, recomputed)

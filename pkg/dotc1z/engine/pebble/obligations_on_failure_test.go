@@ -237,11 +237,11 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 				return a.EndSync(ctx)
 			},
 			obligations: func(t *testing.T, ctx context.Context, e *Engine, syncID string) {
-				rec, err := e.GetSyncRunRecord(ctx, syncID)
+				rec, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 				require.NoError(t, err)
 				require.Nil(t, rec.GetEndedAt(),
 					"a failed stamp commit must not surface ended_at")
-				unfinished, err := e.LatestUnfinishedSyncRecord(ctx, nil)
+				unfinished, err := e.SyncRuns().LatestUnfinishedSyncRecord(ctx, nil)
 				require.NoError(t, err)
 				require.NotNil(t, unfinished,
 					"the sync must stay discoverable as unfinished after a failed stamp commit")
@@ -250,7 +250,7 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 			converge: func(t *testing.T, ctx context.Context, a *Adapter, syncID string) {
 				a.PebbleEngine().test.endSyncStampHook = nil
 				require.NoError(t, a.EndSync(ctx), "a retried EndSync must converge")
-				rec, err := a.PebbleEngine().GetSyncRunRecord(ctx, syncID)
+				rec, err := a.PebbleEngine().SyncRuns().GetSyncRunRecord(ctx, syncID)
 				require.NoError(t, err)
 				require.NotNil(t, rec.GetEndedAt())
 			},

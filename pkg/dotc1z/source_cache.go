@@ -134,7 +134,7 @@ func sourceCacheEngine(store any) (*pebble.Engine, bool) {
 }
 
 func validateReplaySourceEligible(ctx context.Context, previous *pebble.Engine) error {
-	run, err := previous.LatestFinishedSyncRecord(ctx, nil)
+	run, err := previous.SyncRuns().LatestFinishedSyncRecord(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("source cache replay: read previous sync lifecycle: %w", err)
 	}

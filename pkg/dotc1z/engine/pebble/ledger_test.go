@@ -373,7 +373,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		require.ErrorIs(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}), boom)
 		e.db.SetRecordCommitTestHook(nil)
 
-		sr, err := e.GetSyncRunRecord(ctx, syncID)
+		sr, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 		require.NoError(t, err)
 		require.Nil(t, sr.GetEndedAt(), "no finished verdict after a failed scrub")
 		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
@@ -382,7 +382,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		}))
 
 		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
-		sr, err = e.GetSyncRunRecord(ctx, syncID)
+		sr, err = e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 		require.NoError(t, err)
 		require.NotNil(t, sr.GetEndedAt())
 		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {

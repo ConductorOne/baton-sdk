@@ -98,7 +98,7 @@ func TestLedgerExpansionRequestAcrossSealFailure(t *testing.T) {
 			require.NotNil(t, opts)
 			require.True(t, opts.Requested.OnlyExpandGrants)
 			require.False(t, opts.EffectiveRetainLedgerTokens)
-			record, err := f.engine.GetSyncRunRecord(ctx, id)
+			record, err := f.engine.SyncRuns().GetSyncRunRecord(ctx, id)
 			require.NoError(t, err)
 			require.NotNil(t, record.GetEndedAt())
 		})

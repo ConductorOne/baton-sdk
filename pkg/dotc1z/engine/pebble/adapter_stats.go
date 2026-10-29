@@ -24,8 +24,8 @@ import (
 // accepts any sync; otherwise we filter by the sync_run's type. An
 // empty syncID resolves to the latest finished sync of that type
 // (NotFound if none).
-func (e *Engine) Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
-	stats, err := e.stats(ctx, syncType, syncID)
+func (r *SyncRuns) Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
+	stats, err := r.stats(ctx, syncType, syncID)
 	if err != nil {
 		return nil, err
 	}
@@ -36,21 +36,21 @@ func (e *Engine) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 }
 
 // StatsV2 returns structured stats for the given sync.
-func (e *Engine) StatsV2(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*reader_v2.SyncStats, error) {
-	stats, err := e.stats(ctx, syncType, syncID)
+func (r *SyncRuns) StatsV2(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*reader_v2.SyncStats, error) {
+	stats, err := r.stats(ctx, syncType, syncID)
 	if err != nil {
 		return nil, err
 	}
 	return SyncStatsFromRecord(stats), nil
 }
 
-func (e *Engine) stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*v3.SyncStatsRecord, error) {
+func (r *SyncRuns) stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*v3.SyncStatsRecord, error) {
 	if syncID == "" {
 		// Match SQLite C1File.stats: empty syncID resolves to the
 		// latest finished sync of the requested type, never the
 		// in-progress current sync.
 		var err error
-		syncID, err = e.LatestFinishedSyncID(ctx, syncType)
+		syncID, err = r.e.LatestFinishedSyncID(ctx, syncType)
 		if err != nil {
 			return nil, err
 		}
@@ -61,7 +61,7 @@ func (e *Engine) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 
 	// Match SQLite C1File.stats: missing sync → NotFound; type
 	// mismatch → InvalidArgument.
-	sr, err := e.GetSyncRunRecord(ctx, syncID)
+	sr, err := r.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -73,16 +73,16 @@ func (e *Engine) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		return nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncID, syncType)
 	}
 
-	if cached, err := e.readSyncStats(ctx, syncID); err == nil && cached != nil {
+	if cached, err := r.readSyncStats(ctx, syncID); err == nil && cached != nil {
 		return cached, nil
 	}
-	return e.statsFromIteration(ctx, syncID)
+	return r.statsFromIteration(ctx, syncID)
 }
 
 // statsFromIteration is O(records). Stats reaches it when the sidecar
 // is missing: files that predate it, or a PersistSyncStats failure,
 // which endSyncFinalize logs and swallows.
-func (e *Engine) statsFromIteration(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
+func (r *SyncRuns) statsFromIteration(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
 	stats := &v3.SyncStatsRecord{
 		SyncId:                          syncID,
 		ResourceTypes:                   0,
@@ -95,34 +95,34 @@ func (e *Engine) statsFromIteration(ctx context.Context, syncID string) (*v3.Syn
 		EntitlementsByResourceType:      make(map[string]int64),
 	}
 
-	if err := e.IterateResourceTypes(ctx, func(r *v3.ResourceTypeRecord) bool {
+	if err := r.e.IterateResourceTypes(ctx, func(r *v3.ResourceTypeRecord) bool {
 		stats.ResourceTypes++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := e.IterateResources(ctx, func(r *v3.ResourceRecord) bool {
+	if err := r.e.IterateResources(ctx, func(r *v3.ResourceRecord) bool {
 		stats.Resources++
 		stats.ResourcesByResourceType[r.GetResourceTypeId()]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := e.IterateEntitlements(ctx, func(e *v3.EntitlementRecord) bool {
+	if err := r.e.IterateEntitlements(ctx, func(e *v3.EntitlementRecord) bool {
 		stats.Entitlements++
 		stats.EntitlementsByResourceType[e.GetResource().GetResourceTypeId()]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	if err := r.e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		stats.Grants++
 		stats.GrantsByEntitlementResourceType[g.GetEntitlement().GetResourceTypeId()]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := e.IterateAssets(ctx, func(*v3.AssetRecord) bool {
+	if err := r.e.IterateAssets(ctx, func(*v3.AssetRecord) bool {
 		stats.Assets++
 		return true
 	}); err != nil {
@@ -174,10 +174,10 @@ func errNoFinishedSync(syncType connectorstore.SyncType) error {
 // Empty syncID resolves to the latest finished sync of syncType
 // (matching Stats / SQLite grantStats), and returns NotFound when
 // none exists.
-func (e *Engine) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
+func (r *SyncRuns) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
 	if syncID == "" {
 		var err error
-		syncID, err = e.LatestFinishedSyncID(ctx, syncType)
+		syncID, err = r.e.LatestFinishedSyncID(ctx, syncType)
 		if err != nil {
 			return nil, err
 		}
@@ -185,7 +185,7 @@ func (e *Engine) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 			return nil, errNoFinishedSync(syncType)
 		}
 	}
-	sr, err := e.GetSyncRunRecord(ctx, syncID)
+	sr, err := r.GetSyncRunRecord(ctx, syncID)
 	if err == nil && sr != nil {
 		if syncType != connectorstore.SyncTypeAny &&
 			syncType != connectorstore.SyncType(v3SyncTypeToString(sr.GetType())) {
@@ -193,7 +193,7 @@ func (e *Engine) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 		}
 	}
 	// Fast path: sidecar.
-	if stats, err := e.readSyncStats(ctx, syncID); err == nil && stats != nil {
+	if stats, err := r.readSyncStats(ctx, syncID); err == nil && stats != nil {
 		out := make(map[string]int64, len(stats.GetGrantsByEntitlementResourceType()))
 		for rt, n := range stats.GetGrantsByEntitlementResourceType() {
 			out[rt] = n
@@ -202,7 +202,7 @@ func (e *Engine) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 	}
 	// Fallback: iterate.
 	counts := map[string]int64{}
-	if err := e.IterateGrants(ctx, func(rec *v3.GrantRecord) bool {
+	if err := r.e.IterateGrants(ctx, func(rec *v3.GrantRecord) bool {
 		// Match SQLite's `resource_type_id` column semantic on
 		// the grants table — that's the *entitlement's*
 		// resource type, not the principal's.
@@ -219,6 +219,6 @@ func (e *Engine) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 // SQLite equivalent returns the .c1z file path; for Pebble we don't
 // have a single file, so this returns the engine's directory. Used
 // by tooling that wants to copy or inspect the storage.
-func (e *Engine) OutputFilepath() (string, error) {
-	return e.DBDir(), nil
+func (r *SyncRuns) OutputFilepath() (string, error) {
+	return r.e.DBDir(), nil
 }

@@ -110,7 +110,7 @@ func digestConvertedFile(t testing.TB, path, syncID string) string {
 	}
 	require.NoError(t, iter.Error())
 	if syncID != "" {
-		record, err := engine.GetSyncRunRecord(ctx, syncID)
+		record, err := engine.SyncRuns().GetSyncRunRecord(ctx, syncID)
 		require.NoError(t, err)
 		record.SetStartedAt(nil)
 		record.SetEndedAt(nil)
@@ -181,7 +181,7 @@ func syncRecord(t testing.TB, path, syncID string) *v3.SyncRunRecord {
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 	engine, ok := pebble.AsEngine(store)
 	require.True(t, ok)
-	record, err := engine.GetSyncRunRecord(ctx, syncID)
+	record, err := engine.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
 	return record
 }

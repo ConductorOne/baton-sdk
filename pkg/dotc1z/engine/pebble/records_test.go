@@ -228,30 +228,30 @@ func TestSyncRunRecord(t *testing.T) {
 			Type:      v3.SyncType_SYNC_TYPE_FULL,
 			StartedAt: timestamppb.Now(),
 		}.Build()
-		require.NoErrorf(t, e.PutSyncRunRecord(ctx, r), "PutSyncRunRecord(%s)", sid)
+		require.NoErrorf(t, e.SyncRuns().PutSyncRunRecord(ctx, r), "PutSyncRunRecord(%s)", sid)
 	}
 
 	// One sync-run record per file: the key is fixed, so writing id2
 	// replaces id1.
 	put(id1)
-	got, err := e.GetSyncRunRecord(ctx, id1)
+	got, err := e.SyncRuns().GetSyncRunRecord(ctx, id1)
 	require.NoErrorf(t, err, "GetSyncRunRecord(id1)")
 	require.Equal(t, id1, got.GetSyncId(), "sync_id")
 
 	put(id2)
 	// id1 is gone (replaced); the id-match guard makes its lookup miss.
-	_, err = e.GetSyncRunRecord(ctx, id1)
+	_, err = e.SyncRuns().GetSyncRunRecord(ctx, id1)
 	require.ErrorIs(t, err, pebble.ErrNotFound, "GetSyncRunRecord(id1) after replacement")
-	_, err = e.GetSyncRunRecord(ctx, id2)
+	_, err = e.SyncRuns().GetSyncRunRecord(ctx, id2)
 	require.NoError(t, err, "GetSyncRunRecord(id2)")
 	count := 0
-	require.NoError(t, e.IterateAllSyncRuns(ctx, func(*v3.SyncRunRecord) bool {
+	require.NoError(t, e.SyncRuns().IterateAllSyncRuns(ctx, func(*v3.SyncRunRecord) bool {
 		count++
 		return true
 	}))
 	require.Equal(t, 1, count, "sync_runs count")
 
-	require.NoError(t, e.DeleteSyncRunRecord(ctx, id2))
-	_, err = e.GetSyncRunRecord(ctx, id2)
+	require.NoError(t, e.SyncRuns().DeleteSyncRunRecord(ctx, id2))
+	_, err = e.SyncRuns().GetSyncRunRecord(ctx, id2)
 	require.ErrorIs(t, err, pebble.ErrNotFound, "expected ErrNotFound after delete")
 }

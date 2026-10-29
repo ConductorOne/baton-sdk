@@ -62,8 +62,8 @@ func SyncStatsSidecarUpperBound() []byte {
 // different sync's stats (the file holds one sync, so a lookup for a
 // mismatched id misses); pass "" to read whatever is stored. Errors
 // surface for real read failures only.
-func (e *Engine) readSyncStats(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
-	val, closer, err := e.db.Get(encodeSyncStatsKey())
+func (r *SyncRuns) readSyncStats(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
+	val, closer, err := r.e.db.Get(encodeSyncStatsKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, nil
@@ -85,7 +85,7 @@ func (e *Engine) readSyncStats(ctx context.Context, syncID string) (*v3.SyncStat
 // key. Uses pebble.Sync because Stats() correctness depends on the
 // sidecar surviving a crash that occurred mid-sync-end. The sync_id
 // is carried in the record value, not the key.
-func (e *Engine) writeSyncStats(ctx context.Context, rec *v3.SyncStatsRecord) error {
+func (r *SyncRuns) writeSyncStats(ctx context.Context, rec *v3.SyncStatsRecord) error {
 	val, err := marshalRecord(rec)
 	if err != nil {
 		return err
@@ -95,8 +95,8 @@ func (e *Engine) writeSyncStats(ctx context.Context, rec *v3.SyncStatsRecord) er
 	// bare Set) gives the write the closed check and exclusion from
 	// CheckpointTo's Flush→Checkpoint window (a WAL-only record landing
 	// mid-window would be truncated out of the saved snapshot).
-	return e.withWriteAllowSealed(func() error {
-		return e.db.MetaSet(encodeSyncStatsKey(), val, pebble.Sync)
+	return r.e.withWriteAllowSealed(func() error {
+		return r.e.db.MetaSet(encodeSyncStatsKey(), val, pebble.Sync)
 	})
 }
 
@@ -111,11 +111,11 @@ func (e *Engine) writeSyncStats(ctx context.Context, rec *v3.SyncStatsRecord) er
 // Iterate*BySync. Counting keys and shallow-scanning only the grant grouping
 // field removed the final stats-sidecar full unmarshal from compaction; in the
 // same-size syncs=50 overlay case allocs dropped from ~3.05M to ~2.41M/op.
-func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
+func (r *SyncRuns) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
 	rec := &v3.SyncStatsRecord{}
 	rec.SetSyncId(syncID)
 
-	resourceTypes, err := countKeyRange(ctx, e.db, ResourceTypeLowerBound(), ResourceTypeUpperBound(), nil)
+	resourceTypes, err := countKeyRange(ctx, r.e.db, ResourceTypeLowerBound(), ResourceTypeUpperBound(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: resource_types: %w", err)
 	}
@@ -130,7 +130,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	resLower := ResourceLowerBound()
 	var rtScratch, curRT []byte
 	var curCount int64
-	resources, err := countKeyRange(ctx, e.db, resLower, ResourceUpperBound(), func(key []byte, _ []byte) error {
+	resources, err := countKeyRange(ctx, r.e.db, resLower, ResourceUpperBound(), func(key []byte, _ []byte) error {
 		if len(key) <= len(resLower) {
 			return fmt.Errorf("resource key shorter than expected lower bound")
 		}
@@ -164,7 +164,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	// time each resource type appears (same shape as the grant grouping
 	// below).
 	entitlementsByRTPtr := map[string]*int64{}
-	entitlements, err := countKeyRange(ctx, e.db, EntitlementLowerBound(), EntitlementUpperBound(), func(_ []byte, value []byte) error {
+	entitlements, err := countKeyRange(ctx, r.e.db, EntitlementLowerBound(), EntitlementUpperBound(), func(_ []byte, value []byte) error {
 		rt, err := scanEntitlementResourceTypeRaw(value)
 		if err != nil {
 			return err
@@ -197,12 +197,12 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	// grant rows a second time.
 	var grants int64
 	var grantsByEntitlementRT map[string]int64
-	if ds := e.takeDeferredGrantStats(syncID); ds != nil {
+	if ds := r.takeDeferredGrantStats(syncID); ds != nil {
 		grants = ds.grants
 		grantsByEntitlementRT = ds.grantsByEntitlementRT
 	} else {
 		grantsByEntRTPtr := map[string]*int64{}
-		grants, err = countKeyRange(ctx, e.db, GrantLowerBound(), GrantUpperBound(), func(_ []byte, value []byte) error {
+		grants, err = countKeyRange(ctx, r.e.db, GrantLowerBound(), GrantUpperBound(), func(_ []byte, value []byte) error {
 			entRT, err := scanGrantEntitlementResourceTypeRaw(value)
 			if err != nil {
 				return err
@@ -225,7 +225,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	}
 	rec.SetGrants(grants)
 
-	assets, err := countKeyRange(ctx, e.db, AssetLowerBound(), AssetUpperBound(), nil)
+	assets, err := countKeyRange(ctx, r.e.db, AssetLowerBound(), AssetUpperBound(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: assets: %w", err)
 	}
@@ -240,23 +240,23 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 // stashDeferredGrantStats records the grant counts BuildDeferredGrantIndexes
 // accumulated so the next computeSyncStats call for the same sync can skip
 // its own grant scan. Overwrites any prior stash.
-func (e *Engine) stashDeferredGrantStats(ds *deferredGrantStats) {
-	e.deferredGrantStatsMu.Lock()
-	e.deferredGrantStats = ds
-	e.deferredGrantStatsMu.Unlock()
+func (r *SyncRuns) stashDeferredGrantStats(ds *deferredGrantStats) {
+	r.deferredGrantStatsMu.Lock()
+	r.deferredGrantStats = ds
+	r.deferredGrantStatsMu.Unlock()
 }
 
 // takeDeferredGrantStats pops the stashed grant stats if they belong to
 // syncID, or returns nil. Consume-once: a later RecalculateStats falls back
 // to the full scan.
-func (e *Engine) takeDeferredGrantStats(syncID string) *deferredGrantStats {
-	e.deferredGrantStatsMu.Lock()
-	defer e.deferredGrantStatsMu.Unlock()
-	ds := e.deferredGrantStats
+func (r *SyncRuns) takeDeferredGrantStats(syncID string) *deferredGrantStats {
+	r.deferredGrantStatsMu.Lock()
+	defer r.deferredGrantStatsMu.Unlock()
+	ds := r.deferredGrantStats
 	if ds == nil || ds.syncID != syncID {
 		return nil
 	}
-	e.deferredGrantStats = nil
+	r.deferredGrantStats = nil
 	return ds
 }
 
@@ -266,16 +266,16 @@ func (e *Engine) takeDeferredGrantStats(syncID string) *deferredGrantStats {
 // this sync (StashComputedSyncStats), it is persisted instead of
 // re-scanning the keyspaces. Timing / call stats from the syncer's
 // token on the sync_run record are overlaid before write.
-func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
-	rec := e.takeStashedSyncStats(syncID)
+func (r *SyncRuns) PersistSyncStats(ctx context.Context, syncID string) error {
+	rec := r.takeStashedSyncStats(syncID)
 	if rec == nil {
 		var err error
-		rec, err = e.computeSyncStats(ctx, syncID)
+		rec, err = r.computeSyncStats(ctx, syncID)
 		if err != nil {
 			return err
 		}
 	}
-	previous, err := e.readSyncStats(ctx, syncID)
+	previous, err := r.readSyncStats(ctx, syncID)
 	if err != nil {
 		ctxzap.Extract(ctx).Warn("pebble: previous sync stats unreadable; replacing with current counts",
 			zap.String("sync_id", syncID), zap.Error(err))
@@ -283,16 +283,16 @@ func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
 	if rec.GetCompaction() == nil && previous != nil {
 		rec.SetCompaction(previous.GetCompaction())
 	}
-	e.applySyncerStats(ctx, syncID, rec)
-	return e.PersistComputedSyncStats(ctx, syncID, rec)
+	r.applySyncerStats(ctx, syncID, rec)
+	return r.PersistComputedSyncStats(ctx, syncID, rec)
 }
 
-func (e *Engine) applySyncerStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
+func (r *SyncRuns) applySyncerStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
 	// Token first, overlay per field on top.
-	if sr, err := e.GetSyncRunRecord(ctx, syncID); err == nil && sr != nil {
+	if sr, err := r.GetSyncRunRecord(ctx, syncID); err == nil && sr != nil {
 		c1zstore.ApplySyncTokenStatsRecord(rec, sr.GetSyncToken())
 	}
-	overlay := e.takeSyncStatsOverlay(syncID)
+	overlay := r.takeSyncStatsOverlay(syncID)
 	if overlay == nil {
 		return
 	}
@@ -310,26 +310,26 @@ func (e *Engine) applySyncerStats(ctx context.Context, syncID string, rec *v3.Sy
 	}
 }
 
-func (e *Engine) setSyncStatsOverlay(syncID string, overlay *v3.SyncStatsRecord) {
+func (r *SyncRuns) setSyncStatsOverlay(syncID string, overlay *v3.SyncStatsRecord) {
 	if overlay == nil {
 		return
 	}
-	e.computedStatsMu.Lock()
-	if e.syncStatsOverlay == nil {
-		e.syncStatsOverlay = map[string]*v3.SyncStatsRecord{}
+	r.computedStatsMu.Lock()
+	if r.syncStatsOverlay == nil {
+		r.syncStatsOverlay = map[string]*v3.SyncStatsRecord{}
 	}
-	e.syncStatsOverlay[syncID] = overlay
-	e.computedStatsMu.Unlock()
+	r.syncStatsOverlay[syncID] = overlay
+	r.computedStatsMu.Unlock()
 }
 
-func (e *Engine) takeSyncStatsOverlay(syncID string) *v3.SyncStatsRecord {
-	e.computedStatsMu.Lock()
-	defer e.computedStatsMu.Unlock()
-	rec, ok := e.syncStatsOverlay[syncID]
+func (r *SyncRuns) takeSyncStatsOverlay(syncID string) *v3.SyncStatsRecord {
+	r.computedStatsMu.Lock()
+	defer r.computedStatsMu.Unlock()
+	rec, ok := r.syncStatsOverlay[syncID]
 	if !ok {
 		return nil
 	}
-	delete(e.syncStatsOverlay, syncID)
+	delete(r.syncStatsOverlay, syncID)
 	return rec
 }
 
@@ -339,27 +339,27 @@ func (e *Engine) takeSyncStatsOverlay(syncID string) *v3.SyncStatsRecord {
 // BulkSyncImport conversion path) that counted every record they wrote;
 // the caller owns the record's correctness. The stash is consumed by
 // exactly one PersistSyncStats call.
-func (e *Engine) StashComputedSyncStats(syncID string, rec *v3.SyncStatsRecord) {
+func (r *SyncRuns) StashComputedSyncStats(syncID string, rec *v3.SyncStatsRecord) {
 	if rec == nil {
 		return
 	}
-	e.computedStatsMu.Lock()
-	if e.computedStats == nil {
-		e.computedStats = map[string]*v3.SyncStatsRecord{}
+	r.computedStatsMu.Lock()
+	if r.computedStats == nil {
+		r.computedStats = map[string]*v3.SyncStatsRecord{}
 	}
-	e.computedStats[syncID] = rec
-	e.computedStatsMu.Unlock()
+	r.computedStats[syncID] = rec
+	r.computedStatsMu.Unlock()
 }
 
 // takeStashedSyncStats pops the stashed record for syncID, or nil.
-func (e *Engine) takeStashedSyncStats(syncID string) *v3.SyncStatsRecord {
-	e.computedStatsMu.Lock()
-	defer e.computedStatsMu.Unlock()
-	rec, ok := e.computedStats[syncID]
+func (r *SyncRuns) takeStashedSyncStats(syncID string) *v3.SyncStatsRecord {
+	r.computedStatsMu.Lock()
+	defer r.computedStatsMu.Unlock()
+	rec, ok := r.computedStats[syncID]
 	if !ok {
 		return nil
 	}
-	delete(e.computedStats, syncID)
+	delete(r.computedStats, syncID)
 	return rec
 }
 
@@ -369,11 +369,11 @@ func (e *Engine) takeStashedSyncStats(syncID string) *v3.SyncStatsRecord {
 // here on the supplied record; compacted runs also clear its collection
 // statistics and ingestion quality.
 // Durability matches PersistSyncStats (pebble.Sync via writeSyncStats).
-func (e *Engine) PersistComputedSyncStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) error {
+func (r *SyncRuns) PersistComputedSyncStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) error {
 	if rec == nil {
 		return fmt.Errorf("PersistComputedSyncStats: nil record")
 	}
-	sr, err := e.GetSyncRunRecord(ctx, syncID)
+	sr, err := r.GetSyncRunRecord(ctx, syncID)
 	if err != nil && !errors.Is(err, pebble.ErrNotFound) {
 		return err
 	}
@@ -385,7 +385,7 @@ func (e *Engine) PersistComputedSyncStats(ctx context.Context, syncID string, re
 	}
 	rec.SetSyncId(syncID)
 	rec.SetWrittenAt(timestamppb.Now())
-	return e.writeSyncStats(ctx, rec)
+	return r.writeSyncStats(ctx, rec)
 }
 
 func countKeyRange(ctx context.Context, db *rawdb.DB, lower []byte, upper []byte, visit func(key []byte, value []byte) error) (int64, error) {

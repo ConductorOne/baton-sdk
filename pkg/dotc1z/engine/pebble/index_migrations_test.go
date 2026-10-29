@@ -35,7 +35,7 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 	require.NoErrorf(t, err, "Open initial")
 	syncID := ksuid.New().String()
 	require.NoErrorf(t, e.MarkFreshSync(syncID), "MarkFreshSync")
-	require.NoErrorf(t, e.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoErrorf(t, e.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId:    syncID,
 		Type:      v3.SyncType_SYNC_TYPE_FULL,
 		StartedAt: timestamppb.Now(),

@@ -95,10 +95,10 @@ func TestMergeStatsEntitlementResourceTypeChange(t *testing.T) {
 
 	// Parity: the merge-time accumulation (which ran the regroup branch)
 	// must match a full post-merge recompute that scans final values.
-	require.NoError(t, dest.PersistComputedSyncStats(ctx, destSyncID, got))
+	require.NoError(t, dest.SyncRuns().PersistComputedSyncStats(ctx, destSyncID, got))
 	stored, err := enginepkg.ReadSyncStatsRecord(ctx, dest, destSyncID)
 	require.NoError(t, err)
-	require.NoError(t, dest.PersistSyncStats(ctx, destSyncID))
+	require.NoError(t, dest.SyncRuns().PersistSyncStats(ctx, destSyncID))
 	recomputed, err := enginepkg.ReadSyncStatsRecord(ctx, dest, destSyncID)
 	require.NoError(t, err)
 	requireSyncStatsEqual(t, recomputed, stored, "accumulated vs recompute")

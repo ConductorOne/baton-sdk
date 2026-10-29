@@ -145,7 +145,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			if cut != "terminal-committed" && cut != "sealed" {
 				require.False(t, terminalFound)
 			}
-			record, err := recovered.GetSyncRunRecord(t.Context(), marker.SyncID)
+			record, err := recovered.SyncRuns().GetSyncRunRecord(t.Context(), marker.SyncID)
 			require.NoError(t, err)
 			require.Equal(t, cut == "sealed", record.GetEndedAt() != nil)
 			if cut == "sealed" {

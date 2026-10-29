@@ -306,7 +306,7 @@ func TestLedgerLegacyCheckpointAtExpansionResumesAsBaselineWould(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, skipper.Sync(ctx))
 		require.ElementsMatch(t, collected, listGrantIDs(t, f))
-		run, err := f.engine.GetSyncRunRecord(ctx, id)
+		run, err := f.engine.SyncRuns().GetSyncRunRecord(ctx, id)
 		require.NoError(t, err)
 		require.NotNil(t, run.GetEndedAt())
 	})

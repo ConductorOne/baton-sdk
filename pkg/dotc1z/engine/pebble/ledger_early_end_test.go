@@ -78,7 +78,7 @@ func TestLedgerEarlyEndPreservesRecovery(t *testing.T) {
 					_, err = r.GetResourceRecord(ctx, "group", "one")
 					require.NoError(t, err)
 					require.NoError(t, r.EndSync(ctx))
-					stats, err := r.readSyncStats(ctx, syncID)
+					stats, err := r.SyncRuns().readSyncStats(ctx, syncID)
 					require.NoError(t, err)
 					require.NotNil(t, stats)
 					require.EqualValues(t, 123, stats.GetStepDurationsMs()["resources"])
@@ -118,7 +118,7 @@ func TestLedgerEarlyEndAfterInterruptedDisposalKeepsStats(t *testing.T) {
 	require.ErrorContains(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}), "interrupted disposal")
 	e.test.ledgerArchiveHook = nil
 	require.NoError(t, e.EndSync(ctx))
-	stats, err := e.readSyncStats(ctx, id)
+	stats, err := e.SyncRuns().readSyncStats(ctx, id)
 	require.NoError(t, err)
 	require.NotNil(t, stats)
 	require.EqualValues(t, 321, stats.GetStepDurationsMs()["resources"])

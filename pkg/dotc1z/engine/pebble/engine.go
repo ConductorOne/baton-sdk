@@ -18,7 +18,6 @@ import (
 
 	v2pb "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
-	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
@@ -112,22 +111,6 @@ type Engine struct {
 	freshEntitlementsEmpty bool
 	freshResourcesEmpty    bool
 
-	// computedStats holds caller-computed stats records stashed via
-	// StashComputedSyncStats, keyed by sync_id. PersistSyncStats pops
-	// and persists the stashed record instead of re-scanning the
-	// keyspaces — used by bulk imports that already counted every
-	// record they wrote.
-	computedStatsMu  sync.Mutex
-	computedStats    map[string]*v3.SyncStatsRecord
-	syncStatsOverlay map[string]*v3.SyncStatsRecord
-
-	// deferredGrantStats holds the grant counts BuildDeferredGrantIndexes
-	// accumulated while scanning the whole grant primary keyspace, so
-	// computeSyncStats can skip its own O(grants) scan at EndSync. Consumed
-	// once, guarded by sync_id.
-	deferredGrantStatsMu sync.Mutex
-	deferredGrantStats   *deferredGrantStats
-
 	// The deferred-index rebuild flag and the digests-present flag live
 	// ON rawdb (e.db.DeferredIdxPending / e.db.GrantDigestsPresent):
 	// they are write-side crash-contract state the choke point's typed
@@ -182,7 +165,8 @@ type Engine struct {
 	entIDLookup         map[string][]entitlementIdentity
 	entIDLookupBuiltGen uint64
 
-	ledger Ledger
+	ledger   Ledger
+	syncRuns SyncRuns
 
 	// migratedOnOpen reports that this Open ran the in-place id-index
 	// migration. The store layer uses it to mark a writable store dirty so
@@ -242,6 +226,7 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	e.resolvedFS = db.FS()
 	e.binding.Store(&syncBinding{})
 	e.ledger.e = e
+	e.syncRuns.e = e
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
 	}

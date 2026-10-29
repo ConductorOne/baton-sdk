@@ -71,8 +71,8 @@ func BuildManifestWithSyncRuns(ctx context.Context, e *Engine, encoding c1zstore
 func syncRunSummaries(ctx context.Context, e *Engine) ([]*c1zv3.SyncRunSummary, error) {
 	var out []*c1zv3.SyncRunSummary
 	l := ctxzap.Extract(ctx)
-	err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
-		stats, serr := e.readSyncStats(ctx, r.GetSyncId())
+	err := e.syncRuns.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+		stats, serr := e.syncRuns.readSyncStats(ctx, r.GetSyncId())
 		if serr != nil {
 			l.Warn("pebble: manifest sync-run projection: stats sidecar read failed; writing summary without stats",
 				zap.String("sync_id", r.GetSyncId()),

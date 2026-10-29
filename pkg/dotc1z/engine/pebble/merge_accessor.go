@@ -82,7 +82,7 @@ func ReadSyncStatsRecord(ctx context.Context, e *Engine, syncID string) (*v3.Syn
 	if e == nil {
 		return nil, nil
 	}
-	return e.readSyncStats(ctx, syncID)
+	return e.syncRuns.readSyncStats(ctx, syncID)
 }
 
 // SyncStatsFromRecord converts the engine-internal stats sidecar shape
@@ -131,7 +131,7 @@ func CachedSyncStats(ctx context.Context, e *Engine, syncID string) (*reader_v2.
 	if e == nil {
 		return nil, false, nil
 	}
-	stats, err := e.readSyncStats(ctx, syncID)
+	stats, err := e.syncRuns.readSyncStats(ctx, syncID)
 	if err != nil {
 		return nil, false, err
 	}

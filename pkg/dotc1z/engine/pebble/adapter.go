@@ -106,7 +106,7 @@ func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncT
 	// MarkFreshSync skip-Get fast path depends on. A fresh engine
 	// (the common ToPebble/compaction case) has no sync-run and skips
 	// the wipe.
-	if existed, err := e.hasSyncRun(); err != nil {
+	if existed, err := e.syncRuns.hasSyncRun(); err != nil {
 		return "", err
 	} else if existed {
 		if _, phase, err := e.ledger.workState(); err != nil {
@@ -128,7 +128,7 @@ func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncT
 		ParentSyncId: parentSyncID,
 		StartedAt:    timestamppb.New(time.Now()),
 	}.Build()
-	if err := e.PutSyncRunRecord(ctx, rec); err != nil {
+	if err := e.syncRuns.PutSyncRunRecord(ctx, rec); err != nil {
 		e.clearCurrentSync()
 		return "", err
 	}
@@ -146,7 +146,7 @@ func (e *Engine) ResumeSync(ctx context.Context, syncType connectorstore.SyncTyp
 	if syncID == "" {
 		return "", errors.New("pebble.ResumeSync: empty syncID")
 	}
-	if _, err := e.GetSyncRunRecord(ctx, syncID); err != nil {
+	if _, err := e.syncRuns.GetSyncRunRecord(ctx, syncID); err != nil {
 		return "", c1zstore.AdaptNotFound(fmt.Errorf("ResumeSync: lookup: %w", err), pebble.ErrNotFound)
 	}
 	e.lifecycleMu.Lock()
@@ -177,11 +177,11 @@ func (e *Engine) ResumeSync(ctx context.Context, syncType connectorstore.SyncTyp
 // Only when nothing is resumable do we start a new sync.
 func (e *Engine) StartOrResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, bool, error) {
 	if syncID != "" {
-		if _, err := e.GetSyncRunRecord(ctx, syncID); err == nil {
+		if _, err := e.syncRuns.GetSyncRunRecord(ctx, syncID); err == nil {
 			id, err := e.ResumeSync(ctx, syncType, syncID)
 			return id, false, err
 		}
-	} else if rec, err := e.LatestUnfinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType)); err != nil {
+	} else if rec, err := e.syncRuns.LatestUnfinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType)); err != nil {
 		return "", false, err
 	} else if rec != nil {
 		id, err := e.ResumeSync(ctx, syncType, rec.GetSyncId())
@@ -201,7 +201,7 @@ func (e *Engine) StartOrResumeSync(ctx context.Context, syncType connectorstore.
 func (e *Engine) SetCurrentSync(ctx context.Context, syncID string) error {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
-	if _, err := e.GetSyncRunRecord(ctx, syncID); err != nil && !errors.Is(err, pebble.ErrNotFound) {
+	if _, err := e.syncRuns.GetSyncRunRecord(ctx, syncID); err != nil && !errors.Is(err, pebble.ErrNotFound) {
 		return err
 	}
 	return e.bindCurrentSync(syncID)
@@ -226,7 +226,7 @@ func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
 	if syncID == "" {
 		return "", nil
 	}
-	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	rec, err := e.syncRuns.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return "", nil
@@ -253,7 +253,7 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 	if ledgered {
 		return ErrLedgeredSyncWritesNoToken
 	}
-	existing, err := e.GetSyncRunRecord(ctx, syncID)
+	existing, err := e.syncRuns.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
 	}
@@ -261,7 +261,7 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 	// including fields introduced after this code was written.
 	updated := proto.Clone(existing).(*v3.SyncRunRecord)
 	updated.SetSyncToken(syncToken)
-	return e.PutSyncRunRecord(ctx, updated)
+	return e.syncRuns.PutSyncRunRecord(ctx, updated)
 }
 
 // EndSync stamps the open sync_run's ended_at and detaches it. After
@@ -292,7 +292,7 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 		return err
 	}
 	preserveRecovery := overlay == nil
-	existing, err := e.GetSyncRunRecord(ctx, syncID)
+	existing, err := e.syncRuns.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
 	}
@@ -313,7 +313,7 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 		}
 	}
 	if overlay != nil {
-		e.setSyncStatsOverlay(syncID, overlay)
+		e.syncRuns.setSyncStatsOverlay(syncID, overlay)
 	}
 	// The sync's writes are done. From here to save/close the store only
 	// runs the deferred index build, the stats sidecar, and the durability
@@ -339,7 +339,7 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 		e.unseal()
 		// finalize can fail before PersistSyncStats consumes the stash; left behind,
 		// it would apply to whatever seals this id next.
-		e.takeSyncStatsOverlay(syncID)
+		e.syncRuns.takeSyncStatsOverlay(syncID)
 		return err
 	}
 	return nil
@@ -505,7 +505,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 		}
 	}
 	if archiveValue == nil {
-		if err := e.PutSyncRunRecord(ctx, updated); err != nil {
+		if err := e.syncRuns.PutSyncRunRecord(ctx, updated); err != nil {
 			return err
 		}
 	} else {
@@ -547,12 +547,12 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// every Stats() call pays the iteration cost. We log a warning so
 	// the failure is visible in production telemetry but don't fail
 	// the sync end on stats-sidecar trouble.
-	if err := e.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
+	if err := e.syncRuns.PersistSyncStats(ctx, existing.GetSyncId()); err != nil {
 		ctxzap.Extract(ctx).Warn("pebble: persist sync stats sidecar failed; Stats() will fall back to O(N) iteration for this file",
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
 		)
-		e.takeSyncStatsOverlay(existing.GetSyncId())
+		e.syncRuns.takeSyncStatsOverlay(existing.GetSyncId())
 	}
 	// The pages above were NoSync and the ended_at stamp was Sync in the
 	// same WAL, so the stamp's fsync put the pages on disk before the
@@ -1127,7 +1127,7 @@ func (e *Engine) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServic
 // Delegates to Engine.LatestFinishedSyncRecord; see that method for
 // the predicate + tiebreaker contract.
 func (e *Engine) LatestFinishedSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
-	latest, err := e.LatestFinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType))
+	latest, err := e.syncRuns.LatestFinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType))
 	if err != nil {
 		return "", err
 	}
@@ -1239,7 +1239,7 @@ func (e *Engine) LedgerState(ctx context.Context) (c1zstore.LedgerState, error) 
 	if syncID == "" {
 		return state, nil
 	}
-	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	rec, err := e.syncRuns.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return state, nil
@@ -1256,7 +1256,7 @@ func (e *Engine) BoundSyncFinished(ctx context.Context) (bool, error) {
 	if syncID == "" {
 		return false, nil
 	}
-	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	rec, err := e.syncRuns.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return false, nil

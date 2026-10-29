@@ -204,11 +204,11 @@ func TestMergeStatsSidecarMatchesRecompute(t *testing.T) {
 			// Persist the accumulated record, read it back, then
 			// overwrite with a full recompute and compare: the
 			// merge-time accumulation must match the scan exactly.
-			require.NoError(t, dest.PersistComputedSyncStats(ctx, destSyncID, got), "PersistComputedSyncStats")
+			require.NoError(t, dest.SyncRuns().PersistComputedSyncStats(ctx, destSyncID, got), "PersistComputedSyncStats")
 			stored, err := enginepkg.ReadSyncStatsRecord(ctx, dest, destSyncID)
 			require.NoError(t, err, "ReadSyncStatsRecord (accumulated)")
 			require.NotNil(t, stored, "accumulated sidecar missing after persist")
-			require.NoError(t, dest.PersistSyncStats(ctx, destSyncID), "PersistSyncStats")
+			require.NoError(t, dest.SyncRuns().PersistSyncStats(ctx, destSyncID), "PersistSyncStats")
 			recomputed, err := enginepkg.ReadSyncStatsRecord(ctx, dest, destSyncID)
 			require.NoError(t, err, "ReadSyncStatsRecord (recomputed)")
 			requireSyncStatsEqual(t, recomputed, stored, "accumulated vs recompute")

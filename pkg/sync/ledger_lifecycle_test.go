@@ -37,7 +37,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 			require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
 			require.NoError(t, runtime.seal(t.Context()))
 			require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
-			before, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			before, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 			require.NoError(t, err)
 			require.NotNil(t, before.GetEndedAt())
 			s := ledgerContinuationSyncer(f)
@@ -63,7 +63,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 				_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 				require.ErrorIs(t, err, stopped)
 			}
-			middle, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			middle, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 			require.NoError(t, err)
 			require.True(t, proto.Equal(before.GetEndedAt(), middle.GetEndedAt()))
 			require.Equal(t, before.GetStartedAt(), middle.GetStartedAt())
@@ -129,7 +129,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 			require.NoError(t, f.store.CheckpointSync(t.Context(), token))
 			require.NoError(t, f.store.EndSync(t.Context()))
 			require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
-			before, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			before, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 			require.NoError(t, err)
 			before.SetSyncToken("")
 			s := ledgerContinuationSyncer(f)
@@ -146,7 +146,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 			} else {
 				require.Equal(t, InitOp, s.run.current().Op)
 			}
-			after, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			after, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 			require.NoError(t, err)
 			require.True(t, proto.Equal(before, after))
 			snapshot := ledgerSnapshotWithFoldedCounters(t, f.engine)

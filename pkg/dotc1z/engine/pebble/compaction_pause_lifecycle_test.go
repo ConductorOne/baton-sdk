@@ -79,9 +79,9 @@ func TestCompactionPauseLifecycle(t *testing.T) {
 	// Sync-run metadata writes stay allowed: ToPebble stamps the source
 	// ended_at, the sanitizer applies diff links, the compactor renames the
 	// folded sync — all after EndSync.
-	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	rec, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
-	require.NoError(t, e.PutSyncRunRecord(ctx, rec), "sync-run metadata writes must be allowed while sealed")
+	require.NoError(t, e.SyncRuns().PutSyncRunRecord(ctx, rec), "sync-run metadata writes must be allowed while sealed")
 
 	// Rebinding unseals and resumes.
 	require.NoError(t, a.SetCurrentSync(ctx, syncID))

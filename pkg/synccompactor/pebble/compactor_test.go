@@ -150,7 +150,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	require.NoError(t, dst.PutAssetRecord(ctx, v3.AssetRecord_builder{
 		SyncId: syncID, ExternalId: "asset-stale", Data: []byte("stale"),
 	}.Build()))
-	require.NoError(t, dst.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoError(t, dst.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId: syncID, Type: v3.SyncType_SYNC_TYPE_FULL, SyncToken: "stale",
 	}.Build()))
 
@@ -171,7 +171,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	require.NoError(t, src.PutAssetRecord(ctx, v3.AssetRecord_builder{
 		SyncId: syncID, ExternalId: "asset-fresh", Data: []byte("fresh"),
 	}.Build()))
-	require.NoError(t, src.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoError(t, src.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId: syncID, Type: v3.SyncType_SYNC_TYPE_FULL, SyncToken: "fresh",
 	}.Build()))
 
@@ -213,7 +213,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	}))
 	require.Equal(t, 1, assetCount, "assets")
 
-	syncRun, err := dst.GetSyncRunRecord(ctx, syncID)
+	syncRun, err := dst.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
 	require.Equal(t, "fresh", syncRun.GetSyncToken(), "sync_run token")
 }
