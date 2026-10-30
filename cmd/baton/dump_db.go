@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -13,12 +12,12 @@ import (
 func dumpDBCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "dump-db",
-		Short:  "Dump the underlying database for the C1Z provided",
+		Short:  "Extract the Pebble payload directory from a v3 C1Z",
 		RunE:   runDumpDB,
 		Hidden: true,
 	}
 
-	cmd.Flags().String("out", "./sync.db", "The path to dump the database to")
+	cmd.Flags().String("out", "./sync.db", "Directory to extract the Pebble payload into")
 	return cmd
 }
 
@@ -47,38 +46,20 @@ func runDumpDB(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if format != dotc1z.C1ZFormatV3 {
+		return fmt.Errorf("dump-db: only v3 c1z files are supported (got %s)", format)
+	}
 	if _, err := f.Seek(0, 0); err != nil {
 		return err
 	}
-	if format == dotc1z.C1ZFormatV3 {
-		if err := os.MkdirAll(outPath, 0o755); err != nil {
-			return err
-		}
-		// ExtractEnvelopePayload dispatches on the manifest's payload
-		// encoding (tar, tar_zstd, indexed_zstd).
-		if _, _, err := formatv3.ExtractEnvelopePayload(f, outPath); err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "Extracted Pebble payload directory to %s\n", outPath)
-		return nil
-	}
-
-	dbFile, err := dotc1z.NewC1ZFileDecoder(f, dotc1z.WithContext(cmd.Context()))
-	if err != nil {
+	if err := os.MkdirAll(outPath, 0o755); err != nil {
 		return err
 	}
-	defer dbFile.Close()
-
-	outFile, err := os.Create(outPath)
-	if err != nil {
+	// ExtractEnvelopePayload dispatches on the manifest's payload
+	// encoding (tar, tar_zstd, indexed_zstd).
+	if _, _, err := formatv3.ExtractEnvelopePayload(f, outPath); err != nil {
 		return err
 	}
-	defer outFile.Close()
-
-	_, err = io.Copy(outFile, dbFile)
-	if err != nil {
-		return err
-	}
-
+	_, _ = fmt.Fprintf(os.Stdout, "Extracted Pebble payload directory to %s\n", outPath)
 	return nil
 }

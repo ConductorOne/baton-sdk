@@ -27,15 +27,9 @@ func pickGrantExpandable(t *testing.T, g *v2.Grant) *v2.GrantExpandable {
 	return exp
 }
 
-// listGrantsWithExpansion reads every grant of r's resolved sync through the
-// expansion-aware paginated path, so the GrantExpandable annotation that the
-// SQLite writer strips into the side column is re-attached.
-func listGrantsWithExpansion(t *testing.T, ctx context.Context, store any) []*v2.Grant {
+func listGrants(t *testing.T, ctx context.Context, store any) []*v2.Grant {
 	t.Helper()
 	list := store.(connectorstore.Reader).ListGrants
-	if expansion, ok := store.(connectorstore.ExpansionGrantLister); ok {
-		list = expansion.ListGrantsWithExpansion
-	}
 	var out []*v2.Grant
 	pageToken := ""
 	for {
@@ -53,19 +47,6 @@ func listGrantsWithExpansion(t *testing.T, ctx context.Context, store any) []*v2
 	}
 }
 
-// TestSanitizeGrantExpansionRoundTrip is the real SQLite source->sanitize->dest
-// round-trip fidelity check that the in-memory annotation test (perf_test.go's
-// TestGraphAnnotationHandlers) could not catch.
-//
-// The fixture grant is written through the REAL SQLite writer (PutGrants), so —
-// exactly as in production files — its GrantExpandable annotation is stripped
-// out of the data blob and into the side `expansion` column. The sanitizer must
-// therefore read that column back (ListGrantsWithExpansion) for the annotation
-// to reach handleGrantExpandable; otherwise the topology is silently dropped.
-//
-// This test FAILS without the ListGrants expansion-reattach wiring (copyGrants
-// would read only the data blob, the annotation would never surface, and the
-// sanitized dst grant's expansion column would be NULL) and PASSES with it.
 func TestSanitizeGrantExpansionRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
@@ -83,8 +64,6 @@ func TestSanitizeGrantExpansionRoundTrip(t *testing.T) {
 		plainID    = "grant-plain"
 	)
 
-	// Build the source through the real store writer so GrantExpandable lands
-	// in the expansion record, as production c1z files store it.
 	func() {
 		f, err := dotc1z.NewStore(ctx, srcPath)
 		require.NoError(t, err)
@@ -137,10 +116,9 @@ func TestSanitizeGrantExpansionRoundTrip(t *testing.T) {
 	ref.knownResourceTypes[knownRT] = struct{}{}
 	ref.knownResourceTypes["role"] = struct{}{}
 
-	// Read the sanitized grants back through the expansion-aware path.
 	dstRO := mustOpenReadOnlyStore(t, ctx, dstPath)
 	defer dstRO.Close(ctx)
-	grants := listGrantsWithExpansion(t, ctx, dstRO)
+	grants := listGrants(t, ctx, dstRO)
 	require.Len(t, grants, 2)
 
 	var sanitizedExpandable, sanitizedPlain *v2.GrantExpandable
@@ -154,10 +132,8 @@ func TestSanitizeGrantExpansionRoundTrip(t *testing.T) {
 		}
 	}
 
-	// Exactly one grant carries a (sanitized) GrantExpandable — proving the
-	// annotation survived the real-SQLite strip -> sanitize -> re-read round trip.
 	require.Equal(t, 1, expandableCount,
-		"the expandable grant must carry a GrantExpandable after sanitize (this fails without the ListGrants expansion-reattach wiring)")
+		"the expandable grant must carry a GrantExpandable after sanitize")
 	require.NotNil(t, sanitizedExpandable)
 	require.Nil(t, sanitizedPlain, "the non-expandable grant must stay NULL (no GrantExpandable)")
 
