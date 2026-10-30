@@ -206,7 +206,7 @@ func (s *syncer) parallelSync(
 				l.Error("sync context cancelled", zap.String("sync_id", s.syncID), zap.Error(err))
 				// Best-effort checkpoint on the way out; err is returned
 				// unchanged (RFC 0009 §4.2, side-effect-only).
-				s.checkpointOnStop(ctx)
+				s.checkpointLedgerOnStop(ctx)
 				return warnings, err
 			}
 		default:
@@ -415,7 +415,7 @@ func (s *syncer) handleOperationError(
 		// failing: best-effort checkpoint, then return batchErr unchanged —
 		// the stop reason must reach the runner byte-for-byte (RFC 0009 §4.2).
 		if cause != nil {
-			s.checkpointOnStop(ctx)
+			s.checkpointLedgerOnStop(ctx)
 		}
 		return warnings, batchErr
 	}
@@ -440,13 +440,6 @@ func (s *syncer) handleOperationError(
 // for. The window is caller-uninterruptible and precedes Sync() returning,
 // so it must not eat the drain grace Close() needs to pack the c1z.
 const stopCheckpointTimeout = time.Minute
-
-// checkpointOnStop persists run accounting on a context detached from the
-// caller's cancellation. Failures are logged, never returned, and the stop
-// reason reaches the runner unchanged (RFC 0009 §4.2).
-func (s *syncer) checkpointOnStop(ctx context.Context) {
-	s.checkpointLedgerOnStop(ctx)
-}
 
 func tooManyWarnings(warningCount uint64, completedActionsCount uint64, threshold float64) bool {
 	return warningCount > 10 &&
