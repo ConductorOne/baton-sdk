@@ -397,11 +397,7 @@ func (s *sanitizer) processSanitizePage(
 		}
 		next = response.GetNextPageToken()
 	case sanitizeGrantsOp:
-		list := src.ListGrants
-		if expansion, ok := src.(connectorstore.ExpansionGrantLister); ok {
-			list = expansion.ListGrantsWithExpansion
-		}
-		response, err := list(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		response, err := src.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 			PageSize: listPageSize, PageToken: work.Action.Identity.PageToken, Annotations: syncIDAnnotations(syncID),
 		}.Build())
 		if err != nil {
