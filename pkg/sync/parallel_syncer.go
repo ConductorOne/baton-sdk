@@ -801,7 +801,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 		childActions []Action,
 	) error {
 		return queue.transition(transitionCtx, batchOp, parent, nextPageToken, childActions, func(effectiveNext string, children []Action) ([]*Action, error) {
-			return s.transitionActionState(transitionCtx, parent, effectiveNext, children)
+			return nil, s.transitionActionState(transitionCtx, parent, effectiveNext, children)
 		})
 	})
 	defer s.setParallelActionTransitioner(nil)
