@@ -48,7 +48,7 @@ func TestSidecarEntitlementsByResourceType(t *testing.T) {
 	), "PutEntitlements")
 	require.NoError(t, store.EndSync(ctx), "EndSync")
 
-	stats, err := e.readSyncStats(ctx, syncID)
+	stats, err := e.SyncRuns().readSyncStats(ctx, syncID)
 	require.NoError(t, err, "readSyncStats")
 	require.NotNil(t, stats, "sidecar missing after EndSync")
 

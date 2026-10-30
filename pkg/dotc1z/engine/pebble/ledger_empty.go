@@ -24,7 +24,7 @@ func (e *Engine) BoundSyncUnstarted(ctx context.Context) (bool, error) {
 	if id == "" {
 		return false, nil
 	}
-	run, err := e.GetSyncRunRecord(ctx, id)
+	run, err := e.syncRuns.GetSyncRunRecord(ctx, id)
 	if err != nil && !errors.Is(err, pebble.ErrNotFound) {
 		return false, err
 	}

@@ -84,7 +84,7 @@ func TestSanitizePebbleEndToEnd(t *testing.T) {
 	// Stats sidecar matches the listed cardinalities.
 	eng, ok := pebble.AsEngine(ro)
 	require.True(t, ok, "pebble output must expose its engine")
-	stats, err := eng.Stats(ctx, connectorstore.SyncTypeAny, dstRuns[0].ID)
+	stats, err := eng.SyncRuns().Stats(ctx, connectorstore.SyncTypeAny, dstRuns[0].ID)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), stats["resource_types"])
 	require.Equal(t, int64(6), stats["resources"])

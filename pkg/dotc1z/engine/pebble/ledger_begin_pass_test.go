@@ -31,12 +31,12 @@ func TestLedgerBeginPassPreservesHistory(t *testing.T) {
 	require.NoError(t, page.Commit(ctx, id, &c1zstore.LedgerRow{}))
 	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 	require.NoError(t, e.SetCurrentSync(ctx, syncID))
-	before, err := e.GetSyncRunRecord(ctx, syncID)
+	before, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
 
 	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "init"}}}
 	require.NoError(t, e.Ledger().BeginPass(ctx, []c1zstore.LedgerWork{seed}, []string{"finished"}))
-	after, err := e.GetSyncRunRecord(ctx, syncID)
+	after, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(before, after))
 	_, found, err := e.Ledger().GetRow(ctx, id)
@@ -127,7 +127,7 @@ func TestLedgerBeginPassFailureCuts(t *testing.T) {
 			require.NoError(t, page.Commit(ctx, id, nil))
 			require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 			require.NoError(t, e.SetCurrentSync(ctx, syncID))
-			before, err := e.GetSyncRunRecord(ctx, syncID)
+			before, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 			require.NoError(t, err)
 			injected := errors.New("interrupted pass")
 			if cut == "staged" {
@@ -138,7 +138,7 @@ func TestLedgerBeginPassFailureCuts(t *testing.T) {
 			require.ErrorIs(t, e.Ledger().BeginPass(ctx, nil, []string{"finished"}), injected)
 			e.test.ledgerBeginPassHook = nil
 			e.db.SetRecordCommitTestHook(nil)
-			after, err := e.GetSyncRunRecord(ctx, syncID)
+			after, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 			require.NoError(t, err)
 			require.True(t, proto.Equal(before, after))
 			_, found, err := e.Ledger().GetRow(ctx, id)
@@ -192,7 +192,7 @@ func TestLedgerBeginPassCrashImage(t *testing.T) {
 	require.NoError(t, page.Commit(ctx, id, nil))
 	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 	require.NoError(t, e.SetCurrentSync(ctx, syncID))
-	before, err := e.GetSyncRunRecord(ctx, syncID)
+	before, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
 	var image *vfs.MemFS
 	interrupted := errors.New("crash cut")
@@ -206,7 +206,7 @@ func TestLedgerBeginPassCrashImage(t *testing.T) {
 	recovered, err := Open(ctx, "begin-pass", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
 	require.NoError(t, err)
 	defer func() { require.NoError(t, recovered.Close()) }()
-	after, err := recovered.GetSyncRunRecord(ctx, syncID)
+	after, err := recovered.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(before, after))
 	_, found, err := recovered.Ledger().GetRow(ctx, id)

@@ -87,7 +87,7 @@ func TestBoundSyncRecordWritesDoNotSyncTheWAL(t *testing.T) {
 
 	syncID := ksuid.New().String()
 	require.NoError(t, eng.MarkFreshSync(syncID))
-	require.NoError(t, eng.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoError(t, eng.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId:    syncID,
 		Type:      v3.SyncType_SYNC_TYPE_FULL,
 		StartedAt: timestamppb.Now(),

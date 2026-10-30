@@ -762,7 +762,7 @@ func TestStatsAndGrantStats(t *testing.T) {
 	err = a.EndSync(ctx)
 	require.NoError(t, err)
 
-	stats, err := a.Stats(ctx, connectorstore.SyncTypeAny, syncID)
+	stats, err := a.SyncRuns().Stats(ctx, connectorstore.SyncTypeAny, syncID)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), stats["resource_types"], "stats[resource_types]")
 	require.Equal(t, int64(3), stats["resources"], "stats[resources]")
@@ -771,7 +771,7 @@ func TestStatsAndGrantStats(t *testing.T) {
 	// GrantStats partitions by entitlement resource type. Our
 	// mkV2Grant always sets the entitlement's resource to (app, github),
 	// so all 3 grants count under "app".
-	gs, err := a.GrantStats(ctx, connectorstore.SyncTypeAny, syncID)
+	gs, err := a.SyncRuns().GrantStats(ctx, connectorstore.SyncTypeAny, syncID)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), gs["app"], "GrantStats[app]")
 

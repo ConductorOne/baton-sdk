@@ -39,7 +39,7 @@ func runOneSync(t testing.TB, ctx context.Context, store connectorstore.Writer, 
 func listSyncIDs(t testing.TB, ctx context.Context, e *pebble.Engine) []string {
 	t.Helper()
 	var ids []string
-	err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+	err := e.SyncRuns().IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
 		ids = append(ids, r.GetSyncId())
 		return true
 	})

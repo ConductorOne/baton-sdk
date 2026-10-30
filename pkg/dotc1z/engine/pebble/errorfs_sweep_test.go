@@ -362,7 +362,7 @@ func (w sweepWorkload) expectedEntIDsPerPrincipal() []string {
 // stats structurally absent.
 func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engine, syncID string, requireDigests, requireStats bool, label string) {
 	t.Helper()
-	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	rec, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoErrorf(t, err, "%s: sync run record must exist", label)
 	require.NotNilf(t, rec.GetEndedAt(), "%s: sync must be finished", label)
 
@@ -435,7 +435,7 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 // an uninjected finish has no legitimate reason to lack it.
 func (w sweepWorkload) verifyStatsSidecar(ctx context.Context, t *testing.T, e *Engine, syncID string, requirePresent bool, label string) {
 	t.Helper()
-	stored, err := e.readSyncStats(ctx, syncID)
+	stored, err := e.SyncRuns().readSyncStats(ctx, syncID)
 	require.NoErrorf(t, err, "%s: stats sidecar must read cleanly (torn sidecar)", label)
 	if stored == nil {
 		require.Falsef(t, requirePresent,
@@ -443,7 +443,7 @@ func (w sweepWorkload) verifyStatsSidecar(ctx context.Context, t *testing.T, e *
 		t.Logf("%s: stats sidecar absent (legal under injection)", label)
 		return
 	}
-	recount, err := e.computeSyncStats(ctx, syncID)
+	recount, err := e.SyncRuns().computeSyncStats(ctx, syncID)
 	require.NoErrorf(t, err, "%s: recount for stats oracle", label)
 	require.Equalf(t, recount.GetGrants(), stored.GetGrants(), "%s: sidecar grants vs recount", label)
 	require.Equalf(t, recount.GetEntitlements(), stored.GetEntitlements(), "%s: sidecar entitlements vs recount", label)
@@ -641,7 +641,7 @@ func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image 
 	require.NoErrorf(t, err, "%s: the crash image must reopen", label)
 	defer func() { _ = e.Close() }()
 
-	rec, recErr := e.GetSyncRunRecord(ctx, syncID)
+	rec, recErr := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	if recErr != nil {
 		require.ErrorIsf(t, recErr, pebble.ErrNotFound, "%s: sync-run lookup may only miss cleanly", label)
 	}
@@ -655,7 +655,7 @@ func verifyCrashImage(ctx context.Context, t *testing.T, w sweepWorkload, image 
 		return outcomeFinishedComplete
 	case recErr == nil:
 		// (a) unfinished: must be discoverable and resume to completion.
-		unfinished, err := e.LatestUnfinishedSyncRecord(ctx, nil)
+		unfinished, err := e.SyncRuns().LatestUnfinishedSyncRecord(ctx, nil)
 		require.NoErrorf(t, err, "%s: LatestUnfinishedSyncRecord", label)
 		require.NotNilf(t, unfinished, "%s: an unstamped sync must be discoverable as unfinished (resumable)", label)
 		require.Equalf(t, syncID, unfinished.GetSyncId(), "%s: the unfinished sync must be ours", label)
@@ -997,7 +997,7 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 	ve, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger(), WithGrantDigestIndex(false))
 	require.NoError(t, err, "stamp-window crash image must reopen")
 	defer func() { _ = ve.Close() }()
-	rec, err := ve.GetSyncRunRecord(ctx, syncID)
+	rec, err := ve.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err, "the Sync-committed stamp must be in the crash image")
 	require.NotNil(t, rec.GetEndedAt(), "the image must read as finished")
 
@@ -1059,7 +1059,7 @@ func TestEndSyncStampWindowImageComplete(t *testing.T) {
 	ve, err := Open(ctx, "sweep-db", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
 	require.NoError(t, err, "stamp-window crash image must reopen")
 	defer func() { _ = ve.Close() }()
-	rec, err := ve.GetSyncRunRecord(ctx, syncID)
+	rec, err := ve.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err, "the Sync-committed stamp must be in the crash image")
 	require.NotNil(t, rec.GetEndedAt(), "the image must read as finished")
 	w.verifyComplete(ctx, t, ve, syncID, true, false, "stamp-window image")

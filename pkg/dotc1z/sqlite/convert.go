@@ -230,13 +230,13 @@ func (f *File) ToPebbleOpen(
 
 	computedStats := bulkImport.ComputedStats()
 	computedStats.SetAssets(stats.Assets.Rows)
-	destEngine.StashComputedSyncStats(destSyncID, computedStats)
+	destEngine.SyncRuns().StashComputedSyncStats(destSyncID, computedStats)
 
 	endSyncStart := time.Now()
 	if err := dest.EndSync(ctx); err != nil {
 		return nil, nil, fmt.Errorf("to-pebble: end destination sync: %w", err)
 	}
-	record, err := destEngine.GetSyncRunRecord(ctx, destSyncID)
+	record, err := destEngine.SyncRuns().GetSyncRunRecord(ctx, destSyncID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
 	}
@@ -255,7 +255,7 @@ func (f *File) ToPebbleOpen(
 		record.ClearEndedAt()
 		record.SetSyncToken(sourceSync.SyncToken)
 	}
-	if err := destEngine.PutSyncRunRecord(ctx, record); err != nil {
+	if err := destEngine.SyncRuns().PutSyncRunRecord(ctx, record); err != nil {
 		return nil, nil, fmt.Errorf("to-pebble: preserve source sync metadata: %w", err)
 	}
 

@@ -194,15 +194,15 @@ func runDurableSync(t *testing.T, fs vfs.FS, dir, mode string, workers int, cutO
 			}
 			return nil
 		})
-		existing, err := e.GetSyncRunRecord(ctx, crashSyncID)
+		existing, err := e.SyncRuns().GetSyncRunRecord(ctx, crashSyncID)
 		if existing == nil {
 			require.ErrorIs(t, err, pebble.ErrNotFound)
 			created, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			run, err := e.GetSyncRunRecord(ctx, created)
+			run, err := e.SyncRuns().GetSyncRunRecord(ctx, created)
 			require.NoError(t, err)
 			run.SetSyncId(crashSyncID)
-			require.NoError(t, e.PutSyncRunRecord(ctx, run))
+			require.NoError(t, e.SyncRuns().PutSyncRunRecord(ctx, run))
 			require.NoError(t, e.SetCurrentSync(ctx, crashSyncID))
 			if mode == "assets" {
 				require.NoError(t, store.PutResourceTypes(ctx, &v2.ResourceType{Id: "type"}))

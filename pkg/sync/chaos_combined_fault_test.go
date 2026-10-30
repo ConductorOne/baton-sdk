@@ -32,6 +32,10 @@ func (s *chaosPebbleStore) Close(context.Context) error {
 	return s.Engine.Close()
 }
 
+func (s *chaosPebbleStore) SyncMeta() c1zstore.SyncMeta {
+	return s.Engine.SyncRuns().SyncMeta()
+}
+
 func (s *chaosPebbleStore) SessionStore() sessions.SessionStore {
 	return chaosPebbleSessionStore{engine: s.Engine}
 }
@@ -238,7 +242,7 @@ func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
 	require.NoError(t, err, "combined-fault crash image must reopen")
 	require.NoError(t, recovered.InitCurrentSync(ctx))
 	recoveredStore := &chaosPebbleStore{Engine: recovered}
-	unfinished, err := recovered.LatestUnfinishedSyncRecord(ctx, nil)
+	unfinished, err := recovered.SyncRuns().LatestUnfinishedSyncRecord(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, unfinished, "fault after collection began must leave a resumable sync")
 
@@ -254,7 +258,7 @@ func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, resumed.Sync(ctx))
 
-	finished, err := recovered.SyncMeta().LatestFullSync(ctx)
+	finished, err := recovered.SyncRuns().SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, finished, "recovered run must seal")
 	require.Equal(t, unfinished.GetSyncId(), finished.ID, "recovery must resume the interrupted sync")
@@ -288,7 +292,7 @@ func runCombinedFaultBaseline(
 	)
 	require.NoError(t, err)
 	require.NoError(t, syncer.Sync(ctx))
-	finished, err := engine.SyncMeta().LatestFullSync(ctx)
+	finished, err := engine.SyncRuns().SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, finished)
 	content, err := chaosoracle.ReadLogicalContent(ctx, engine)

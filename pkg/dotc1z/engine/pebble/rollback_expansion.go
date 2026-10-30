@@ -44,7 +44,7 @@ type RollbackExpansionResult struct {
 // starts a fresh pass. The caller seals: grant indexes, digests, and stats are
 // stale until the next EndSync.
 func (e *Engine) RollbackExpansion(ctx context.Context, syncID string, dryRun, preserveSuspect bool) (*RollbackExpansionResult, error) {
-	record, err := e.GetSyncRunRecord(ctx, syncID)
+	record, err := e.syncRuns.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return nil, fmt.Errorf("pebble: rollback could not load sync %q: %w", syncID, err)
 	}

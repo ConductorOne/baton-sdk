@@ -40,7 +40,7 @@ func TestSyncStatsSidecarRoundtrip(t *testing.T) {
 	require.NoErrorf(t, store.EndSync(ctx), "EndSync")
 
 	// Sidecar should now exist. Read it directly.
-	stats, err := e.readSyncStats(ctx, syncID)
+	stats, err := e.SyncRuns().readSyncStats(ctx, syncID)
 	require.NoErrorf(t, err, "readSyncStats")
 	require.NotNil(t, stats, "sidecar missing after EndSync")
 	require.Equal(t, int64(3), stats.GetResources(), "resources")
@@ -50,7 +50,7 @@ func TestSyncStatsSidecarRoundtrip(t *testing.T) {
 	require.Equal(t, int64(1), stats.GetResourcesByResourceType()["group"], "resources[group]")
 
 	// Stats() through the adapter must match the sidecar.
-	m, err := store.SyncMeta().Stats(ctx, connectorstore.SyncTypeAny, syncID)
+	m, err := store.SyncRuns().SyncMeta().Stats(ctx, connectorstore.SyncTypeAny, syncID)
 	require.NoErrorf(t, err, "Stats")
 	require.Equal(t, int64(3), m["resources"], "Stats resources")
 	require.Equal(t, int64(3), m["grants"], "Stats grants")
@@ -82,12 +82,12 @@ func TestSyncStatsSidecarBackfillOnOpen(t *testing.T) {
 	require.NoErrorf(t, e.MarkFreshSync(syncID), "MarkFreshSync")
 	// Need a SyncRunRecord so collectSyncIDs (used by the migration)
 	// can find this sync during backfill.
-	require.NoErrorf(t, e.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoErrorf(t, e.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId: syncID,
 		Type:   v3.SyncType_SYNC_TYPE_FULL,
 	}.Build()), "PutSyncRunRecord")
 	require.NoErrorf(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent-A", "alice")), "PutGrantRecord")
-	require.NoErrorf(t, e.PersistSyncStats(ctx, syncID), "PersistSyncStats")
+	require.NoErrorf(t, e.SyncRuns().PersistSyncStats(ctx, syncID), "PersistSyncStats")
 	// Surgically delete the sidecar and the migration's applied-version
 	// stamp so the next Open's migrator re-runs.
 	require.NoError(t, e.db.UnsafeForTesting().Delete(encodeSyncStatsKey(), nil))
@@ -98,7 +98,7 @@ func TestSyncStatsSidecarBackfillOnOpen(t *testing.T) {
 	e2, err := Open(ctx, dir)
 	require.NoErrorf(t, err, "Open 2")
 	defer e2.Close()
-	stats, err := e2.readSyncStats(ctx, syncID)
+	stats, err := e2.SyncRuns().readSyncStats(ctx, syncID)
 	require.NoErrorf(t, err, "readSyncStats")
 	require.NotNil(t, stats, "sidecar not backfilled by on-Open migration")
 	require.Equal(t, int64(1), stats.GetGrants(), "backfilled grants")
@@ -117,7 +117,7 @@ func TestSyncStatsSidecarFallback(t *testing.T) {
 
 	// The statsFromIteration helper still produces correct counts.
 	// Exercise it directly to avoid the Stats() fast-path.
-	got, err := e.statsFromIteration(ctx, syncID)
+	got, err := e.SyncRuns().statsFromIteration(ctx, syncID)
 	require.NoErrorf(t, err, "statsFromIteration")
 	require.Equal(t, int64(1), got.GetGrants(), "fallback grants")
 }
@@ -140,15 +140,15 @@ func TestPersistSyncStatsRepairsCorruptSidecar(t *testing.T) {
 				v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build(),
 			))
 			require.NoError(t, e.db.UnsafeForTesting().Set(encodeSyncStatsKey(), []byte{0xff}, nil))
-			_, err = e.readSyncStats(ctx, syncID)
+			_, err = e.SyncRuns().readSyncStats(ctx, syncID)
 			require.Error(t, err)
 			if stashed {
-				e.StashComputedSyncStats(syncID, v3.SyncStatsRecord_builder{
+				e.SyncRuns().StashComputedSyncStats(syncID, v3.SyncStatsRecord_builder{
 					ResourceTypes: 1, Resources: 1, ResourcesByResourceType: map[string]int64{"user": 1},
 				}.Build())
 			}
-			require.NoError(t, e.PersistSyncStats(ctx, syncID))
-			stats, err := e.readSyncStats(ctx, syncID)
+			require.NoError(t, e.SyncRuns().PersistSyncStats(ctx, syncID))
+			stats, err := e.SyncRuns().readSyncStats(ctx, syncID)
 			require.NoError(t, err)
 			require.NotNil(t, stats)
 			require.EqualValues(t, 1, stats.GetResourceTypes())

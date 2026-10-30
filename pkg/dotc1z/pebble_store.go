@@ -276,7 +276,11 @@ func (s *pebbleStore) FileOps() c1zstore.FileOps {
 // Same pattern as Grants() and FileOps(); the production Sync() path
 // never noticed because EndSync sets dirty right before the stamps.
 func (s *pebbleStore) SyncMeta() c1zstore.SyncMeta {
-	return pebbleStoreSyncMeta{inner: s.Engine.SyncMeta(), store: s}
+	return pebbleStoreSyncMeta{inner: s.Engine.SyncRuns().SyncMeta(), store: s}
+}
+
+func (s *pebbleStore) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error) {
+	return s.Engine.SyncRuns().ListSyncRuns(ctx, pageToken, pageSize)
 }
 
 type pebbleStoreSyncMeta struct {

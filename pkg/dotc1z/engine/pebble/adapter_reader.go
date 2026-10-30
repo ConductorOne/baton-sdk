@@ -417,7 +417,7 @@ func (e *Engine) GetSync(ctx context.Context, req *reader_v2.SyncsReaderServiceG
 	if req.GetSyncId() == "" {
 		return nil, errors.New("GetSync: empty sync_id")
 	}
-	rec, err := e.GetSyncRunRecord(ctx, req.GetSyncId())
+	rec, err := e.syncRuns.GetSyncRunRecord(ctx, req.GetSyncId())
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -513,7 +513,7 @@ func (e *Engine) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServic
 // keyed on (typeFinishedSyncByType | type) → sync_id would let
 // Engine.LatestFinishedSyncRecord short-circuit to O(1).
 func (e *Engine) GetLatestFinishedSync(ctx context.Context, req *reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest) (*reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse, error) {
-	latest, err := e.LatestFinishedSyncRecord(ctx, syncTypeFilterFromString(req.GetSyncType()))
+	latest, err := e.syncRuns.LatestFinishedSyncRecord(ctx, syncTypeFilterFromString(req.GetSyncType()))
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +546,7 @@ func (e *Engine) syncStatsForRun(ctx context.Context, rec *v3.SyncRunRecord) (*r
 	if stats != nil {
 		return stats, nil
 	}
-	computedStats, err := e.computeSyncStats(ctx, rec.GetSyncId())
+	computedStats, err := e.syncRuns.computeSyncStats(ctx, rec.GetSyncId())
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -631,7 +631,7 @@ func (e *Engine) resolveActiveSyncForReader(ctx context.Context, annos []*anypb.
 	// latest in-progress sync (started within the last week). Lets
 	// reads against a c1z whose only sync was interrupted before
 	// EndSync resolve to that sync instead of ErrNoCurrentSync.
-	rec, err := e.LatestUnfinishedSyncRecord(ctx, nil)
+	rec, err := e.syncRuns.LatestUnfinishedSyncRecord(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("pebble: latest unfinished sync: %w", err)
 	}

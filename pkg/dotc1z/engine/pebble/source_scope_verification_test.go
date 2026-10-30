@@ -1219,7 +1219,7 @@ func TestVerificationReplayStatsCoherence(t *testing.T) {
 
 	assertStats := func(e *Engine, label string, expected int64) {
 		t.Helper()
-		stats, err := e.Stats(ctx, connectorstore.SyncTypeAny, syncID)
+		stats, err := e.SyncRuns().Stats(ctx, connectorstore.SyncTypeAny, syncID)
 		require.NoError(t, err, label)
 		require.NoError(t, validateAllKindStats(stats, expected), label)
 	}

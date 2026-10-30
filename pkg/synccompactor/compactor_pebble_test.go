@@ -153,7 +153,7 @@ func verifyCompacted(t *testing.T, ctx context.Context, path, syncID string) (in
 	require.NoError(t, w.SetCurrentSync(ctx, syncID))
 	eng, ok := enginepkg.AsEngine(w)
 	require.True(t, ok)
-	runRecord, err := eng.GetSyncRunRecord(ctx, syncID)
+	runRecord, err := eng.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
 	require.True(t, runRecord.GetCompacted(), "compaction output must carry its durable eligibility marker")
 	run, err := w.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
@@ -795,7 +795,7 @@ func TestCompactPebbleStatsSidecarMatchesRecompute(t *testing.T) {
 			require.Equal(t, map[string]int64{"group": 3}, stored.GetGrantsByEntitlementResourceType())
 			require.Nil(t, stored.GetIngestQuality(), "compaction must not inherit source ingestion quality")
 
-			require.NoError(t, eng.PersistSyncStats(ctx, out.SyncID))
+			require.NoError(t, eng.SyncRuns().PersistSyncStats(ctx, out.SyncID))
 			recomputed, err := enginepkg.ReadSyncStatsRecord(ctx, eng, out.SyncID)
 			require.NoError(t, err)
 			require.NotNil(t, recomputed)

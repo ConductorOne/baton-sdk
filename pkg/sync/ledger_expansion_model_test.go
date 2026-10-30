@@ -227,7 +227,7 @@ func TestLedgerExpansionFinishedReplay(t *testing.T) {
 				require.Empty(t, facts)
 			}
 			syncID := first.syncID
-			before, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			before, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 			require.NoError(t, err)
 			want, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
 			require.NoError(t, err)
@@ -237,7 +237,7 @@ func TestLedgerExpansionFinishedReplay(t *testing.T) {
 			next := newLedgerExpansionPublicSyncer(t, f)
 			next.testHooks.ledgerWalk = func(entering bool) {
 				if entering {
-					bound, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+					bound, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 					require.NoError(t, err)
 					require.Equal(t, before.GetStartedAt(), bound.GetStartedAt())
 					require.Equal(t, before.GetEndedAt(), bound.GetEndedAt())

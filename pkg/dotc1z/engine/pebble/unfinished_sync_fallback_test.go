@@ -60,7 +60,7 @@ func TestResolveActiveSyncForReader_UnfinishedCutoff(t *testing.T) {
 	// Write an in-progress (ended_at nil) sync record started 8 days
 	// ago, directly — past the one-week cutoff.
 	staleID := ksuid.New().String()
-	require.NoError(t, e.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoError(t, e.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId:    staleID,
 		Type:      v3.SyncType_SYNC_TYPE_FULL,
 		StartedAt: timestamppb.New(time.Now().AddDate(0, 0, -8)),

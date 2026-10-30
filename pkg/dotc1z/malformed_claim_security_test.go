@@ -50,7 +50,7 @@ func TestSecurity_InvalidVerificationClaimReadsUnverified(t *testing.T) {
 
 				ps, ok := store.(*pebbleStore)
 				require.True(t, ok)
-				rec, err := ps.GetSyncRunRecord(ctx, id)
+				rec, err := ps.SyncRuns().GetSyncRunRecord(ctx, id)
 				require.NoError(t, err)
 				var coverage []string
 				if tc.coverage == `["I1","I5"]` {
@@ -59,7 +59,7 @@ func TestSecurity_InvalidVerificationClaimReadsUnverified(t *testing.T) {
 				rec.SetIngestInvariantGeneration(tc.gen)
 				rec.SetIngestInvariantCoverage(coverage)
 				rec.SetIngestInvariantMode(tc.mode)
-				require.NoError(t, ps.PutSyncRunRecord(ctx, rec))
+				require.NoError(t, ps.SyncRuns().PutSyncRunRecord(ctx, rec))
 
 				run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
 				require.NoError(t, err)

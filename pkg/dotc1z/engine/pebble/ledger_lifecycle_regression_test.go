@@ -364,13 +364,13 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 	}), boom)
 	e.test.endSyncStampHook = nil
 
-	require.NotContains(t, e.syncStatsOverlay, syncID,
+	require.NotContains(t, e.syncRuns.syncStatsOverlay, syncID,
 		"a failed seal's stats must not be waiting for the next seal of this id")
 
 	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{
 		Run: c1zstore.RunStats{StepDurationsMs: map[string]int64{"list-grants": 9}},
 	}))
-	stats, err := e.readSyncStats(ctx, syncID)
+	stats, err := e.SyncRuns().readSyncStats(ctx, syncID)
 	require.NoError(t, err)
 	require.Equal(t, int64(9), stats.GetStepDurationsMs()["list-grants"],
 		"the retry's stats, not the failed attempt's")

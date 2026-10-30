@@ -453,10 +453,10 @@ func TestPreviousSyncC1ZPathEnforcesReplayEligibility(t *testing.T) {
 				require.Equal(t, c1zstore.EnginePebble, tc.engine)
 				eng, ok := enginepkg.AsEngine(previous)
 				require.True(t, ok)
-				run, err := eng.GetSyncRunRecord(ctx, syncID)
+				run, err := eng.SyncRuns().GetSyncRunRecord(ctx, syncID)
 				require.NoError(t, err)
 				run.SetCompacted(true)
-				require.NoError(t, eng.PutSyncRunRecord(ctx, run))
+				require.NoError(t, eng.SyncRuns().PutSyncRunRecord(ctx, run))
 				require.True(t, enginepkg.MarkStoreDirty(previous))
 			}
 			require.NoError(t, previous.Close(ctx))

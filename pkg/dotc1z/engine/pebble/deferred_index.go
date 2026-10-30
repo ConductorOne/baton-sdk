@@ -487,7 +487,7 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 			for rt, p := range grantsByEntRTPtr {
 				grantsByEntitlementRT[rt] = *p
 			}
-			e.stashDeferredGrantStats(&deferredGrantStats{
+			e.syncRuns.stashDeferredGrantStats(&deferredGrantStats{
 				syncID:                syncID,
 				grants:                totalKeys,
 				grantsByEntitlementRT: grantsByEntitlementRT,

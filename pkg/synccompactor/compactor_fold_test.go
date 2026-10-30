@@ -151,7 +151,7 @@ func TestCompactPebbleFoldMintsFreshSync(t *testing.T) {
 	defer statsW.Close(ctx)
 	statsEng, ok := enginepkg.AsEngine(statsW)
 	require.True(t, ok)
-	rec, err := statsEng.GetSyncRunRecord(ctx, out.SyncID)
+	rec, err := statsEng.SyncRuns().GetSyncRunRecord(ctx, out.SyncID)
 	require.NoError(t, err)
 	require.Empty(t, rec.GetParentSyncId(), "folded sync must not carry a parent link to the overwritten base sync")
 	require.Empty(t, rec.GetIngestInvariantGeneration(), "folded sync must not inherit the base verification generation")

@@ -596,7 +596,7 @@ func (l *Ledger) takeover(ctx context.Context, runID string, facts map[string]st
 	if syncID == "" {
 		return "", errors.New("Takeover: no open sync")
 	}
-	rec, err := l.e.GetSyncRunRecord(ctx, syncID)
+	rec, err := l.e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return "", err
 	}
@@ -758,7 +758,7 @@ func (l *Ledger) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, cle
 	if syncID == "" {
 		return errors.New("BeginPass: no bound sync")
 	}
-	record, err := l.e.GetSyncRunRecord(ctx, syncID)
+	record, err := l.e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
 	}

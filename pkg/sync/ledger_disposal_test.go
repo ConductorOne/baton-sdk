@@ -14,13 +14,13 @@ func TestLedgerDiscardPendingFinishedBindingDoesNotRestartProcessing(t *testing.
 	require.NoError(t, first.Sync(t.Context()))
 	id := first.syncID
 	require.NoError(t, f.store.SetCurrentSync(t.Context(), id))
-	before, err := f.engine.GetSyncRunRecord(t.Context(), id)
+	before, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), id)
 	require.NoError(t, err)
 	second := newLedgerExpansionPublicSyncer(t, f)
 	second.cfg.ledgerDebug = false
 	second.caps.pageLedger = ledgerExpansionSealFailure{PageLedgerStore: f.ledger}
 	require.ErrorIs(t, second.Sync(t.Context()), errLedgerInjectedPage)
-	pending, err := f.engine.GetSyncRunRecord(t.Context(), id)
+	pending, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), id)
 	require.NoError(t, err)
 	require.Equal(t, before.GetEndedAt(), pending.GetEndedAt())
 	require.NoError(t, f.store.Close(t.Context()))
