@@ -155,6 +155,7 @@ func syncStatsOverlay(stats c1zstore.SyncStats) *v3.SyncStatsRecord {
 		StepDurationsMs:    cloneInt64Map(stats.Run.StepDurationsMs),
 		ConnectorCallStats: callStatsToProto(stats.Run.ConnectorCallStats),
 		SessionStoreStats:  callStatsToProto(stats.Run.SessionStoreStats),
+		Counters:           maps.Clone(stats.Run.Counters),
 	}.Build()
 	if q := stats.IngestQuality; q != nil {
 		overlay.SetIngestQuality(v3.IngestQualityStats_builder{

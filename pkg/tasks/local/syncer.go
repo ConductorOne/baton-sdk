@@ -29,6 +29,7 @@ type localSyncer struct {
 	targetedSyncResources               []*v2.Resource
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
+	listPageWindow                      uint32
 	syncResourceTypeIDs                 []string
 	workerCount                         int
 	storageEngine                       c1zstore.Engine
@@ -84,6 +85,12 @@ func WithSkipGrants(skip bool) Option {
 	}
 }
 
+func WithListPageWindow(window uint32) Option {
+	return func(m *localSyncer) {
+		m.listPageWindow = window
+	}
+}
+
 func WithWorkerCount(workerCount int) Option {
 	return func(m *localSyncer) {
 		m.workerCount = workerCount
@@ -129,6 +136,7 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithTargetedSyncResources(m.targetedSyncResources),
 		sdkSync.WithSkipEntitlementsAndGrants(m.skipEntitlementsAndGrants),
 		sdkSync.WithSkipGrants(m.skipGrants),
+		sdkSync.WithListPageWindow(m.listPageWindow, nil),
 		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
 		sdkSync.WithWorkerCount(m.workerCount),
 	}

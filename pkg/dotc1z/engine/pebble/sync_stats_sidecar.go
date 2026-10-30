@@ -305,6 +305,9 @@ func (e *Engine) applySyncerStats(ctx context.Context, syncID string, rec *v3.Sy
 	if len(overlay.GetSessionStoreStats()) > 0 {
 		rec.SetSessionStoreStats(overlay.GetSessionStoreStats())
 	}
+	if len(overlay.GetCounters()) > 0 {
+		rec.SetCounters(overlay.GetCounters())
+	}
 	if overlay.HasIngestQuality() {
 		rec.SetIngestQuality(overlay.GetIngestQuality())
 	}

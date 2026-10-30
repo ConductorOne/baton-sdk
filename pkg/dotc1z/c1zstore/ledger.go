@@ -175,6 +175,7 @@ type RunStats struct {
 	StepDurationsMs    map[string]int64
 	ConnectorCallStats map[string]CallStat
 	SessionStoreStats  map[string]CallStat
+	Counters           map[string]uint64
 	CompletedActions   uint64
 }
 

@@ -125,7 +125,13 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 	if best == nil {
 		return nil, nil
 	}
-	return syncRunRecordToExported(best), nil
+	run := syncRunRecordToExported(best)
+	stats, _, err := CachedSyncStats(ctx, s.e, run.ID)
+	if err != nil {
+		return nil, fmt.Errorf("read finished sync stats: %w", err)
+	}
+	run.Stats = stats
+	return run, nil
 }
 
 // Stats returns a map of record-type → row count for the named sync.

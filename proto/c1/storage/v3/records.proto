@@ -355,6 +355,8 @@ message SyncStatsRecord {
   // Compaction provenance, set only on compacted outputs (previously a
   // section of the sync token; the token is not written for ledgered syncs).
   CompactionProvenance compaction = 14;
+  // Named syncer counters, including bounded list-walk sampling.
+  map<string, uint64> counters = 15;
 
   google.protobuf.Timestamp written_at = 100;
 }

@@ -1825,6 +1825,8 @@ func (m *SyncStatsRecord) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for Counters
+
 	if all {
 		switch v := interface{}(m.GetWrittenAt()).(type) {
 		case interface{ ValidateAll() error }:

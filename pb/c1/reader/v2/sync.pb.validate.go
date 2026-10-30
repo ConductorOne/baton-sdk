@@ -360,6 +360,8 @@ func (m *SyncStats) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for Counters
+
 	if len(errors) > 0 {
 		return SyncStatsMultiError(errors)
 	}

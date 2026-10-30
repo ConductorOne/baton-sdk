@@ -35,6 +35,8 @@ message SyncStats {
   map<string, int64> step_durations_ms = 9;
   map<string, CallStat> connector_call_stats = 10;
   map<string, CallStat> session_store_stats = 11;
+  // Named syncer counters, including bounded list-walk sampling.
+  map<string, int64> counters = 12;
 }
 
 // CallStat is a cumulative latency / outcome counter for one named

@@ -8,6 +8,8 @@ The synchronous report includes operation, resource and parent identities, type-
 
 Sampling counters survive both token-based and ledger-based EndSync and are readable through the additive SyncStats counters map. The CLI and local runner propagate the option. The unreleased annotation and its helpers are removed; compatibility is checked against main.
 
+Call `sync.WithListPageWindow(2, handler)` or pass `--list-page-window 2` to a connector CLI. Read `SyncRun.Stats.Counters["list_page_window.sampled"]` for the total and `list_page_window.sampled:<resource_type_id>` for per-type totals. The result is a sample, not a complete snapshot.
+
 ## Frozen coverage criteria
 
 - W1: cross product of serial, parallel, and ledger transitions with top-level resources, parented resources with same-ID/different-type parents, per-resource entitlements, per-resource grants, and type-scoped grants with spawned cursors.
@@ -25,3 +27,12 @@ Opt-in sampling changes durable completeness reporting and interacts with schedu
 ## Scope exclusions
 
 No annotation transport, connector-side policy, production default change, or ledger schema persistence for the page count. Release publication and merge remain owner actions.
+
+## Implementation obligations (contract corrections, same scope)
+
+- The ledger calls the pagination funnel both to stage a page and to commit it. Count only during staging; use page-atomic counters and the existing after-commit callback to avoid double counting and reporting failed writes (W1, W5, W6).
+- Root planners share collection operation values. Empty resource-type identities must remain excluded (W2, W3).
+- Storage SyncStatsRecord needs its own additive counters map; reader-only generation cannot persist the map. Preserve it through token overlay, ledger overlay, and storage-to-reader conversion. Finished-sync metadata loads the existing cached sidecar without scanning rows (W6).
+- Token-mode cumulative counters are separate from existing attempt-only counters, so unrelated default token bytes remain unchanged (W4).
+- The supported local storage engine is Pebble. Token-mode matrix fixtures wrap that store with the existing non-file store interface; explicit assertions prove which transition mode actually executes (W1).
+- Pending-work refresh retains counts for the same in-process action revision; process restart still reconstructs zero as documented (W4).

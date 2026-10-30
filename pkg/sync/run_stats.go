@@ -56,6 +56,7 @@ type runStats struct {
 	stepDurationsMs map[string]int64
 	connectorCalls  map[string]*ConnectorCallStat
 	sessionOps      map[string]*SessionStoreStat
+	counters        map[string]uint64
 	ingest          *IngestQualityCheckpoint
 	// compaction is provenance written by the sync compactor via
 	// BuildCompactedToken; the syncer itself never sets it. Held here so
@@ -76,6 +77,7 @@ func newRunStats() *runStats {
 		stepDurationsMs:        make(map[string]int64),
 		connectorCalls:         make(map[string]*ConnectorCallStat),
 		sessionOps:             make(map[string]*SessionStoreStat),
+		counters:               make(map[string]uint64),
 		attemptStepDurationsMs: make(map[string]int64),
 		attemptSessionOps:      make(map[string]*SessionStoreStat),
 		attemptCounters:        make(map[string]uint64),
@@ -116,6 +118,15 @@ func (s *runStats) addAttemptCounter(name string, n uint64) {
 		s.attemptCounters = make(map[string]uint64)
 	}
 	s.attemptCounters[name] += n
+}
+
+func (s *runStats) addCounter(name string, n uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.counters == nil {
+		s.counters = make(map[string]uint64)
+	}
+	s.counters[name] += n
 }
 
 // attemptLedgerCounters is the attempt's run bucket: step durations, session
