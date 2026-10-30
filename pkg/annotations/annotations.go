@@ -141,7 +141,9 @@ func (a *Annotations) WithRateLimitWaitReport(waitMs int64) *Annotations {
 	return a
 }
 
-// WithListPageWindow replaces any existing window report on this response; nil is a no-op.
+// WithListPageWindow reports a list walk bounded at the configured page window
+// before vendor-terminated completion. It replaces any existing window report
+// on this response; nil is a no-op.
 func (a *Annotations) WithListPageWindow(report *v2.ListPageWindow) *Annotations {
 	if report == nil {
 		return a
