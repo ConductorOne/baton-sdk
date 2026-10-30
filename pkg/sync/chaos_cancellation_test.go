@@ -233,7 +233,7 @@ func TestChaosExternalCancelStopsQuietlyAndCheckpoints(t *testing.T) {
 	require.Zero(t, run.Runtime().ActiveOperations(),
 		"external cancel must release the blocked connector call")
 
-	require.Nil(t, findEntry(capturedEntries(), zapcore.ErrorLevel, "cancelling context due to error in action"),
+	require.Nil(t, findEntry(capturedEntries(), zapcore.WarnLevel, "cancelling context due to error in action"),
 		"workers observing shutdown must not log action-failure errors (RFC 0009 §4.2)")
 	require.True(t, accountingAfterCancel.Load(),
 		"run accounting must persist with a detached context after external cancellation")
@@ -386,7 +386,7 @@ func TestParallelBatchFailureDuringStopStaysQuiet(t *testing.T) {
 
 	for _, entry := range capturedEntries() {
 		require.False(t,
-			entry.level == zapcore.ErrorLevel && contains(entry.message, "cancelling context due to error in action"),
+			entry.level == zapcore.WarnLevel && contains(entry.message, "cancelling context due to error in action"),
 			"a failure observed while the run is stopping must not log as a discovery")
 	}
 }
