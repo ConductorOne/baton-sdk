@@ -61,57 +61,36 @@ func (w ledgerGatedPageWriter) Commit(ctx context.Context, id c1zstore.LedgerAct
 	return nil
 }
 
-// The property the narrowing exists for: another worker can dequeue while a
-// commit is in flight. With commitUnlocked off, next() blocks on q.mu until
-// the commit returns; with it on, next() completes. Both are asserted so the
-// test fails if the flag stops doing anything.
 func TestLedgerQueueCommitDoesNotHoldQueueLock(t *testing.T) {
-	// Real time, not synctest: a goroutine blocked on sync.Mutex is not a
-	// durable block to synctest.Wait, and the held leg blocks on exactly that.
-	for _, unlocked := range []bool{false, true} {
-		t.Run(map[bool]string{false: "held", true: "released"}[unlocked], func(t *testing.T) {
-			first := &Action{ID: "a", Op: SyncResourcesOp}
-			second := &Action{ID: "b", Op: SyncResourcesOp}
-			q := newParallelActionQueue([]*Action{first, second})
-			q.commitUnlocked = unlocked
-			taken, ok := q.next()
-			require.True(t, ok)
-			require.Same(t, first, taken)
-			entered, release := make(chan struct{}), make(chan struct{})
-			transitionDone := make(chan error, 1)
-			go func() {
-				transitionDone <- q.transition(t.Context(), SyncResourcesOp, first, "", nil, func(string, []Action) ([]*Action, error) {
-					close(entered)
-					<-release
-					return nil, nil
-				})
-			}()
-			<-entered
-			dequeued := make(chan bool, 1)
-			go func() {
-				_, ok := q.next()
-				dequeued <- ok
-			}()
-			duringCommit := false
-			select {
-			case ok := <-dequeued:
-				require.True(t, ok)
-				duringCommit = true
-			case <-time.After(300 * time.Millisecond):
-			}
-			require.Equal(t, unlocked, duringCommit, "a sibling's next() completes during the commit only when the lock is released")
-			close(release)
-			require.NoError(t, <-transitionDone)
-			if !duringCommit {
-				select {
-				case ok := <-dequeued:
-					require.True(t, ok)
-				case <-time.After(5 * time.Second):
-					t.Fatal("next() never completed after the commit returned")
-				}
-			}
+	first := &Action{ID: "a", Op: SyncResourcesOp}
+	second := &Action{ID: "b", Op: SyncResourcesOp}
+	q := newParallelActionQueue([]*Action{first, second})
+	taken, ok := q.next()
+	require.True(t, ok)
+	require.Same(t, first, taken)
+	entered, release := make(chan struct{}), make(chan struct{})
+	transitionDone := make(chan error, 1)
+	go func() {
+		transitionDone <- q.transition(t.Context(), SyncResourcesOp, first, "", nil, func(string, []Action) ([]*Action, error) {
+			close(entered)
+			<-release
+			return nil, nil
 		})
+	}()
+	<-entered
+	dequeued := make(chan bool, 1)
+	go func() {
+		_, ok := q.next()
+		dequeued <- ok
+	}()
+	select {
+	case ok := <-dequeued:
+		require.True(t, ok)
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("next() blocked for the duration of the commit")
 	}
+	close(release)
+	require.NoError(t, <-transitionDone)
 }
 
 // The ledger commit runs outside q.mu, so a worker blocked in next() with the
