@@ -740,8 +740,7 @@ func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nex
 		return transitioner(ctx, action, nextPageToken, childActions)
 	}
 
-	_, err := s.transitionActionState(ctx, action, nextPageToken, childActions)
-	return err
+	return s.transitionActionState(ctx, action, nextPageToken, childActions)
 }
 
 func (s *syncer) transitionActionState(
@@ -749,16 +748,16 @@ func (s *syncer) transitionActionState(
 	action *Action,
 	nextPageToken string,
 	childActions []Action,
-) ([]*Action, error) {
+) error {
 	pending, ok := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit)
 	if !ok {
-		return nil, errors.New("action transition requires a ledger commit")
+		return errors.New("action transition requires a ledger commit")
 	}
 	if err := pending.commit(); err != nil {
-		return nil, err
+		return err
 	}
 	s.publishPendingTransition(ctx, action, nextPageToken, pending.warning, pending.restart)
-	return nil, nil
+	return nil
 }
 
 func (s *syncer) finishAction(ctx context.Context, action *Action) {
