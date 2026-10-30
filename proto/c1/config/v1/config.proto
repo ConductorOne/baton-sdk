@@ -59,8 +59,9 @@ message Field {
   // through ActionHandlerWithSecrets; it is omitted from the public response
   // and returned as EncryptedData.
   bool is_secret = 7;
-  // Secret action return content type. Absent means generic; not valid on
-  // configuration fields, action arguments, or public returns.
+  // Content type for secret action return fields; absent means generic.
+  // Action registration rejects it on arguments and non-secret returns.
+  // It has no configuration-field semantics; syntax validation still applies.
   optional string secret_content_type = 8 [(validate.rules).string = {
     min_len: 1
     max_len: 128

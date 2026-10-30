@@ -1115,8 +1115,9 @@ type Field_builder struct {
 	// through ActionHandlerWithSecrets; it is omitted from the public response
 	// and returned as EncryptedData.
 	IsSecret bool
-	// Secret action return content type. Absent means generic; not valid on
-	// configuration fields, action arguments, or public returns.
+	// Content type for secret action return fields; absent means generic.
+	// Action registration rejects it on arguments and non-secret returns.
+	// It has no configuration-field semantics; syntax validation still applies.
 	SecretContentType *string
 	// Fields of oneof xxx_hidden_Field:
 	StringField          *StringField
