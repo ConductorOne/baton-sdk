@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// ListPageWindow is a response annotation emitted by SDK machinery when a list
+// walk stops at a configured page window while the vendor still has more pages.
+// It reports a bounded walk, not vendor-terminated completion, and does not
+// instruct the consumer to change pagination behavior.
+message ListPageWindow {
+  // The list operation: "resources", "entitlements", or "grants".
+  string list_kind = 1;
+  // The resource type whose list walk was bounded.
+  string resource_type_id = 2;
+  // The parent resource ID, or empty for a top-level list walk.
+  string parent_resource_id = 3;
+  // The number of pages returned in this list walk, including the bounded page.
+  uint32 pages_returned = 4;
+  // The configured maximum number of pages for this list walk.
+  uint32 window = 5;
+  // The parent resource type, or empty for a top-level list walk. Together with
+  // parent_resource_id, this distinguishes parents of different types sharing an ID.
+  string parent_resource_type_id = 6;
+}

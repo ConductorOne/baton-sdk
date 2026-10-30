@@ -141,6 +141,28 @@ func (a *Annotations) WithRateLimitWaitReport(waitMs int64) *Annotations {
 	return a
 }
 
+// WithListPageWindow replaces any existing window report on this response; nil is a no-op.
+func (a *Annotations) WithListPageWindow(report *v2.ListPageWindow) *Annotations {
+	if report == nil {
+		return a
+	}
+	a.Update(report)
+	return a
+}
+
+// GetListPageWindowFromAnnotations returns nil when the response has no window report.
+func GetListPageWindowFromAnnotations(annos Annotations) (*v2.ListPageWindow, error) {
+	report := &v2.ListPageWindow{}
+	ok, err := annos.Pick(report)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return report, nil
+}
+
 // NOTE: the store is the only usage of this.
 func GetSyncIdFromAnnotations(annos Annotations) (string, error) {
 	if len(annos) == 0 {
