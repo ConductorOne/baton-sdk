@@ -1783,7 +1783,7 @@ type SyncStatsRecord struct {
 	// Compaction provenance, set only on compacted outputs (previously a
 	// section of the sync token; the token is not written for ledgered syncs).
 	Compaction *CompactionProvenance `protobuf:"bytes,14,opt,name=compaction,proto3" json:"compaction,omitempty"`
-	// Named syncer counters, including bounded list-walk sampling.
+	// Bounded list-walk sampling counters, keyed by list_page_window.*.
 	Counters      map[string]uint64      `protobuf:"bytes,15,rep,name=counters,proto3" json:"counters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	WrittenAt     *timestamppb.Timestamp `protobuf:"bytes,100,opt,name=written_at,json=writtenAt,proto3" json:"written_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2058,7 +2058,7 @@ type SyncStatsRecord_builder struct {
 	// Compaction provenance, set only on compacted outputs (previously a
 	// section of the sync token; the token is not written for ledgered syncs).
 	Compaction *CompactionProvenance
-	// Named syncer counters, including bounded list-walk sampling.
+	// Bounded list-walk sampling counters, keyed by list_page_window.*.
 	Counters  map[string]uint64
 	WrittenAt *timestamppb.Timestamp
 }

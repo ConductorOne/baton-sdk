@@ -667,6 +667,7 @@ func (s *syncer) markTypeScopedPlanned(action *Action) {
 const maxEntitlementsPerExclusionGroup = 50
 
 
+
 func (s *syncer) transitionActionState(
 	ctx context.Context,
 	action *Action,
@@ -2679,6 +2680,7 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 // may return one additional window of pages per restart.
 // Connector-signaled cursor restarts retain already-counted pages, so rewound
 // pages consume the remaining window and may reduce the sample of distinct rows.
+// Production diff/upload use requires the deferred follow-up: a sampled-run sync fact.
 func WithListPageWindow(window uint32, handler func(ListPageWindowReport)) SyncOpt {
 	return func(s *syncer) {
 		s.cfg.listPageWindow = window

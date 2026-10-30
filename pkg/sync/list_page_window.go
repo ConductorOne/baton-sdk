@@ -1,5 +1,7 @@
 package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
+import "github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+
 // ListPageWindowReport describes a list walk that reached the configured window.
 // VendorTerminated is false when a nonempty continuation was cleared (sampled),
 // and true when the vendor ended the list at or after the window (complete).
@@ -63,8 +65,8 @@ func (s *syncer) stageListPageWindow(page *ledgerPage, action *Action) {
 		if page.observations.Counters == nil {
 			page.observations.Counters = make(map[string]uint64)
 		}
-		page.observations.Counters["list_page_window.sampled"]++
-		page.observations.Counters["list_page_window.sampled:"+report.ResourceTypeID]++
+		page.observations.Counters[c1zstore.ListPageWindowCounterPrefix+"sampled"]++
+		page.observations.Counters[c1zstore.ListPageWindowCounterPrefix+"sampled:"+report.ResourceTypeID]++
 	}
 	page.afterCommit = append(page.afterCommit, func() { s.reportListPageWindow(*report) })
 }
