@@ -392,8 +392,7 @@ type SyncStats_builder struct {
 	StepDurationsMs    map[string]int64
 	ConnectorCallStats map[string]*CallStat
 	SessionStoreStats  map[string]*CallStat
-	// Named syncer counters, including bounded list-walk sampling.
-	// Only list_page_window.* keys are contractual; other keys are engine-dependent internals.
+	// Bounded list-walk sampling counters, keyed by list_page_window.*.
 	Counters map[string]int64
 }
 

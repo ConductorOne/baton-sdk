@@ -1972,7 +1972,7 @@ type SyncStatsRecord_builder struct {
 	// Compaction provenance, set only on compacted outputs (previously a
 	// section of the sync token; the token is not written for ledgered syncs).
 	Compaction *CompactionProvenance
-	// Named syncer counters, including bounded list-walk sampling.
+	// Bounded list-walk sampling counters, keyed by list_page_window.*.
 	Counters  map[string]uint64
 	WrittenAt *timestamppb.Timestamp
 }

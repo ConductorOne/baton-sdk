@@ -11,6 +11,8 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 // SyncMeta returns the SyncMeta sub-store backed by the Pebble
@@ -126,10 +128,11 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 		return nil, nil
 	}
 	run := syncRunRecordToExported(best)
-	// All finished-sync lookups, including compactor calls, load the cached stats sidecar.
+	// Cached stats are optional for identity-only callers, including compactors.
 	stats, _, err := CachedSyncStats(ctx, s.e, run.ID)
 	if err != nil {
-		return nil, fmt.Errorf("read finished sync stats: %w", err)
+		ctxzap.Extract(ctx).Warn("finished sync stats unavailable", zap.String("sync_id", run.ID), zap.Error(err))
+		return run, nil
 	}
 	run.Stats = stats
 	return run, nil

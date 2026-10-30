@@ -794,15 +794,15 @@ func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nex
 			if invocation.page.observations.Counters == nil {
 				invocation.page.observations.Counters = make(map[string]uint64)
 			}
-			invocation.page.observations.Counters["list_page_window.sampled"]++
-			invocation.page.observations.Counters["list_page_window.sampled:"+report.ResourceTypeID]++
+			invocation.page.observations.Counters[c1zstore.ListPageWindowCounterPrefix+"sampled"]++
+			invocation.page.observations.Counters[c1zstore.ListPageWindowCounterPrefix+"sampled:"+report.ResourceTypeID]++
 		}
 		invocation.afterCommit = append(invocation.afterCommit, func() { s.reportListPageWindow(*report) })
 		return nil
 	}
 	if !report.VendorTerminated {
-		s.stats.addCounter("list_page_window.sampled", 1)
-		s.stats.addCounter("list_page_window.sampled:"+report.ResourceTypeID, 1)
+		s.stats.addCounter(c1zstore.ListPageWindowCounterPrefix+"sampled", 1)
+		s.stats.addCounter(c1zstore.ListPageWindowCounterPrefix+"sampled:"+report.ResourceTypeID, 1)
 	}
 	s.reportListPageWindow(*report)
 	return nil
@@ -4079,6 +4079,7 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 // may return one additional window of pages per restart.
 // Connector-signaled cursor restarts retain already-counted pages, so rewound
 // pages consume the remaining window and may reduce the sample of distinct rows.
+// Production diff/upload use requires the deferred follow-up: a sampled-run sync fact.
 func WithListPageWindow(window uint32, handler func(ListPageWindowReport)) SyncOpt {
 	return func(s *syncer) {
 		s.cfg.listPageWindow = window

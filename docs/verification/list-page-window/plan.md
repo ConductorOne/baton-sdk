@@ -36,3 +36,9 @@ No annotation transport, connector-side policy, production default change, or le
 - Token-mode cumulative counters are separate from existing attempt-only counters, so unrelated default token bytes remain unchanged (W4).
 - The supported local storage engine is Pebble. Token-mode matrix fixtures wrap that store with the existing non-file store interface; explicit assertions prove which transition mode actually executes (W1).
 - Pending-work refresh retains counts for the same in-process action revision; process restart still reconstructs zero as documented (W4).
+
+## Pre-release correction: portable counters and optional stats
+
+- Publish only `list_page_window.` counter keys from the ledger, matching token-mode output; no sampling means an empty published counters map, including window zero. Keep internal ledger completion/ingestion accounting unchanged (W6).
+- A corrupt optional stats sidecar must not fail finished-sync identity lookup. Log the failure and return the run with nil Stats; a corrupt-sidecar regression covers both full-sync and any-type lookups (W6).
+- Add a filter-removal mutation check to the existing matrix. The production sampled-run sync fact remains deferred and is required before production diff/upload use of sampled artifacts.

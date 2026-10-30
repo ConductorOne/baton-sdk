@@ -243,10 +243,13 @@ func TestListPageWindowSyncMatrix(t *testing.T) {
 				}
 				require.Equal(t, wantSampled, sr.Stats.GetCounters()["list_page_window.sampled"])
 				if sampled {
+					require.Len(t, sr.Stats.GetCounters(), 5)
 					require.EqualValues(t, 1, sr.Stats.GetCounters()["list_page_window.sampled:resource"])
 					require.EqualValues(t, 2, sr.Stats.GetCounters()["list_page_window.sampled:owner"])
 					require.EqualValues(t, 2, sr.Stats.GetCounters()["list_page_window.sampled:child"])
 					require.EqualValues(t, 3, sr.Stats.GetCounters()["list_page_window.sampled:scoped"])
+				} else {
+					require.Empty(t, sr.Stats.GetCounters(), "unsampled token and ledger runs publish no sampling counters")
 				}
 				rows, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{ResourceTypeId: "resource"}.Build())
 				require.NoError(t, err)

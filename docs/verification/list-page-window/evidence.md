@@ -8,6 +8,8 @@
 - W4 pending refresh: `TestListPageWindowPendingRefreshCarriesMatchingRevision` proves the page count survives a matching-revision refresh and is discarded for a different revision. Removing the refresh carry through a temporary Go overlay makes the matching-revision case fail (expected two pages, observed zero).
 - W5: the serial callback acquires the run-state and transition locks. Failed transition and ledger-stage-then-failure tests assert no report or sampled counter, and restore the caller's page count. Source audit confirms ledger callbacks use the existing after-commit boundary, outside queue/run-state locks.
 - W6: counter-only token overlays, ledger conversion, and signed-reader saturation have direct tests. The matrix reads both EndSync routes. `TestListPageWindowCLIToFinishedSyncStats` re-executes a real connector CLI and its service subprocess, then reopens the resulting c1z and checks two stored resources and one sampled list. CLI negative/overflow values are rejected before constructing the connector.
+- W6 portable keys: the matrix requires exactly the five sampling keys when sampled, and an empty counters map for every unsampled case in both token and ledger modes, including window zero. `TestLedgerSyncStatsPublishesOnlyListPageWindowCounters` also verifies that filtering does not alter internal completion/ingestion accounting.
+- W6 optional stats: `TestFinishedSyncMetadataIgnoresCorruptStatsSidecar` first proves a healthy cached counter is readable, then corrupts only the sidecar. Both full-sync and any-type lookups return the original finished identity with nil Stats and no error, and emit a warning.
 
 ## Observed checks
 
@@ -25,8 +27,12 @@ A planted counter defect prevented the walk from reaching window two. The serial
 
 The first full syncer run correctly rejected the new checkpoint fields because the golden corpus did not cover them. A fixture was recorded through the actual codec, registered in the existing corpus, and documented; no prior fixture or coverage exclusion changed.
 
+Removing only the ledger counter filter through a temporary Go overlay makes the window-zero ledger matrix fail: internal action/ingestion keys appear where the portable counters map must be empty. The overlay was removed and the unmodified matrix passed.
+
 ## Limits
 
 Ledger rows persist the next cursor but not the action's window count. A process restart can therefore return one additional window per restart. This is an explicit opt-in sampling limitation, not a claim of strict pagination bounds across ledger restarts. In-process pending refresh and token-based restart preserve the count. Connector-signaled cursor restarts also retain already-counted pages; rewound pages consume the remaining window and can reduce the sample of distinct rows.
 
 Sampling does not establish dataset completeness. Vendor termination is reported separately and does not increment sampled counters. No connector annotation, connector-side policy, merge, deployment, or release tag is part of this change.
+
+Deferred follow-up: persist a sampled-run sync fact before any production diff/upload use of sampled c1zs.
