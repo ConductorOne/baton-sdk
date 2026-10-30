@@ -1,6 +1,11 @@
 package secret
 
-// PasswordV2 is the password_v2 document.
+// When updating these builders, check the linked Multipass definitions and codec
+// and preserve JSON field names and list shapes.
+// Codec: https://github.com/ductone/multipass/blob/95d5f9b7cfa923fd4d77953d051d216df377121b/crates/latchkey-client-sdk/src/secret_types/codec.rs
+
+// PasswordV2 follows the Multipass password_v2 fields:
+// https://github.com/ductone/multipass/blob/95d5f9b7cfa923fd4d77953d051d216df377121b/crates/latchkey-client-sdk/src/secret_types/definitions.rs#L239-L270
 type PasswordV2 struct {
 	Username string `json:"username,omitempty"`
 	Password string `json:"password"`
@@ -12,7 +17,8 @@ func (v PasswordV2) Encode() (Payload, error) {
 	return encodeJSON(TypePasswordV2, v)
 }
 
-// APIKeyV2 is the api_key_v2 document.
+// APIKeyV2 follows the Multipass api_key_v2 fields:
+// https://github.com/ductone/multipass/blob/95d5f9b7cfa923fd4d77953d051d216df377121b/crates/latchkey-client-sdk/src/secret_types/definitions.rs#L298-L314
 type APIKeyV2 struct {
 	KeyValue   string   `json:"key_value"`
 	Provider   string   `json:"provider,omitempty"`
@@ -27,7 +33,8 @@ func (v APIKeyV2) Encode() (Payload, error) {
 	return encodeJSON(TypeAPIKeyV2, v)
 }
 
-// SSHKey is the ssh_key document.
+// SSHKey follows the Multipass ssh_key fields:
+// https://github.com/ductone/multipass/blob/95d5f9b7cfa923fd4d77953d051d216df377121b/crates/latchkey-client-sdk/src/secret_types/definitions.rs#L316-L331
 type SSHKey struct {
 	PrivateKey     string   `json:"private_key"`
 	Username       string   `json:"username,omitempty"`
@@ -41,7 +48,8 @@ func (v SSHKey) Encode() (Payload, error) {
 	return encodeJSON(TypeSSHKey, v)
 }
 
-// OAuthClientSecretV2 is the oauth_client_secret_v2 document.
+// OAuthClientSecretV2 follows the Multipass oauth_client_secret_v2 fields:
+// https://github.com/ductone/multipass/blob/95d5f9b7cfa923fd4d77953d051d216df377121b/crates/latchkey-client-sdk/src/secret_types/definitions.rs#L333-L352
 type OAuthClientSecretV2 struct {
 	ClientID         string   `json:"client_id"`
 	ClientSecret     string   `json:"client_secret"`
@@ -58,7 +66,8 @@ func (v OAuthClientSecretV2) Encode() (Payload, error) {
 	return encodeJSON(TypeOAuthClientSecretV2, v)
 }
 
-// Certificate is the certificate document.
+// Certificate follows the Multipass certificate fields:
+// https://github.com/ductone/multipass/blob/95d5f9b7cfa923fd4d77953d051d216df377121b/crates/latchkey-client-sdk/src/secret_types/definitions.rs#L354-L367
 type Certificate struct {
 	CertificatePEM string `json:"certificate_pem"`
 	PrivateKey     string `json:"private_key,omitempty"`
