@@ -1,4 +1,4 @@
-package secretcontracts
+package secret
 
 import (
 	"encoding/json"
