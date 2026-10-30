@@ -39,7 +39,7 @@ func TestReaderNotFoundStatus(t *testing.T) {
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	_, err = a.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+	_, err = a.records.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 		GrantId: "does-not-exist",
 	}.Build())
 	require.Equal(t, codes.NotFound, status.Code(err), "GetGrant missing: status code")

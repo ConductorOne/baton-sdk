@@ -31,7 +31,7 @@ func TestGrantDigestGlobalRootMatchesFold(t *testing.T) {
 			grants = append(grants, makeGrant("", ksuid.New().String(), entID, ksuid.New().String()))
 		}
 		if len(grants) > 0 {
-			if err := e.PutGrantRecords(ctx, grants...); err != nil {
+			if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 				t.Fatalf("PutGrantRecords(%s): %v", entID, err)
 			}
 		}
@@ -110,7 +110,7 @@ func TestGrantDigestGlobalRootDroppedOnInvalidation(t *testing.T) {
 		t.Fatalf("global root before delete: ok=%v err=%v", ok, err)
 	}
 
-	if err := e.DeleteGrantRecord(ctx, "g1"); err != nil {
+	if err := e.records.DeleteGrantRecord(ctx, "g1"); err != nil {
 		t.Fatalf("DeleteGrantRecord: %v", err)
 	}
 	if _, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx); err != nil || ok {
@@ -174,7 +174,7 @@ func TestManifestGrantDigestRootAbsentWithoutDigests(t *testing.T) {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-A")
-	if err := e.PutGrantRecords(ctx, makeGrant("", "g1", "ent-A", "alice")); err != nil {
+	if err := e.records.PutGrantRecords(ctx, makeGrant("", "g1", "ent-A", "alice")); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	if err := e.BuildDeferredGrantIndexes(ctx); err != nil {

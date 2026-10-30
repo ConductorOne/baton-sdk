@@ -142,7 +142,7 @@ func testLedgerDiscardDurableSealCuts(t *testing.T, previouslyFinished bool) {
 			saved, err := reopened.GetArchivedLedgerReport(t.Context())
 			require.NoError(t, err)
 			require.JSONEq(t, string(report), string(saved), "the archive is durable from the disposal batch on")
-			_, err = reopened.GetResourceRecord(t.Context(), "type", "one")
+			_, err = reopened.records.GetResourceRecord(t.Context(), "type", "one")
 			require.NoError(t, err)
 			if complete {
 				require.NoError(t, reopened.Ledger().BeginPass(t.Context(), nil, nil))

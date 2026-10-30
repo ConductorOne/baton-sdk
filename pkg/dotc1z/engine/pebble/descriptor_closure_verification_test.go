@@ -181,11 +181,11 @@ func TestVerificationDescriptorClosedReplayAndDirectMaterialization(t *testing.T
 				return r
 			},
 			put: func(e *Engine, msg proto.Message) error {
-				return e.PutResourceRecords(ctx, msg.(*v3.ResourceRecord))
+				return e.records.PutResourceRecords(ctx, msg.(*v3.ResourceRecord))
 			},
 			read: func(e *Engine) proto.Message {
 				var got *v3.ResourceRecord
-				require.NoError(t, e.IterateResources(ctx, func(r *v3.ResourceRecord) bool { got = r; return false }))
+				require.NoError(t, e.records.IterateResources(ctx, func(r *v3.ResourceRecord) bool { got = r; return false }))
 				return got
 			},
 			indexKeys: func(msg proto.Message) [][]byte { return ResourceIndexKeys(msg.(*v3.ResourceRecord)) },
@@ -197,7 +197,7 @@ func TestVerificationDescriptorClosedReplayAndDirectMaterialization(t *testing.T
 			project: func(e *Engine, msg proto.Message) map[string][]string {
 				r := msg.(*v3.ResourceRecord)
 				out := map[string][]string{"by_parent": {}}
-				require.NoError(t, e.IterateResourcesByParent(ctx, r.GetParent().GetResourceTypeId(), r.GetParent().GetResourceId(),
+				require.NoError(t, e.records.IterateResourcesByParent(ctx, r.GetParent().GetResourceTypeId(), r.GetParent().GetResourceId(),
 					func(got *v3.ResourceRecord) bool {
 						out["by_parent"] = append(out["by_parent"], got.GetResourceTypeId()+"|"+got.GetResourceId())
 						return true
@@ -215,11 +215,11 @@ func TestVerificationDescriptorClosedReplayAndDirectMaterialization(t *testing.T
 				return r
 			},
 			put: func(e *Engine, msg proto.Message) error {
-				return e.PutEntitlementRecords(ctx, msg.(*v3.EntitlementRecord))
+				return e.records.PutEntitlementRecords(ctx, msg.(*v3.EntitlementRecord))
 			},
 			read: func(e *Engine) proto.Message {
 				var got *v3.EntitlementRecord
-				require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool { got = r; return false }))
+				require.NoError(t, e.records.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool { got = r; return false }))
 				return got
 			},
 			indexKeys: func(msg proto.Message) [][]byte { return EntitlementIndexKeys(msg.(*v3.EntitlementRecord)) },
@@ -229,7 +229,7 @@ func TestVerificationDescriptorClosedReplayAndDirectMaterialization(t *testing.T
 			project: func(e *Engine, msg proto.Message) map[string][]string {
 				r := msg.(*v3.EntitlementRecord)
 				out := map[string][]string{"by_resource": {}}
-				require.NoError(t, e.IterateEntitlementsByResource(ctx, r.GetResource().GetResourceTypeId(), r.GetResource().GetResourceId(),
+				require.NoError(t, e.records.IterateEntitlementsByResource(ctx, r.GetResource().GetResourceTypeId(), r.GetResource().GetResourceId(),
 					func(got *v3.EntitlementRecord) bool {
 						out["by_resource"] = append(out["by_resource"], got.GetExternalId())
 						return true
@@ -247,11 +247,11 @@ func TestVerificationDescriptorClosedReplayAndDirectMaterialization(t *testing.T
 				return r
 			},
 			put: func(e *Engine, msg proto.Message) error {
-				return e.PutGrantRecords(ctx, msg.(*v3.GrantRecord))
+				return e.records.PutGrantRecords(ctx, msg.(*v3.GrantRecord))
 			},
 			read: func(e *Engine) proto.Message {
 				var got *v3.GrantRecord
-				require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool { got = r; return false }))
+				require.NoError(t, e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool { got = r; return false }))
 				return got
 			},
 			indexKeys: func(msg proto.Message) [][]byte { return GrantIndexKeys(msg.(*v3.GrantRecord)) },
@@ -267,17 +267,17 @@ func TestVerificationDescriptorClosedReplayAndDirectMaterialization(t *testing.T
 					"by_principal":    {},
 					"needs_expansion": {},
 				}
-				require.NoError(t, e.IterateGrantsByEntitlement(ctx, r.GetEntitlement().GetEntitlementId(),
+				require.NoError(t, e.records.IterateGrantsByEntitlement(ctx, r.GetEntitlement().GetEntitlementId(),
 					func(got *v3.GrantRecord) bool {
 						out["by_entitlement"] = append(out["by_entitlement"], got.GetExternalId())
 						return true
 					}))
-				require.NoError(t, e.IterateGrantsByPrincipal(ctx, r.GetPrincipal().GetResourceTypeId(), r.GetPrincipal().GetResourceId(),
+				require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, r.GetPrincipal().GetResourceTypeId(), r.GetPrincipal().GetResourceId(),
 					func(got *v3.GrantRecord) bool {
 						out["by_principal"] = append(out["by_principal"], got.GetExternalId())
 						return true
 					}))
-				require.NoError(t, e.IterateGrantsByNeedsExpansion(ctx, func(got *v3.GrantRecord) bool {
+				require.NoError(t, e.records.IterateGrantsByNeedsExpansion(ctx, func(got *v3.GrantRecord) bool {
 					out["needs_expansion"] = append(out["needs_expansion"], got.GetExternalId())
 					return true
 				}))

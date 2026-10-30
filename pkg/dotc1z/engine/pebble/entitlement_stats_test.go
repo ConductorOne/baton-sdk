@@ -33,15 +33,15 @@ func TestSidecarEntitlementsByResourceType(t *testing.T) {
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err, "StartNewSync")
 
-	require.NoError(t, store.PutResourceTypes(ctx,
+	require.NoError(t, store.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "group"}.Build(),
 		v2.ResourceType_builder{Id: "user"}.Build(),
 	), "PutResourceTypes")
-	require.NoError(t, store.PutResources(ctx,
+	require.NoError(t, store.records.PutResources(ctx,
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "eng"}.Build()}.Build(),
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build()}.Build(),
 	), "PutResources")
-	require.NoError(t, store.PutEntitlements(ctx,
+	require.NoError(t, store.records.PutEntitlements(ctx,
 		mkV2Entitlement("ent-admin", "group", "eng"),
 		mkV2Entitlement("ent-member", "group", "eng"),
 		mkV2Entitlement("ent-view", "user", "alice"),

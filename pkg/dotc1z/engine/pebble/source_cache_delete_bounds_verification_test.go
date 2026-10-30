@@ -39,7 +39,7 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 				for i := range rows {
 					grants = append(grants, scGrant(fmt.Sprintf("member-%d", i), "alice", false))
 				}
-				require.NoError(t, a.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), grants...))
+				require.NoError(t, a.records.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), grants...))
 				return func(ctx context.Context) (int64, error) {
 					return a.Expansion().PebbleEngine().DeleteGrantsByPrincipalsInScope(
 						ctx,
@@ -62,7 +62,7 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 					grants = append(grants, grant)
 					ids[grant.GetId()] = struct{}{}
 				}
-				require.NoError(t, a.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), grants...))
+				require.NoError(t, a.records.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), grants...))
 				return func(ctx context.Context) (int64, error) {
 					return a.Expansion().PebbleEngine().DeleteGrantsByExternalIDsInScope(ctx, "scope-a", ids)
 				}
@@ -82,7 +82,7 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 						SourceScopeKey: "scope-a",
 					}.Build())
 				}
-				require.NoError(t, a.Expansion().PebbleEngine().PutResourceRecords(t.Context(), records...))
+				require.NoError(t, a.Expansion().PebbleEngine().records.PutResourceRecords(t.Context(), records...))
 				return func(ctx context.Context) (int64, error) {
 					return a.Expansion().PebbleEngine().DeleteResourcesByIDsInScope(
 						ctx,
@@ -164,26 +164,26 @@ func TestVerificationEntitlementDeleteBumpsLookupGenPerChunk(t *testing.T) {
 			}.Build(),
 		}.Build())
 	}
-	require.NoError(t, e.PutEntitlementRecords(ctx, records...))
+	require.NoError(t, e.records.PutEntitlementRecords(ctx, records...))
 
 	e.test.sourceCacheDeleteBatchRows = 2
-	genBefore := e.entIDLookupGen.Load()
+	genBefore := e.records.entIDLookupGen.Load()
 	commitCalls := 0
 	sawMidLoopBump := false
 	e.test.sourceCacheDeleteCommitHook = func(kind string, _ int, _ bool) error {
 		require.Equal(t, "entitlements-canonical", kind)
 		commitCalls++
 		if commitCalls == 2 {
-			sawMidLoopBump = e.entIDLookupGen.Load() > genBefore
+			sawMidLoopBump = e.records.entIDLookupGen.Load() > genBefore
 		}
 		return nil
 	}
-	require.NoError(t, e.DeleteEntitlementRecords(ctx, ids, ""))
+	require.NoError(t, e.records.DeleteEntitlementRecords(ctx, ids, ""))
 	e.test.sourceCacheDeleteCommitHook = nil
 	require.GreaterOrEqual(t, commitCalls, 2, "the 5-row delete must chunk at 2 rows")
 	require.True(t, sawMidLoopBump,
 		"chunk 1 landed before chunk 2's pre-commit hook; the lookup generation must already be invalidated")
-	require.Greater(t, e.entIDLookupGen.Load(), genBefore)
+	require.Greater(t, e.records.entIDLookupGen.Load(), genBefore)
 }
 
 // A Pebble batch returns to a process-global pool when closed. The helper must
@@ -195,8 +195,8 @@ func TestVerificationScopedDeleteBatchFinalCloseOwnership(t *testing.T) {
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	grant := scGrant("member", "alice", false)
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-a"), grant))
-	rec, err := a.Expansion().PebbleEngine().GetGrantRecord(ctx, grant.GetId())
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-a"), grant))
+	rec, err := a.Expansion().PebbleEngine().records.GetGrantRecord(ctx, grant.GetId())
 	require.NoError(t, err)
 	id, err := grantIdentityFromRecord(rec)
 	require.NoError(t, err)

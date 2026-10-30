@@ -46,7 +46,7 @@ func seedGrantRT(ctx context.Context, t *testing.T, e *Engine, externalID, entID
 		}.Build(),
 		DiscoveredAt: timestamppb.New(discoveredAt),
 	}.Build()
-	require.NoError(t, e.PutGrantRecord(ctx, rec))
+	require.NoError(t, e.records.PutGrantRecord(ctx, rec))
 }
 
 // seedGrantWithDiscoveredAt is the user-principal shorthand for seedGrantRT.
@@ -154,7 +154,7 @@ func TestV3ListGrantsForEntitlementReturnsUnNerfedRecords(t *testing.T) {
 	// Cross-check the parallel v2 RPC: same grant set, but v2.Grant has no
 	// discovered_at field at all — the whole reason v3 exists. Keep light:
 	// the type simply cannot expose the timestamp.
-	v2Resp, err := e.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+	v2Resp, err := e.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: v3TestEntStub("ent-A"),
 		PageSize:    100,
 	}.Build())

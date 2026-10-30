@@ -74,7 +74,7 @@ func TestPebbleSingleSyncReplaces(t *testing.T) {
 	}
 
 	rs := store.(*pebbleStore)
-	ids := listSyncIDs(t, ctx, rs.Engine)
+	ids := listSyncIDs(t, ctx, rs.engine)
 	require.Len(t, ids, 1, "sync_run count = %d, want 1 (single-sync contract); ids=%v", len(ids), ids)
 	require.Equal(t, lastID, ids[0], "retained sync_id = %q, want most recent %q", ids[0], lastID)
 }
@@ -94,7 +94,7 @@ func TestPebbleSecondSyncWipesPriorData(t *testing.T) {
 	newSyncID := runOneSync(t, ctx, store, "new")
 
 	rs := store.(*pebbleStore)
-	ids := listSyncIDs(t, ctx, rs.Engine)
+	ids := listSyncIDs(t, ctx, rs.engine)
 	require.Len(t, ids, 1)
 	require.Equal(t, newSyncID, ids[0], "post-replace sync IDs = %v, want [%s]", ids, newSyncID)
 
@@ -136,7 +136,7 @@ func TestPebbleCleanupIsNoOp(t *testing.T) {
 	err := rs.Cleanup(ctx)
 	require.NoError(t, err, "Cleanup: %v", err)
 	require.False(t, rs.dirty, "Cleanup marked the store dirty; expected a no-op")
-	ids := listSyncIDs(t, ctx, rs.Engine)
+	ids := listSyncIDs(t, ctx, rs.engine)
 	require.Len(t, ids, 1)
 	require.Equal(t, syncID, ids[0], "post-Cleanup sync IDs = %v, want [%s]", ids, syncID)
 }

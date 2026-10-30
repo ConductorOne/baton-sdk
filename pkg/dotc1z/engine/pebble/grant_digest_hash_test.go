@@ -310,7 +310,7 @@ func TestGrantDigestAccumulatorMatchesSealedRoots(t *testing.T) {
 	for entID, grants := range entGrants {
 		putEnt(t, e, ctx, entID)
 		for _, g := range grants {
-			require.NoError(t, e.PutGrantRecords(ctx, V2GrantToV3("", g)), "PutGrantRecords(%s)", entID)
+			require.NoError(t, e.records.PutGrantRecords(ctx, V2GrantToV3("", g)), "PutGrantRecords(%s)", entID)
 		}
 	}
 	sealGrantDigests(t, e)

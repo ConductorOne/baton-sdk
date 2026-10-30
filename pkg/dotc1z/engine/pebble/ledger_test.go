@@ -106,15 +106,15 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	require.ErrorIs(t, u.StageGrants(testGrantRecord("ent-A", "bob")), ErrPageUnitCommitted)
 	require.ErrorIs(t, u.Commit(ctx, id, nil), ErrPageUnitCommitted)
 
-	_, err = e.GetResourceTypeRecord(ctx, "app")
+	_, err = e.records.GetResourceTypeRecord(ctx, "app")
 	require.NoError(t, err)
-	_, err = e.GetResourceRecord(ctx, "user", "alice")
+	_, err = e.records.GetResourceRecord(ctx, "user", "alice")
 	require.NoError(t, err)
 	n := 0
-	require.NoError(t, e.IterateEntitlementsByResource(ctx, "app", "github", func(*v3.EntitlementRecord) bool { n++; return true }))
+	require.NoError(t, e.records.IterateEntitlementsByResource(ctx, "app", "github", func(*v3.EntitlementRecord) bool { n++; return true }))
 	require.Equal(t, 1, n)
 	n = 0
-	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool { n++; return true }))
+	require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool { n++; return true }))
 	require.Equal(t, 1, n, "inline by_principal index must serve the unit's grant")
 
 	got, err := readLedgerRowRaw(e, id)
@@ -185,17 +185,17 @@ func TestPageUnitFailedCommitLandsNothing(t *testing.T) {
 	e.db.SetRecordCommitTestHook(func() error { return boom })
 	require.ErrorIs(t, u.Commit(ctx, id, nil), boom)
 
-	_, err = e.GetResourceRecord(ctx, "user", "alice")
+	_, err = e.records.GetResourceRecord(ctx, "user", "alice")
 	require.ErrorIs(t, err, pebble.ErrNotFound, "no record from a failed page")
 	_, err = readLedgerRowRaw(e, id)
 	require.ErrorIs(t, err, pebble.ErrNotFound, "no row from a failed page")
 	n := 0
-	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool { n++; return true }))
+	require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool { n++; return true }))
 	require.Zero(t, n, "no index entry from a failed page")
 
 	e.db.SetRecordCommitTestHook(nil)
 	require.NoError(t, u.Commit(ctx, id, nil), "the unit is reusable after a failed commit")
-	_, err = e.GetResourceRecord(ctx, "user", "alice")
+	_, err = e.records.GetResourceRecord(ctx, "user", "alice")
 	require.NoError(t, err)
 	_, err = readLedgerRowRaw(e, id)
 	require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestPageUnitFailedCommitLandsNothing(t *testing.T) {
 	require.NoError(t, d.StageResources(ledgerTestResource("user", "bob")))
 	d.Discard()
 	require.ErrorIs(t, d.Commit(ctx, grantsPageIdentity("github", "p2"), nil), ErrPageUnitCommitted)
-	_, err = e.GetResourceRecord(ctx, "user", "bob")
+	_, err = e.records.GetResourceRecord(ctx, "user", "bob")
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 }
 
@@ -231,17 +231,17 @@ func TestPageUnitReadSeesOwnWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, second, got)
 
-	require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "bob")))
+	require.NoError(t, e.records.PutResourceRecords(ctx, ledgerTestResource("user", "bob")))
 	got, err = u.resourceRecord(ctx, "user", "bob")
 	require.NoError(t, err)
 	require.Equal(t, "bob", got.GetResourceId())
 
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
-	stored, err := e.GetResourceRecord(ctx, "user", "alice")
+	stored, err := e.records.GetResourceRecord(ctx, "user", "alice")
 	require.NoError(t, err)
 	require.Equal(t, "acme", stored.GetParent().GetResourceId(), "last staged occurrence is what lands")
 	n := 0
-	require.NoError(t, e.IterateResourcesByParent(ctx, "org", "acme", func(*v3.ResourceRecord) bool { n++; return true }))
+	require.NoError(t, e.records.IterateResourcesByParent(ctx, "org", "acme", func(*v3.ResourceRecord) bool { n++; return true }))
 	require.Equal(t, 1, n, "by_parent obligation staged for the winning occurrence")
 }
 
@@ -467,7 +467,7 @@ func TestPageUnitCrashImageStoreEqualsLedger(t *testing.T) {
 			}
 			present := 0
 			for i := 0; i < perPage; i++ {
-				_, err := re.GetResourceRecord(ctx, pageRT(p), fmt.Sprintf("r%d", i))
+				_, err := re.records.GetResourceRecord(ctx, pageRT(p), fmt.Sprintf("r%d", i))
 				switch {
 				case err == nil:
 					present++
@@ -663,7 +663,7 @@ func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "u1")))
+		require.NoError(t, e.records.PutResourceRecords(ctx, ledgerTestResource("user", "u1")))
 		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		require.Zero(t, e.test.ledgerResiduePurges.Load(),
 			"a sync with no ledger must not reach Ledger.purgeResidue's db.Compact")
@@ -742,7 +742,7 @@ func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, armed, "nothing survives the excise, so the reset owes no purge")
 
-		require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "z1")))
+		require.NoError(t, e.records.PutResourceRecords(ctx, ledgerTestResource("user", "z1")))
 		require.NoError(t, e.EndSync(ctx))
 		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
 			"the interrupted sync's tokens must not ship in the replacement's artifact")

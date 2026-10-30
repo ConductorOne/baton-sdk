@@ -70,7 +70,7 @@ func TestWriteBarrierSoak(t *testing.T) {
 				if i%2 == 0 {
 					err = e.SessionSet(ctx, fmt.Sprintf("k-%d-%d", w, i), []byte("v"), sid)
 				} else {
-					err = e.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
+					err = e.records.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
 						ExternalId:   fmt.Sprintf("rt-%d-%d", w, i),
 						DisplayName:  "soak",
 						DiscoveredAt: timestamppb.Now(),

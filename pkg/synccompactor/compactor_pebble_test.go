@@ -344,7 +344,7 @@ func TestCompactPebbleInvalidatesSourceCacheReplayState(t *testing.T) {
 			eng, ok := enginepkg.AsEngine(w)
 			require.True(t, ok)
 			expandedCollision := false
-			require.NoError(t, eng.IterateGrants(ctx, func(record *storage_v3.GrantRecord) bool {
+			require.NoError(t, eng.Records().IterateGrants(ctx, func(record *storage_v3.GrantRecord) bool {
 				if record.GetEntitlement().GetEntitlementId() == "access" &&
 					record.GetPrincipal().GetResourceId() == "alice" {
 					require.NotEmpty(t, record.GetSources(),

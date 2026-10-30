@@ -18,6 +18,40 @@ import (
 // test-controlled grant count, so the int->uint32 conversion cannot overflow.
 func pageSizeFor(n int) uint32 { return uint32(n + 10) } //nolint:gosec // small test-controlled count
 
+type engineGrantReader struct{ e *Engine }
+
+func (g engineGrantReader) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
+	return g.e.Records().GetGrant(ctx, req)
+}
+
+func (g engineGrantReader) ListGrantsForEntitlement(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+	return g.e.Records().ListGrantsForEntitlement(ctx, req)
+}
+
+func (g engineGrantReader) ListGrantsForResourceType(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse, error) {
+	return g.e.Records().ListGrantsForResourceType(ctx, req)
+}
+
+func (g engineGrantReader) ListGrantsForEntitlements(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementsResponse, error) {
+	return g.e.Records().ListGrantsForEntitlements(ctx, req)
+}
+
+func (g engineGrantReader) ListGrantsForPrincipal(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForPrincipalResponse, error) {
+	return g.e.Records().ListGrantsForPrincipal(ctx, req)
+}
+
 // seedNGrants writes n grants under ent-A with distinct principals, each with
 // a distinct discovered_at. Returns the engine and its v3 reader.
 func seedNGrants(ctx context.Context, t testing.TB, n int) (*Engine, reader_v3.GrantsReaderServiceServer, reader_v2.GrantsReaderServiceServer) {
@@ -37,9 +71,9 @@ func seedNGrants(ctx context.Context, t testing.TB, n int) (*Engine, reader_v3.G
 			Principal:    v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: fmt.Sprintf("p-%06d", i)}.Build(),
 			DiscoveredAt: timestamppb.New(base.Add(time.Duration(i) * time.Second)),
 		}.Build()
-		require.NoError(t, e.PutGrantRecord(ctx, rec))
+		require.NoError(t, e.records.PutGrantRecord(ctx, rec))
 	}
-	return e, e.V3GrantReader(), e
+	return e, e.V3GrantReader(), engineGrantReader{e}
 }
 
 // === V-17: cost contract (measured/sampled — never closure) ===

@@ -48,7 +48,7 @@ func TestVerificationReplayBatchBoundAndInterruptedRetry(t *testing.T) {
 				SourceScopeKey: "scope-a",
 			}.Build())
 		}
-		require.NoError(t, prev.Expansion().PebbleEngine().PutResourceRecords(ctx, batch...))
+		require.NoError(t, prev.Expansion().PebbleEngine().records.PutResourceRecords(ctx, batch...))
 	}
 	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindResources, "scope-a")
 
@@ -176,7 +176,7 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 						SourceScopeKey: "scope-a",
 					}.Build())
 				}
-				require.NoError(t, prev.Expansion().PebbleEngine().PutResourceRecords(ctx, rows...))
+				require.NoError(t, prev.Expansion().PebbleEngine().records.PutResourceRecords(ctx, rows...))
 			case sourcecache.RowKindEntitlements:
 				var rows []*v3.EntitlementRecord
 				for i := range 3 {
@@ -189,7 +189,7 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 						SourceScopeKey: "scope-a",
 					}.Build())
 				}
-				require.NoError(t, prev.Expansion().PebbleEngine().PutEntitlementRecords(ctx, rows...))
+				require.NoError(t, prev.Expansion().PebbleEngine().records.PutEntitlementRecords(ctx, rows...))
 			case sourcecache.RowKindGrants:
 				var rows []*v3.GrantRecord
 				for i := range 3 {
@@ -207,7 +207,7 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 						SourceScopeKey: "scope-a",
 					}.Build())
 				}
-				require.NoError(t, prev.Expansion().PebbleEngine().PutGrantRecords(ctx, rows...))
+				require.NoError(t, prev.Expansion().PebbleEngine().records.PutGrantRecords(ctx, rows...))
 			}
 			// Seal before the byte-dump so the untouched-source
 			// comparisons below still hold.
@@ -377,7 +377,7 @@ func TestVerificationEntitlementReplayBumpsLookupGenPerChunk(t *testing.T) {
 			SourceScopeKey: "scope-a",
 		}.Build())
 	}
-	require.NoError(t, prev.Expansion().PebbleEngine().PutEntitlementRecords(ctx, records...))
+	require.NoError(t, prev.Expansion().PebbleEngine().records.PutEntitlementRecords(ctx, records...))
 	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindEntitlements, "scope-a")
 
 	dst := newAdapter(t)
@@ -385,7 +385,7 @@ func TestVerificationEntitlementReplayBumpsLookupGenPerChunk(t *testing.T) {
 	require.NoError(t, err)
 	e := dst.Expansion().PebbleEngine()
 	e.test.sourceCacheReplayBatchRows = 2
-	genBefore := e.entIDLookupGen.Load()
+	genBefore := e.records.entIDLookupGen.Load()
 	intermediates := 0
 	sawMidLoopBump := false
 	e.test.sourceCacheReplayCommitHook = func(kind string, _ int, final bool) error {
@@ -395,7 +395,7 @@ func TestVerificationEntitlementReplayBumpsLookupGenPerChunk(t *testing.T) {
 		}
 		intermediates++
 		if intermediates == 2 {
-			sawMidLoopBump = e.entIDLookupGen.Load() > genBefore
+			sawMidLoopBump = e.records.entIDLookupGen.Load() > genBefore
 		}
 		return nil
 	}

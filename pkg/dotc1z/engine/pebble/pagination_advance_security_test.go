@@ -37,8 +37,8 @@ func TestSecurity_PageTokensAdvancePastHostileRows(t *testing.T) {
 		Id:       canonicalTestEntID("ent"),
 		Resource: v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build()}.Build(),
 	}.Build()
-	require.NoError(t, a.PutGrants(ctx, mkV2Grant("", "ent", "user", "u1"), mkV2Grant("", "ent", "user", "u2"), mkV2Grant("", "ent", "user", "u3")))
-	honest, err := e.GetGrantRecord(ctx, canonicalTestGrantID("ent", "user", "u2"))
+	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("", "ent", "user", "u1"), mkV2Grant("", "ent", "user", "u2"), mkV2Grant("", "ent", "user", "u3")))
+	honest, err := e.records.GetGrantRecord(ctx, canonicalTestGrantID("ent", "user", "u2"))
 	require.NoError(t, err)
 	id, err := grantIdentityFromRecord(honest)
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestSecurity_PageTokensAdvancePastHostileRows(t *testing.T) {
 	resources := func(req *v2.ResourcesServiceListResourcesRequest) func(string) ([]string, string, error) {
 		return func(token string) ([]string, string, error) {
 			req.SetPageToken(token)
-			resp, err := a.ListResources(ctx, req)
+			resp, err := a.records.ListResources(ctx, req)
 			var ids []string
 			for _, r := range resp.GetList() {
 				ids = append(ids, r.GetId().GetResource())
@@ -68,7 +68,7 @@ func TestSecurity_PageTokensAdvancePastHostileRows(t *testing.T) {
 	}
 	grantsForEntitlement := func(rts ...string) func(string) ([]string, string, error) {
 		return func(token string) ([]string, string, error) {
-			resp, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			resp, err := a.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 				Entitlement: ent, PrincipalResourceTypeIds: rts, PageSize: 3, PageToken: token,
 			}.Build())
 			return principals(resp.GetList()), resp.GetNextPageToken(), err
@@ -100,7 +100,7 @@ func TestSecurity_PageTokensAdvancePastHostileRows(t *testing.T) {
 		"ListGrantsForEntitlement by principal type": {grantsForEntitlement("user"), principalIDs},
 		"ListGrantsForEntitlements": {
 			func(token string) ([]string, string, error) {
-				resp, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+				resp, err := a.Records().ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 					Entitlements: []*v2.Entitlement{ent}, PageSize: 3, PageToken: token,
 				}.Build())
 				return principals(resp.GetList()), resp.GetNextPageToken(), err

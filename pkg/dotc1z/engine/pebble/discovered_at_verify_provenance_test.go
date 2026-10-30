@@ -47,7 +47,7 @@ func TestV3ReadProvenanceClasses(t *testing.T) {
 		a := NewAdapter(e)
 
 		before := time.Now().Add(-time.Second)
-		require.NoError(t, a.PutGrants(ctx, mkV2Grant("", "ent-A", "user", "alice")))
+		require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("", "ent-A", "user", "alice")))
 		after := time.Now().Add(time.Second)
 
 		id := canonicalTestGrantID("ent-A", "user", "alice")
@@ -76,7 +76,7 @@ func TestV3ReadProvenanceClasses(t *testing.T) {
 			Principal:    v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "alice"}.Build(),
 			DiscoveredAt: timestamppb.New(explicit),
 		}.Build()
-		require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{rec}))
+		require.NoError(t, e.records.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{rec}))
 
 		got := readBack(t, r, "g-synth-explicit")
 		require.NotNil(t, got.GetDiscoveredAt())
@@ -97,7 +97,7 @@ func TestV3ReadProvenanceClasses(t *testing.T) {
 			Principal: v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "bob"}.Build(),
 		}.Build()
 		require.Nil(t, rec.GetDiscoveredAt())
-		require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{rec}))
+		require.NoError(t, e.records.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{rec}))
 		after := time.Now().Add(time.Second)
 
 		got := readBack(t, r, "g-synth-nil")

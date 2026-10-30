@@ -64,10 +64,10 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 		mkV2Grant("g2", "ent-A", "user", "bob"),
 		mkV2Grant("g3", "ent-B", "user", "alice"),
 	}
-	require.NoError(t, a.PutGrants(ctx, grants...), "PutGrants")
+	require.NoError(t, a.records.PutGrants(ctx, grants...), "PutGrants")
 
 	// ListGrants (no filter) → 3 grants.
-	resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	resp, err := a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err, "ListGrants")
 	require.Equal(t, 3, len(resp.GetList()), "ListGrants count")
 
@@ -75,7 +75,7 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 	// → all 3 grants live on this entitlement's resource. This is
 	// the SQLite-compatible semantic; principal-side filtering is
 	// what ListGrantsForPrincipal is for (see below).
-	resp, err = a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+	resp, err = a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		Resource: v2.Resource_builder{
 			Id: v2.ResourceId_builder{
 				ResourceType: "app",
@@ -87,7 +87,7 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 	require.Equal(t, 3, len(resp.GetList()), "ListGrants entitlement-resource count")
 
 	// ListGrantsForPrincipal filtered by principal alice → 2 grants.
-	gforP, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+	gforP, err := a.records.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 		PrincipalId: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "alice",
@@ -98,15 +98,15 @@ func TestAdapterStartSyncAndPutGrants(t *testing.T) {
 
 	// GetGrant single.
 	g1ID := canonicalTestGrantID("ent-A", "user", "alice")
-	g, err := a.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+	g, err := a.records.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 		GrantId: g1ID,
 	}.Build())
 	require.NoError(t, err, "GetGrant")
 	require.Equal(t, g1ID, g.GetGrant().GetId(), "GetGrant id")
 
 	// DeleteGrant
-	require.NoError(t, a.DeleteGrant(ctx, g1ID), "DeleteGrant")
-	resp, err = a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, a.records.DeleteGrant(ctx, g1ID), "DeleteGrant")
+	resp, err = a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Equal(t, 2, len(resp.GetList()), "post-delete count")
 
@@ -120,20 +120,20 @@ func TestAdapterEndSyncClearsEngineCurrentSync(t *testing.T) {
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err, "StartNewSync")
-	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")), "PutGrants")
+	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")), "PutGrants")
 	require.NoError(t, a.EndSync(ctx), "EndSync")
 
 	// EndSync sealed the engine (and cleared its bound sync): a direct
 	// record write must now fail rather than land an orphan record with
 	// no sync run. The seal check fires first — it is the explicit
 	// post-EndSync state; ErrNoCurrentSync would catch it anyway.
-	err = a.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob"))
+	err = a.records.PutGrantRecord(ctx, makeGrant(syncID, "g2", "ent-B", "bob"))
 	require.ErrorIs(t, err, ErrEngineSealed, "direct engine write after EndSync: got %v, want ErrEngineSealed", err)
 
 	// Reads do NOT gate on the bound sync: the finished sync's data
 	// persists and stays readable through the engine after EndSync.
 	count := 0
-	err = a.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
+	err = a.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})
@@ -153,7 +153,7 @@ func TestAdapterUnsafePutUniqueGrantsRequiresFreshSync(t *testing.T) {
 	// resume/rebind would risk stale secondary indexes.
 	require.NoError(t, a.SetCurrentSync(ctx, syncID), "SetCurrentSync")
 
-	err = a.UnsafePutUniqueGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice"))
+	err = a.records.UnsafePutUniqueGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice"))
 	require.Error(t, err, "UnsafePutUniqueGrants unexpectedly succeeded on non-fresh sync")
 	require.ErrorContains(t, err, "sync is not fresh", "UnsafePutUniqueGrants error = %v, want non-fresh error", err)
 }
@@ -169,8 +169,8 @@ func TestAdapterResourcesAndEntitlements(t *testing.T) {
 		v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build(),
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP}}.Build(),
 	}
-	require.NoError(t, a.PutResourceTypes(ctx, rts...), "PutResourceTypes")
-	rtResp, err := a.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
+	require.NoError(t, a.records.PutResourceTypes(ctx, rts...), "PutResourceTypes")
+	rtResp, err := a.records.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Equal(t, 2, len(rtResp.GetList()), "ListResourceTypes")
 
@@ -186,13 +186,13 @@ func TestAdapterResourcesAndEntitlements(t *testing.T) {
 			Id: v2.ResourceId_builder{ResourceType: "group", Resource: "admins"}.Build(),
 		}.Build(),
 	}
-	require.NoError(t, a.PutResources(ctx, resources...))
-	all, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
+	require.NoError(t, a.records.PutResources(ctx, resources...))
+	all, err := a.records.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Equal(t, 3, len(all.GetList()), "ListResources all")
 
 	// Filter by resource type.
-	users, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+	users, err := a.records.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: "user",
 	}.Build())
 	require.NoError(t, err)
@@ -207,13 +207,13 @@ func TestAdapterResourcesAndEntitlements(t *testing.T) {
 			Id: "admin", Resource: resources[2],
 		}.Build(),
 	}
-	require.NoError(t, a.PutEntitlements(ctx, ents...))
-	allEnt, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
+	require.NoError(t, a.records.PutEntitlements(ctx, ents...))
+	allEnt, err := a.records.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Equal(t, 2, len(allEnt.GetList()), "ListEntitlements")
 
 	// Filter entitlements by resource.
-	adminEnts, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+	adminEnts, err := a.records.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		Resource: resources[2],
 	}.Build())
 	require.NoError(t, err)
@@ -227,9 +227,9 @@ func TestAdapterAssetRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 
 	ref := v2.AssetRef_builder{Id: "icon-github"}.Build()
-	require.NoError(t, a.PutAsset(ctx, ref, "image/png", []byte("PNG\x00\x01")), "PutAsset")
+	require.NoError(t, a.records.PutAsset(ctx, ref, "image/png", []byte("PNG\x00\x01")), "PutAsset")
 
-	ct, r, err := a.GetAsset(ctx, v2.AssetServiceGetAssetRequest_builder{
+	ct, r, err := a.records.GetAsset(ctx, v2.AssetServiceGetAssetRequest_builder{
 		Asset: ref,
 	}.Build())
 	require.NoError(t, err, "GetAsset")
@@ -244,7 +244,7 @@ func TestAdapterResumeSync(t *testing.T) {
 	a := newAdapter(t)
 	id1, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
+	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
 	require.NoError(t, a.CheckpointSync(ctx, "step-7"), "CheckpointSync")
 	// Simulate restart by clearing the engine's bound sync (the only
 	// in-memory lifecycle state post-2.6; the step token lives on the
@@ -256,7 +256,7 @@ func TestAdapterResumeSync(t *testing.T) {
 	require.NoError(t, err, "ResumeSync")
 	require.Equal(t, id1, id2, "ResumeSync id mismatch")
 	// Existing grants should be visible.
-	resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	resp, err := a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Equal(t, 1, len(resp.GetList()), "post-resume grants")
 }
@@ -313,7 +313,7 @@ func TestAdapterCurrentDBSizeBytes(t *testing.T) {
 	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	for i := 0; i < 25; i++ {
-		require.NoError(t, a.PutGrants(ctx, mkV2Grant(ksuid.New().String(), "ent", "user", ksuid.New().String())), "PutGrants")
+		require.NoError(t, a.records.PutGrants(ctx, mkV2Grant(ksuid.New().String(), "ent", "user", ksuid.New().String())), "PutGrants")
 	}
 	// Quiesce the WAL before sampling: NoSync commits hand records to
 	// pebble's LogWriter, whose flush loop appends to the file
@@ -335,6 +335,6 @@ func TestAdapterNoCurrentSyncErrors(t *testing.T) {
 	a := newAdapter(t)
 
 	// Without StartNewSync, writes refuse.
-	err := a.PutGrants(ctx, mkV2Grant("g1", "e", "user", "a"))
+	err := a.records.PutGrants(ctx, mkV2Grant("g1", "e", "user", "a"))
 	require.Error(t, err, "PutGrants without sync should error")
 }

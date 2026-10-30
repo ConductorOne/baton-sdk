@@ -30,7 +30,7 @@ func putEnt(t testing.TB, e *Engine, ctx context.Context, entID string) {
 			ResourceId:     "github",
 		}.Build(),
 	}.Build()
-	if err := e.PutEntitlementRecord(ctx, rec); err != nil {
+	if err := e.records.PutEntitlementRecord(ctx, rec); err != nil {
 		t.Fatalf("PutEntitlementRecord: %v", err)
 	}
 }
@@ -178,7 +178,7 @@ func TestGrantDigestIndexSealOnly(t *testing.T) {
 			t.Fatalf("StartNewSync: %v", err)
 		}
 		putEnt(t, e, ctx, "ent-A")
-		if err := e.PutGrantRecords(ctx, grants...); err != nil {
+		if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 			t.Fatalf("PutGrantRecords: %v", err)
 		}
 		return a
@@ -237,13 +237,13 @@ func TestGrantDigestIncludesExpandedGrants(t *testing.T) {
 	putEnt(t, e, ctx, "ent-A")
 
 	// One directly-synced grant.
-	if err := e.PutGrantRecords(ctx, makeGrant("", "g-direct", "ent-A", "alice")); err != nil {
+	if err := e.records.PutGrantRecords(ctx, makeGrant("", "g-direct", "ent-A", "alice")); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	// One expanded grant (with a source), via the expansion write path —
 	// this arms the deferred-index marker.
 	exp := makeGrantWithSources("", "g-expanded", "ent-A", "bob", "src-ent")
-	if err := e.PutExpandedGrantRecords(ctx, []*v3.GrantRecord{exp}); err != nil {
+	if err := e.records.PutExpandedGrantRecords(ctx, []*v3.GrantRecord{exp}); err != nil {
 		t.Fatalf("PutExpandedGrantRecords: %v", err)
 	}
 	if !e.db.DeferredIdxPending() {
@@ -280,7 +280,7 @@ func TestAdapterGetEntitlementGrantDigest(t *testing.T) {
 			t.Fatalf("StartNewSync: %v", err)
 		}
 		putEnt(t, e, ctx, "ent-A")
-		if err := e.PutGrantRecords(ctx,
+		if err := e.records.PutGrantRecords(ctx,
 			makeGrant("", "g1", "ent-A", "alice"),
 			makeGrant("", "g2", "ent-A", "bob"),
 		); err != nil {
@@ -357,7 +357,7 @@ func TestAdapterGrantDigestNodes(t *testing.T) {
 	for range n {
 		grants = append(grants, makeGrant("", ksuid.New().String(), "ent-A", ksuid.New().String()))
 	}
-	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+	if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	if err := a.EndSync(ctx); err != nil {
@@ -450,7 +450,7 @@ func TestAdapterScanGrantBucket(t *testing.T) {
 	for range n {
 		grants = append(grants, makeGrant("", ksuid.New().String(), "ent-A", ksuid.New().String()))
 	}
-	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+	if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	if err := a.EndSync(ctx); err != nil {
@@ -563,7 +563,7 @@ func TestPrincipalBucketHashMatchesServedBuckets(t *testing.T) {
 		principals[i] = fmt.Sprintf("user-%04d", i)
 		grants = append(grants, makeGrant("", fmt.Sprintf("g-%04d", i), "ent-A", principals[i]))
 	}
-	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+	if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	if err := a.EndSync(ctx); err != nil {
@@ -692,7 +692,7 @@ func seedEntitlement(t testing.TB, e *Engine, entID string, grants []*v3.GrantRe
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, entID)
-	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+	if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	sealGrantDigests(t, e)
@@ -721,7 +721,7 @@ func seedEntitlementAtWidth(t testing.TB, e *Engine, entID string, grants []*v3.
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, entID)
-	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+	if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	rebuildDigestAtWidth(t, e, entID, widthBits)
@@ -813,7 +813,7 @@ func TestDigestDifferentWidthsComparison(t *testing.T) {
 	// B's index + digest at width 8 — the seal-style rebuild, since
 	// mutations never maintain either inline.
 	g := makeGrantWithSources("", "g-000", "ent-A", changed, "src-ent")
-	if err := eb.PutGrantRecord(ctx, g); err != nil {
+	if err := eb.records.PutGrantRecord(ctx, g); err != nil {
 		t.Fatalf("PutGrantRecord (mutate): %v", err)
 	}
 	rebuildDigestAtWidth(t, eb, "ent-A", 8)
@@ -889,7 +889,7 @@ func TestGrantDigestZeroGrantRootsAtEndSync(t *testing.T) {
 	}
 	putEnt(t, e, ctx, "ent-with")
 	putEnt(t, e, ctx, "ent-zero")
-	if err := e.PutGrantRecords(ctx, makeGrant("", "g1", "ent-with", "alice")); err != nil {
+	if err := e.records.PutGrantRecords(ctx, makeGrant("", "g1", "ent-with", "alice")); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	if e.db.DeferredIdxPending() {
@@ -1197,7 +1197,7 @@ func TestFusedFoldMatchesPartitionRebuild(t *testing.T) {
 		for range n {
 			grants = append(grants, makeGrant("", ksuid.New().String(), entID, ksuid.New().String()))
 		}
-		if err := e.PutGrantRecords(ctx, grants...); err != nil {
+		if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 			t.Fatalf("PutGrantRecords(%s): %v", entID, err)
 		}
 	}
@@ -1387,7 +1387,7 @@ func TestDigestDeleteInvalidatesAndResealRecalculates(t *testing.T) {
 
 	// Post-seal delete: the digest must be dropped, not silently stale.
 	// v1 invalidation drops the whole entitlement's hash-index range too.
-	if err := e.DeleteGrantRecord(ctx, "g-008"); err != nil {
+	if err := e.records.DeleteGrantRecord(ctx, "g-008"); err != nil {
 		t.Fatalf("DeleteGrantRecord: %v", err)
 	}
 	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, entA); err != nil || ok {
@@ -1436,7 +1436,7 @@ func TestDigestPutInvalidatesOnlyTouchedPartition(t *testing.T) {
 	}
 	putEnt(t, e, ctx, "ent-A")
 	putEnt(t, e, ctx, "ent-B")
-	if err := e.PutGrantRecords(ctx,
+	if err := e.records.PutGrantRecords(ctx,
 		makeGrant("", "ga1", "ent-A", "alice"),
 		makeGrant("", "gb1", "ent-B", "bob"),
 	); err != nil {
@@ -1444,7 +1444,7 @@ func TestDigestPutInvalidatesOnlyTouchedPartition(t *testing.T) {
 	}
 	sealGrantDigests(t, e)
 
-	if err := e.PutGrantRecord(ctx, makeGrant("", "ga2", "ent-A", "dave")); err != nil {
+	if err := e.records.PutGrantRecord(ctx, makeGrant("", "ga2", "ent-A", "dave")); err != nil {
 		t.Fatalf("PutGrantRecord (post-seal): %v", err)
 	}
 	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A")); err != nil || ok {
@@ -1481,10 +1481,10 @@ func TestSealRebuildDropsStaleIndexRows(t *testing.T) {
 	// the old one, addressed by refs — the identity scheme's exact
 	// delete) and reseal. The old (bob) row must be gone and the digest
 	// must reflect the new content.
-	if err := e.PutGrantRecord(ctx, makeGrant("", "g2", "ent-A", "carol")); err != nil {
+	if err := e.records.PutGrantRecord(ctx, makeGrant("", "g2", "ent-A", "carol")); err != nil {
 		t.Fatalf("PutGrantRecord: %v", err)
 	}
-	if err := e.DeleteGrantByIdentityRefs(ctx, makeGrant("", "g2", "ent-A", "bob")); err != nil {
+	if err := e.records.DeleteGrantByIdentityRefs(ctx, makeGrant("", "g2", "ent-A", "bob")); err != nil {
 		t.Fatalf("DeleteGrantByIdentityRefs: %v", err)
 	}
 	sealGrantDigests(t, e)
@@ -1546,7 +1546,7 @@ func TestGrantDigestSpillMerge(t *testing.T) {
 		makeGrant("", "g-s1", "ent-small-1", "alice"),
 		makeGrant("", "g-s2", "ent-small-2", "bob"),
 	)
-	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+	if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 
@@ -1666,7 +1666,7 @@ func TestDigestMissingRootWholeDirty(t *testing.T) {
 	}
 	putEnt(t, eb, ctx, "ent-A")
 	for _, g := range mk() {
-		if err := eb.PutGrantRecord(ctx, g); err != nil {
+		if err := eb.records.PutGrantRecord(ctx, g); err != nil {
 			t.Fatal(err)
 		}
 	}

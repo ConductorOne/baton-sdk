@@ -205,7 +205,7 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 				_, closer, err := e.db.Get(rawdb.DeferredIdxPendingKey())
 				require.NoError(t, err, "the durable marker key must agree with the armed flag")
 				closer.Close()
-				_, err = e.GetGrantRecord(ctx, canonicalTestGrantID("ent-x", "user", "alice"))
+				_, err = e.records.GetGrantRecord(ctx, canonicalTestGrantID("ent-x", "user", "alice"))
 				require.ErrorIs(t, err, pebble.ErrNotFound, "no row of the failed batch may have committed")
 			},
 			converge: func(t *testing.T, ctx context.Context, a *Adapter, syncID string) {
@@ -216,7 +216,7 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 				require.NoError(t, a.Grants().StoreExpandedGrants(ctx, mkV2Grant("", "ent-x", "user", "alice")))
 				require.NoError(t, a.EndSync(ctx))
 				var ents []string
-				require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(r *v3.GrantRecord) bool {
+				require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "alice", func(r *v3.GrantRecord) bool {
 					ents = append(ents, r.GetEntitlement().GetEntitlementId())
 					return true
 				}))
@@ -231,7 +231,7 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 			name: "endsync-stamp-commit-failure",
 			run: func(t *testing.T, ctx context.Context, a *Adapter, _ string) error {
 				e := a.Expansion().PebbleEngine()
-				require.NoError(t, a.PutGrants(ctx, mkV2Grant("", "ent-y", "user", "bob")))
+				require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("", "ent-y", "user", "bob")))
 				e.test.endSyncStampHook = func() error { return injected }
 				t.Cleanup(func() { e.test.endSyncStampHook = nil })
 				return a.EndSync(ctx)

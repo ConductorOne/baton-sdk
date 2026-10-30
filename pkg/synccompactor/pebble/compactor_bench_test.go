@@ -52,7 +52,7 @@ func BenchmarkCompactionFlow(b *testing.B) {
 				for j := 0; j < n; j++ {
 					records = append(records, benchGrant(syncID, j))
 				}
-				if err := src.PutGrantRecords(ctx, records...); err != nil {
+				if err := src.Records().PutGrantRecords(ctx, records...); err != nil {
 					b.Fatalf("PutGrantRecords: %v", err)
 				}
 				if err := src.FinishSync(ctx); err != nil {

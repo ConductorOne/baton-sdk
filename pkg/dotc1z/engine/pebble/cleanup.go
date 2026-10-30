@@ -84,7 +84,7 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		if err := e.initKeyspaceStateLocked(ctx); err != nil {
 			return fmt.Errorf("ResetForNewSync: %w", err)
 		}
-		e.noteEntitlementKeyspaceWrite()
+		e.records.noteEntitlementKeyspaceWrite()
 		return nil
 	})
 }

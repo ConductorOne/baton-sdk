@@ -52,7 +52,7 @@ func buildKWayBenchSources(b *testing.B) (string, []SourceFile) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if err := src.PutResourceTypeRecords(ctx,
+		if err := src.Records().PutResourceTypeRecords(ctx,
 			v3.ResourceTypeRecord_builder{ExternalId: "user", DiscoveredAt: timestamppb.Now()}.Build(),
 			v3.ResourceTypeRecord_builder{ExternalId: "group", DiscoveredAt: timestamppb.Now()}.Build(),
 		); err != nil {
@@ -61,7 +61,7 @@ func buildKWayBenchSources(b *testing.B) (string, []SourceFile) {
 		group := v3.ResourceRecord_builder{
 			ResourceTypeId: "group", ResourceId: "engineering", DiscoveredAt: timestamppb.Now(),
 		}.Build()
-		if err := src.PutResourceRecord(ctx, group); err != nil {
+		if err := src.Records().PutResourceRecord(ctx, group); err != nil {
 			b.Fatal(err)
 		}
 		ent := v3.EntitlementRecord_builder{
@@ -69,7 +69,7 @@ func buildKWayBenchSources(b *testing.B) (string, []SourceFile) {
 			Resource:     v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "engineering"}.Build(),
 			DiscoveredAt: timestamppb.Now(),
 		}.Build()
-		if err := src.PutEntitlementRecord(ctx, ent); err != nil {
+		if err := src.Records().PutEntitlementRecord(ctx, ent); err != nil {
 			b.Fatal(err)
 		}
 		batch := make([]*v3.GrantRecord, 0, grantsPerSource)
@@ -87,7 +87,7 @@ func buildKWayBenchSources(b *testing.B) (string, []SourceFile) {
 				DiscoveredAt: timestamppb.New(time.Unix(int64(1000+sourceIdx), 0).UTC()),
 			}.Build())
 		}
-		if err := src.PutGrantRecords(ctx, batch...); err != nil {
+		if err := src.Records().PutGrantRecords(ctx, batch...); err != nil {
 			b.Fatal(err)
 		}
 		if err := store.EndSync(ctx); err != nil {

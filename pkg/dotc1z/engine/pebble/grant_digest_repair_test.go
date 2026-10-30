@@ -30,7 +30,7 @@ func TestRepairMissingGrantDigestsLeavesGlobalRootMissingOnPartialFailure(t *tes
 	}
 	putEnt(t, e, ctx, "ent-good")
 	putEnt(t, e, ctx, "ent-bad")
-	if err := e.PutGrantRecords(ctx,
+	if err := e.records.PutGrantRecords(ctx,
 		makeGrant("", "g-good", "ent-good", "alice"),
 		makeGrant("", "g-bad", "ent-bad", "bob"),
 	); err != nil {
@@ -103,7 +103,7 @@ func TestRepairMissingGrantDigestsHealsOnlyInvalidatedPartition(t *testing.T) {
 		for range n {
 			grants = append(grants, makeGrant("", ksuid.New().String(), entID, ksuid.New().String()))
 		}
-		if err := e.PutGrantRecords(ctx, grants...); err != nil {
+		if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 			t.Fatalf("PutGrantRecords(%s): %v", entID, err)
 		}
 	}
@@ -157,7 +157,7 @@ func TestRepairMissingGrantDigestsRediscoversInvalidatedOrphan(t *testing.T) {
 	}
 	putEnt(t, e, ctx, "ent-real")
 	// No putEnt for ent-orphan: its grants have no entitlement record.
-	if err := e.PutGrantRecords(ctx,
+	if err := e.records.PutGrantRecords(ctx,
 		makeGrant("", "g1", "ent-real", "alice"),
 		makeGrant("", "g2", "ent-orphan", "bob"),
 		makeGrant("", "g3", "ent-orphan", "carol"),
@@ -197,7 +197,7 @@ func TestRepairMissingGrantDigestsRediscoversZeroGrantEntitlement(t *testing.T) 
 	}
 	putEnt(t, e, ctx, "ent-empty")
 	putEnt(t, e, ctx, "ent-a")
-	if err := e.PutGrantRecords(ctx, makeGrant("", "g1", "ent-a", "alice")); err != nil {
+	if err := e.records.PutGrantRecords(ctx, makeGrant("", "g1", "ent-a", "alice")); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	sealGrantDigests(t, e)
@@ -239,7 +239,7 @@ func TestRepairMissingGrantDigestsFallsBackWhenNeverBuilt(t *testing.T) {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-A")
-	if err := e.PutGrantRecords(ctx, makeGrant("", "g1", "ent-A", "alice")); err != nil {
+	if err := e.records.PutGrantRecords(ctx, makeGrant("", "g1", "ent-A", "alice")); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 
@@ -344,7 +344,7 @@ func TestRepairMissingGrantDigestsCountsMalformedKeys(t *testing.T) {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
 	putEnt(t, e, ctx, "ent-a")
-	if err := e.PutGrantRecords(ctx,
+	if err := e.records.PutGrantRecords(ctx,
 		makeGrant("", "g1", "ent-a", "alice"),
 		makeGrant("", "g2", "ent-a", "bob"),
 	); err != nil {
@@ -415,7 +415,7 @@ func TestRepairStreamsPartitionInBoundedBatches(t *testing.T) {
 		for range n {
 			grants = append(grants, makeGrant("", ksuid.New().String(), entID, ksuid.New().String()))
 		}
-		if err := e.PutGrantRecords(ctx, grants...); err != nil {
+		if err := e.records.PutGrantRecords(ctx, grants...); err != nil {
 			t.Fatalf("PutGrantRecords(%s): %v", entID, err)
 		}
 	}

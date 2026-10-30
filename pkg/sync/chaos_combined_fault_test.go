@@ -25,19 +25,19 @@ import (
 // stores additionally own envelope persistence; this harness deliberately
 // owns only the crashable engine image.
 type chaosPebbleStore struct {
-	*pebble.Engine
+	engine *pebble.Engine
 }
 
 func (s *chaosPebbleStore) Close(context.Context) error {
-	return s.Engine.Close()
+	return s.engine.Close()
 }
 
 func (s *chaosPebbleStore) SyncMeta() c1zstore.SyncMeta {
-	return s.Engine.SyncRuns().SyncMeta()
+	return s.engine.SyncRuns().SyncMeta()
 }
 
 func (s *chaosPebbleStore) SessionStore() sessions.SessionStore {
-	return chaosPebbleSessionStore{engine: s.Engine}
+	return chaosPebbleSessionStore{engine: s.engine}
 }
 
 type chaosPebbleSessionStore struct {
@@ -199,7 +199,7 @@ func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
 	first, err := NewSyncer(
 		ctx,
 		client,
-		WithConnectorStore(&chaosPebbleStore{Engine: engine}),
+		WithConnectorStore(&chaosPebbleStore{engine: engine}),
 		WithDontExpandGrants(),
 	)
 	require.NoError(t, err)
@@ -241,7 +241,7 @@ func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
 	recovered, err := pebble.Open(ctx, "combined-fault-db", pebble.WithVFS(image))
 	require.NoError(t, err, "combined-fault crash image must reopen")
 	require.NoError(t, recovered.InitCurrentSync(ctx))
-	recoveredStore := &chaosPebbleStore{Engine: recovered}
+	recoveredStore := &chaosPebbleStore{engine: recovered}
 	unfinished, err := recovered.SyncRuns().LatestUnfinishedSyncRecord(ctx, nil)
 	require.NoError(t, err)
 	require.NotNil(t, unfinished, "fault after collection began must leave a resumable sync")
@@ -262,10 +262,10 @@ func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, finished, "recovered run must seal")
 	require.Equal(t, unfinished.GetSyncId(), finished.ID, "recovery must resume the interrupted sync")
-	actual, err := chaosoracle.ReadIdentities(ctx, recovered)
+	actual, err := chaosoracle.ReadIdentities(ctx, recovered.Records())
 	require.NoError(t, err)
 	require.NoError(t, chaosoracle.CompareIdentities(expected, actual))
-	resumedContent, err := chaosoracle.ReadLogicalContent(ctx, recovered)
+	resumedContent, err := chaosoracle.ReadLogicalContent(ctx, recovered.Records())
 	require.NoError(t, err)
 	require.NoError(t, chaosoracle.CompareLogicalContent(baselineContent, resumedContent),
 		"recovered logical store must equal the uninterrupted reference")
@@ -281,7 +281,7 @@ func runCombinedFaultBaseline(
 	engine, err := pebble.Open(ctx, "combined-fault-baseline-db", pebble.WithVFS(vfs.NewCrashableMem()))
 	require.NoError(t, err)
 	require.NoError(t, engine.InitCurrentSync(ctx))
-	store := &chaosPebbleStore{Engine: engine}
+	store := &chaosPebbleStore{engine: engine}
 	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
 	require.NoError(t, err)
 	syncer, err := NewSyncer(
@@ -295,7 +295,7 @@ func runCombinedFaultBaseline(
 	finished, err := engine.SyncRuns().SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, finished)
-	content, err := chaosoracle.ReadLogicalContent(ctx, engine)
+	content, err := chaosoracle.ReadLogicalContent(ctx, engine.Records())
 	require.NoError(t, err)
 	require.NoError(t, syncer.Close(ctx))
 	return content

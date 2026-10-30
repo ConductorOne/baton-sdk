@@ -25,7 +25,7 @@ func TestCheckpointToRefusesAfterCompactionFindsCorruption(t *testing.T) {
 	require.NoError(t, e.bindCurrentSync(syncID))
 	for i := range 1000 {
 		p := fmt.Sprintf("p%06d", i)
-		require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("e1", "user", p), "e1", p)))
+		require.NoError(t, e.records.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("e1", "user", p), "e1", p)))
 	}
 	require.NoError(t, e.Close())
 	flipMiddleByte(t, largestSST(t, dir))
@@ -37,7 +37,7 @@ func TestCheckpointToRefusesAfterCompactionFindsCorruption(t *testing.T) {
 	// them and reads every block instead of moving the corrupt table.
 	require.NoError(t, e.bindCurrentSync(syncID))
 	p := "p000000a"
-	require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("e1", "user", p), "e1", p)))
+	require.NoError(t, e.records.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("e1", "user", p), "e1", p)))
 	require.NoError(t, e.Flush(ctx))
 
 	err = e.CompactAllRanges(ctx)

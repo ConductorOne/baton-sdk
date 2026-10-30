@@ -44,7 +44,7 @@ func buildSealBenchEngine(b *testing.B, pages, grants int, grantIndex bool) *Eng
 		if rem := grants - written; rem < m {
 			m = rem
 		}
-		require.NoError(b, e.PutGrantRecords(ctx, makeGrantRecordBatch(syncID, written, m)...))
+		require.NoError(b, e.records.PutGrantRecords(ctx, makeGrantRecordBatch(syncID, written, m)...))
 	}
 
 	for i := 0; i < pages; i++ {

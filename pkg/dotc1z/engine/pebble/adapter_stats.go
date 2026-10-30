@@ -95,34 +95,34 @@ func (r *SyncRuns) statsFromIteration(ctx context.Context, syncID string) (*v3.S
 		EntitlementsByResourceType:      make(map[string]int64),
 	}
 
-	if err := r.e.IterateResourceTypes(ctx, func(r *v3.ResourceTypeRecord) bool {
+	if err := r.e.records.IterateResourceTypes(ctx, func(r *v3.ResourceTypeRecord) bool {
 		stats.ResourceTypes++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := r.e.IterateResources(ctx, func(r *v3.ResourceRecord) bool {
+	if err := r.e.records.IterateResources(ctx, func(r *v3.ResourceRecord) bool {
 		stats.Resources++
 		stats.ResourcesByResourceType[r.GetResourceTypeId()]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := r.e.IterateEntitlements(ctx, func(e *v3.EntitlementRecord) bool {
+	if err := r.e.records.IterateEntitlements(ctx, func(e *v3.EntitlementRecord) bool {
 		stats.Entitlements++
 		stats.EntitlementsByResourceType[e.GetResource().GetResourceTypeId()]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := r.e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	if err := r.e.records.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		stats.Grants++
 		stats.GrantsByEntitlementResourceType[g.GetEntitlement().GetResourceTypeId()]++
 		return true
 	}); err != nil {
 		return nil, err
 	}
-	if err := r.e.IterateAssets(ctx, func(*v3.AssetRecord) bool {
+	if err := r.e.records.IterateAssets(ctx, func(*v3.AssetRecord) bool {
 		stats.Assets++
 		return true
 	}); err != nil {
@@ -202,7 +202,7 @@ func (r *SyncRuns) GrantStats(ctx context.Context, syncType connectorstore.SyncT
 	}
 	// Fallback: iterate.
 	counts := map[string]int64{}
-	if err := r.e.IterateGrants(ctx, func(rec *v3.GrantRecord) bool {
+	if err := r.e.records.IterateGrants(ctx, func(rec *v3.GrantRecord) bool {
 		// Match SQLite's `resource_type_id` column semantic on
 		// the grants table — that's the *entitlement's*
 		// resource type, not the principal's.

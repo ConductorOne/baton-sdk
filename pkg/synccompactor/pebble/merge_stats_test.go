@@ -39,16 +39,16 @@ func writeStatsSource(t *testing.T, ctx context.Context, path string, grants []s
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	now := timestamppb.New(time.Unix(1, 0).UTC())
-	require.NoError(t, eng.PutResourceTypeRecords(ctx,
+	require.NoError(t, eng.Records().PutResourceTypeRecords(ctx,
 		v3.ResourceTypeRecord_builder{ExternalId: "user", DisplayName: "User", DiscoveredAt: now}.Build(),
 		v3.ResourceTypeRecord_builder{ExternalId: "group", DisplayName: "Group", DiscoveredAt: now}.Build(),
 	))
-	require.NoError(t, eng.PutResourceRecords(ctx,
+	require.NoError(t, eng.Records().PutResourceRecords(ctx,
 		v3.ResourceRecord_builder{ResourceTypeId: "group", ResourceId: "engineering", DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "alice", DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "bob", DiscoveredAt: now}.Build(),
 	))
-	require.NoError(t, eng.PutEntitlementRecords(ctx,
+	require.NoError(t, eng.Records().PutEntitlementRecords(ctx,
 		v3.EntitlementRecord_builder{
 			ExternalId:   "member",
 			Resource:     v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "engineering"}.Build(),
@@ -71,7 +71,7 @@ func writeStatsSource(t *testing.T, ctx context.Context, path string, grants []s
 			Principal:    v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: g.principalID}.Build(),
 			DiscoveredAt: now,
 		}.Build()
-		require.NoError(t, eng.PutGrantRecords(ctx, rec))
+		require.NoError(t, eng.Records().PutGrantRecords(ctx, rec))
 	}
 	require.NoError(t, store.EndSync(ctx))
 	require.NoError(t, store.Close(ctx))

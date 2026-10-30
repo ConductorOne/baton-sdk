@@ -17,7 +17,7 @@ func TestResetForNewSyncRederivesKeyspaceFlags(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "u1")))
+	require.NoError(t, e.records.PutResourceRecords(ctx, ledgerTestResource("user", "u1")))
 	require.NoError(t, e.EndSync(ctx))
 
 	require.NoError(t, e.db.ArmDeferredGrantIndex())
