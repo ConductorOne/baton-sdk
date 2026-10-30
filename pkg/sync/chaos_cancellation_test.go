@@ -309,10 +309,10 @@ func TestParallelBatchSecondGenuineFailureStillLogs(t *testing.T) {
 	core, capturedEntries := newCaptureCore()
 	ctx = ctxzap.ToContext(ctx, zap.New(core))
 
-	st := newEmptySchedulerState(t)
-	first := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
-	second := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-2"})
-	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 2}}
+	s, _ := newLedgerSchedulerFixture(t, 2)
+	s.run.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
+	s.run.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-2"})
+	seedLedgerTestRun(t, s, nil)
 
 	// Bounded rendezvous, not a WaitGroup: if the pool ever stops dispatching
 	// these two actions concurrently, the premise is broken and this must fail
@@ -336,7 +336,10 @@ func TestParallelBatchSecondGenuineFailureStillLogs(t *testing.T) {
 		return fmt.Errorf("injected genuine failure for %s", action.ResourceID)
 	}
 
-	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{first, second}, f)
+	_, err := s.syncParallel(ctx, newTestRetryer(ctx), s.run.peekMatchingActions(ctx, SyncGrantsOp), f)
+	mu.Lock()
+	require.Equal(t, 2, arrived)
+	mu.Unlock()
 	require.Error(t, err)
 	require.False(t, premiseFailed.Load(),
 		"premise: both actions must be in flight before either fails, so the second failure is a genuine discovery")
@@ -366,16 +369,19 @@ func TestParallelBatchFailureDuringStopStaysQuiet(t *testing.T) {
 	preBatchCtx, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
 
-	st := newEmptySchedulerState(t)
-	action := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
-	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 1}}
+	s, _ := newLedgerSchedulerFixture(t, 1)
+	s.run.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
+	seedLedgerTestRun(t, s, nil)
 
+	var ran atomic.Bool
 	f := func(ctx context.Context, action *Action) error {
+		ran.Store(true)
 		stop(context.DeadlineExceeded)
 		return fmt.Errorf("genuine failure racing the run-duration deadline")
 	}
 
-	_, err := s.syncParallel(preBatchCtx, newTestRetryer(ctx), []*Action{action}, f)
+	_, err := s.syncParallel(preBatchCtx, newTestRetryer(ctx), s.run.peekMatchingActions(ctx, SyncGrantsOp), f)
+	require.True(t, ran.Load())
 	require.Error(t, err, "the failure must still reach the caller")
 
 	for _, entry := range capturedEntries() {
