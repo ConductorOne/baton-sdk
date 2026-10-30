@@ -420,3 +420,40 @@ func TestListPageWindowGoldenCheckpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, readGoldenToken(t, "v1_list_page_window.json"), encoded)
 }
+
+func TestListPageWindowPendingRefreshCarriesMatchingRevision(t *testing.T) {
+	for _, matchingRevision := range []bool{true, false} {
+		t.Run(fmt.Sprintf("matching-revision=%t", matchingRevision), func(t *testing.T) {
+			ctx := t.Context()
+			f := newLedgerFixture(t)
+			roots := []ledgerAction{{identity: c1zstore.LedgerActionIdentity{
+				Op: SyncResourcesOp.String(), ResourceTypeID: "resource", PageToken: "page-2",
+			}}}
+			require.NoError(t, f.ledger.BeginCollecting(ctx, pendingSeeds(roots), nil))
+			s := &syncer{run: newRunState(), syncID: f.engine.CurrentSyncID()}
+			s.setStore(f.store)
+			require.NoError(t, s.refreshPendingWindow(ctx))
+			prior := s.run.current()
+			require.NotNil(t, prior)
+			durableRevision := prior.WorkRevision
+			prior.WindowPages = 2
+			if !matchingRevision {
+				prior.WorkRevision++
+			}
+			s.run.mu.Lock()
+			s.run.actions[prior.ID] = *prior
+			s.run.mu.Unlock()
+
+			require.NoError(t, s.refreshPendingWindow(ctx))
+			refreshed := s.run.current()
+			require.NotNil(t, refreshed)
+			require.Equal(t, durableRevision, refreshed.WorkRevision)
+			require.Equal(t, "page-2", refreshed.PageToken)
+			if matchingRevision {
+				require.EqualValues(t, 2, refreshed.WindowPages)
+			} else {
+				require.Zero(t, refreshed.WindowPages)
+			}
+		})
+	}
+}

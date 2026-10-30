@@ -126,6 +126,7 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 		return nil, nil
 	}
 	run := syncRunRecordToExported(best)
+	// All finished-sync lookups, including compactor calls, load the cached stats sidecar.
 	stats, _, err := CachedSyncStats(ctx, s.e, run.ID)
 	if err != nil {
 		return nil, fmt.Errorf("read finished sync stats: %w", err)

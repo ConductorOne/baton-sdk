@@ -217,6 +217,7 @@ type SyncStats struct {
 	ConnectorCallStats map[string]*CallStat `protobuf:"bytes,10,rep,name=connector_call_stats,json=connectorCallStats,proto3" json:"connector_call_stats,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	SessionStoreStats  map[string]*CallStat `protobuf:"bytes,11,rep,name=session_store_stats,json=sessionStoreStats,proto3" json:"session_store_stats,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Named syncer counters, including bounded list-walk sampling.
+	// Only list_page_window.* keys are contractual; other keys are engine-dependent internals.
 	Counters      map[string]int64 `protobuf:"bytes,12,rep,name=counters,proto3" json:"counters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -398,6 +399,7 @@ type SyncStats_builder struct {
 	ConnectorCallStats map[string]*CallStat
 	SessionStoreStats  map[string]*CallStat
 	// Named syncer counters, including bounded list-walk sampling.
+	// Only list_page_window.* keys are contractual; other keys are engine-dependent internals.
 	Counters map[string]int64
 }
 
