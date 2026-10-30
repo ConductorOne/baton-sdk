@@ -28,6 +28,60 @@ import (
 // emits progress logs during a large expansion.
 const projectionProgressInterval = 15 * time.Second
 
+var projectionScratchMem bool
+
+type discardProjectionLogger struct{}
+
+func (discardProjectionLogger) Infof(string, ...any)  {}
+func (discardProjectionLogger) Errorf(string, ...any) {}
+func (discardProjectionLogger) Fatalf(string, ...any) {}
+
+type projectionScratch struct {
+	db      *pebble.DB
+	fs      vfs.FS
+	sstPath string
+	cleanup func()
+}
+
+func openProjectionScratch() (*projectionScratch, error) {
+	if projectionScratchMem {
+		fs := vfs.NewMem()
+		db, err := pebble.Open("db", &pebble.Options{
+			FS:         fs,
+			DisableWAL: true,
+			Logger:     discardProjectionLogger{},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("topological projection: open temp db: %w", err)
+		}
+		return &projectionScratch{
+			db:      db,
+			fs:      fs,
+			sstPath: "projection.sst",
+			cleanup: func() { _ = db.Close() },
+		}, nil
+	}
+
+	tempDir, err := os.MkdirTemp("", "baton-expand-projection-*")
+	if err != nil {
+		return nil, fmt.Errorf("topological projection: temp dir: %w", err)
+	}
+	db, err := pebble.Open(filepath.Join(tempDir, "db"), &pebble.Options{})
+	if err != nil {
+		_ = os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("topological projection: open temp db: %w", err)
+	}
+	return &projectionScratch{
+		db:      db,
+		fs:      vfs.Default,
+		sstPath: filepath.Join(tempDir, "projection.sst"),
+		cleanup: func() {
+			_ = db.Close()
+			_ = os.RemoveAll(tempDir)
+		},
+	}, nil
+}
+
 // RunTopologicalMergeProjection runs topological pull expansion using a
 // temporary source projection DB for finalized source streams. The projection
 // avoids repeatedly materializing parent grants through permanent grant scans
@@ -41,17 +95,12 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	metrics := &EntitlementGraphMetrics{Algorithm: "topological_projection"}
 	e.graph.ExpansionMetrics = metrics
 
-	tempDir, err := os.MkdirTemp("", "baton-expand-projection-*")
+	scratch, err := openProjectionScratch()
 	if err != nil {
-		return fmt.Errorf("topological projection: temp dir: %w", err)
+		return err
 	}
-	defer os.RemoveAll(tempDir)
-
-	projDB, err := pebble.Open(filepath.Join(tempDir, "db"), &pebble.Options{})
-	if err != nil {
-		return fmt.Errorf("topological projection: open temp db: %w", err)
-	}
-	defer projDB.Close()
+	defer scratch.cleanup()
+	projDB := scratch.db
 
 	entitlements, layers, err := e.prepareTopological(ctx)
 	if err != nil {
@@ -64,7 +113,7 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 
 	l := ctxzap.Extract(ctx)
 	buildStart := time.Now()
-	rows, err := e.buildProjectionDB(ctx, projDB, tempDir, entitlements, projectionSources)
+	rows, err := e.buildProjectionDB(ctx, projDB, scratch.fs, scratch.sstPath, entitlements, projectionSources)
 	if err != nil {
 		return err
 	}
@@ -194,18 +243,15 @@ func (e *Expander) mergeDestinationStreams(
 //
 // Entitlements are processed in sorted id order, and the tuple-encoded
 // projection key is prefix-ordered by entitlement, so each entitlement's rows
-// form a contiguous, globally-ordered block. When the store yields grants in
-// principal order (Pebble's entitlement-first primary grant key — see
-// ExpanderStore.GrantsForEntitlementPrincipalSorted) the rows arrive already in
-// projection-key order and are streamed straight into
-// the SST writer with only one page resident. Otherwise (SQLite orders by grant
-// id) each entitlement's rows are buffered and sorted before being appended,
-// bounding memory to a single entitlement's grants rather than the whole
-// projection. The SST writer asserts strict cross-block ordering as a safety net.
+// form a contiguous, globally-ordered block. Grants arrive in principal order,
+// so each entitlement's rows are already in projection-key order and are
+// streamed straight into the SST writer with only one page resident. The SST
+// writer asserts strict cross-block ordering as a safety net.
 func (e *Expander) buildProjectionDB(
 	ctx context.Context,
 	projDB *pebble.DB,
-	tempDir string,
+	fs vfs.FS,
+	sstPath string,
 	entitlements map[string]*v2.Entitlement,
 	projectionSources map[string]struct{},
 ) (int, error) {
@@ -218,22 +264,17 @@ func (e *Expander) buildProjectionDB(
 	}
 	sort.Strings(entIDs)
 
-	principalSorted := e.store.GrantsForEntitlementPrincipalSorted()
-
-	sstPath := filepath.Join(tempDir, "projection.sst")
-	w, err := newProjectionSSTWriter(sstPath)
+	w, err := newProjectionSSTWriter(fs, sstPath)
 	if err != nil {
 		return 0, err
 	}
 	defer w.abort() // no-op once finish() succeeds.
 
-	var block []projectionKV
 	for _, entID := range entIDs {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
 		ent := entitlements[entID]
-		block = block[:0]
 		pageToken := ""
 		for {
 			if err := ctx.Err(); err != nil {
@@ -254,29 +295,13 @@ func (e *Expander) buildProjectionDB(
 				if !ok {
 					continue
 				}
-				if principalSorted {
-					// Already in projection-key order; stream directly.
-					if err := w.add(key, val); err != nil {
-						return 0, err
-					}
-					continue
+				if err := w.add(key, val); err != nil {
+					return 0, err
 				}
-				block = append(block, projectionKV{key: key, val: val})
 			}
 			pageToken = resp.GetNextPageToken()
 			if pageToken == "" {
 				break
-			}
-		}
-		if principalSorted {
-			continue
-		}
-		sort.Slice(block, func(i, j int) bool {
-			return bytes.Compare(block[i].key, block[j].key) < 0
-		})
-		for _, kv := range block {
-			if err := w.add(kv.key, kv.val); err != nil {
-				return 0, err
 			}
 		}
 	}
@@ -291,11 +316,6 @@ func (e *Expander) buildProjectionDB(
 		return 0, fmt.Errorf("topological projection: ingest projection: %w", err)
 	}
 	return w.count, nil
-}
-
-type projectionKV struct {
-	key []byte
-	val []byte
 }
 
 func encodeProjectionKV(grant *v2.Grant, entitlementID string) ([]byte, []byte, bool, error) {
@@ -486,6 +506,7 @@ func projectionPrefix(entitlementID string) []byte {
 // keys and rejects any out-of-order key, so a violated ordering assumption fails
 // loud instead of producing a corrupt SST.
 type projectionSSTWriter struct {
+	fs       vfs.FS
 	path     string
 	w        *sstable.Writer
 	last     []byte
@@ -493,15 +514,15 @@ type projectionSSTWriter struct {
 	finished bool
 }
 
-func newProjectionSSTWriter(path string) (*projectionSSTWriter, error) {
-	file, err := vfs.Default.Create(path, vfs.WriteCategoryUnspecified)
+func newProjectionSSTWriter(fs vfs.FS, path string) (*projectionSSTWriter, error) {
+	file, err := fs.Create(path, vfs.WriteCategoryUnspecified)
 	if err != nil {
 		return nil, err
 	}
 	w := sstable.NewWriter(objstorageprovider.NewFileWritable(file), sstable.WriterOptions{
 		BlockSize: 32 << 10,
 	})
-	return &projectionSSTWriter{path: path, w: w}, nil
+	return &projectionSSTWriter{fs: fs, path: path, w: w}, nil
 }
 
 func (p *projectionSSTWriter) add(key, val []byte) error {
@@ -534,7 +555,7 @@ func (p *projectionSSTWriter) abort() {
 		return
 	}
 	_ = p.w.Close()
-	_ = os.Remove(p.path)
+	_ = p.fs.Remove(p.path)
 }
 
 type projectionContributionStream struct {

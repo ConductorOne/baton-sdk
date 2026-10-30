@@ -185,6 +185,7 @@ func (m differentialMutation) String() string {
 
 func runDifferentialScript(t *testing.T, seed int64) (int, int, map[differentialMutation]int) {
 	t.Helper()
+	useMemProjectionScratch(t)
 	ctx := context.Background()
 	rng := rand.New(rand.NewSource(seed ^ 0x5eed)) //nolint:gosec // deterministic fixture generation
 	model := randomExpansionCase(seed)

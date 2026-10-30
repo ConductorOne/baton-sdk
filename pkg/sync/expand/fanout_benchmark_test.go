@@ -2,6 +2,7 @@ package expand
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -40,6 +41,9 @@ func newFanoutStore(sourceEntID string, members int) *fanoutStore {
 			Principal:   principal,
 		}.Build()
 	}
+	sort.SliceStable(grants, func(i, j int) bool {
+		return grantPrincipalLess(grants[i], grants[j])
+	})
 	return &fanoutStore{sourceEntID: sourceEntID, sourceGrants: grants}
 }
 
@@ -77,11 +81,6 @@ func (s *fanoutStore) StoreExpandedGrants(_ context.Context, grants ...*v2.Grant
 	s.written.Add(int64(len(grants)))
 	return nil // discard: keeps memory bounded at 10M scale
 }
-
-// GrantsForEntitlementPrincipalSorted is false: this store exercises the
-// source-batched expander's read-amplification path, and its member grants are
-// not emitted in principal order.
-func (s *fanoutStore) GrantsForEntitlementPrincipalSorted() bool { return false }
 
 // benchmarkFanout builds a 1-source -> N-dest graph and expands it once per op.
 func benchmarkFanout(b *testing.B, members, dests int) {

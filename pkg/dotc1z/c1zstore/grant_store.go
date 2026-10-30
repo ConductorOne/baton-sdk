@@ -24,8 +24,6 @@ type GrantStore interface {
 	// (otherwise we'd corrupt expansion state that has already been
 	// marked "done"). For robustness, any residual GrantExpandable
 	// annotation on the input is stripped from the persisted payload.
-	//
-	// Called by pkg/sync/expand.PutGrantsInChunks.
 	StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
 
 	// PendingExpansionPage returns the next page of grants whose

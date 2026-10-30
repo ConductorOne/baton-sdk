@@ -71,8 +71,6 @@ type ledgerGuardedStore struct {
 	c1zstore.GrantGenerationDigestReader
 	dotc1z.IngestInvariantStore
 	connectorstore.DBSizeProvider
-	grantPrincipalKeyLister
-	principalSortedGrantLister
 	c1zstore.Store
 	c1zstore.PageLedgerStore
 	c1zstore.WriteHookStore
@@ -175,8 +173,7 @@ func openLedgerFixtureAt(t *testing.T, path string, start bool) *ledgerFixture {
 		Store: store, PageLedgerStore: caps.pageLedger, WriteHookStore: caps.writeHook,
 		caps: caps, audit: audit, EntitlementGraphStore: caps.entitlementGraph,
 		GrantGenerationDigestReader: caps.grantDigest, IngestInvariantStore: caps.ingestFacts,
-		DBSizeProvider: caps.dbSize, grantPrincipalKeyLister: caps.grantPrincipalKeys,
-		principalSortedGrantLister: caps.principalSortedGrants,
+		DBSizeProvider: caps.dbSize,
 	}
 	f := &ledgerFixture{path: path, store: guarded, ledger: guarded, engine: raw, audit: audit}
 	t.Cleanup(func() {

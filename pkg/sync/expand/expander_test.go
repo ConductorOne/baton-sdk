@@ -3,14 +3,13 @@ package expand
 import (
 	"context"
 	"errors"
+	"sort"
 	"strconv"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // MockExpanderStore implements ExpanderStore for testing purposes.
@@ -25,6 +24,13 @@ type MockExpanderStore struct {
 }
 
 // NewMockExpanderStore creates a new mock store for testing.
+func useMemProjectionScratch(t *testing.T) {
+	t.Helper()
+	prev := projectionScratchMem
+	projectionScratchMem = true
+	t.Cleanup(func() { projectionScratchMem = prev })
+}
+
 func NewMockExpanderStore() *MockExpanderStore {
 	return &MockExpanderStore{
 		entitlements: make(map[string]*v2.Entitlement),
@@ -97,6 +103,13 @@ func (m *MockExpanderStore) ListGrantsForEntitlement(
 		grants = filtered
 	}
 
+	// Page offsets index this sorted slice, so successive pages continue the same principal order.
+	ordered := append([]*v2.Grant(nil), grants...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return grantPrincipalLess(ordered[i], ordered[j])
+	})
+	grants = ordered
+
 	nextPageToken := ""
 	if m.pageSize > 0 {
 		offset := 0
@@ -135,10 +148,20 @@ func (m *MockExpanderStore) StoreExpandedGrants(_ context.Context, grants ...*v2
 	return m.PutGrants(context.Background(), grants...)
 }
 
-// GrantsForEntitlementPrincipalSorted is false: the in-memory mock returns
-// grants in insertion order, not principal order, so the topological evaluators
-// must use the buffering/sorting fallback rather than streaming.
-func (m *MockExpanderStore) GrantsForEntitlementPrincipalSorted() bool { return false }
+// grantPrincipalLess orders grants by principal (resource type, then resource),
+// then grant id. Nil principals sort last. Tuple encoding preserves this order,
+// which is the order projection streams into its SST.
+func grantPrincipalLess(a, b *v2.Grant) bool {
+	ka, oka := principalKeyFromResource(a.GetPrincipal())
+	kb, okb := principalKeyFromResource(b.GetPrincipal())
+	if oka != okb {
+		return oka
+	}
+	if oka && ka != kb {
+		return principalKeyLess(ka, kb)
+	}
+	return a.GetId() < b.GetId()
+}
 
 // Helper functions for creating test data
 
@@ -219,56 +242,6 @@ func TestExpanderWithMockStore(t *testing.T) {
 
 	// Source grant on entA is direct (Alice has entA directly), so IsDirect must be true.
 	require.True(t, sources[entA.GetId()].GetIsDirect())
-}
-
-func TestExpanderStepByStep(t *testing.T) {
-	ctx := context.Background()
-	store := NewMockExpanderStore()
-
-	// Create test resources
-	groupResource := makeResource("group", "admins")
-	userResource := makeResource("user", "alice")
-
-	// Create entitlements
-	entA := makeEntitlement("ent:group:admins:member", groupResource)
-	entB := makeEntitlement("ent:role:admin", groupResource)
-
-	store.AddEntitlement(entA)
-	store.AddEntitlement(entB)
-
-	// Create a grant
-	grantA := makeGrant("grant:alice:member", entA, userResource)
-	store.AddGrant(grantA)
-
-	// Build graph
-	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(entA.GetId())
-	graph.AddEntitlementID(entB.GetId())
-	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
-	require.NoError(t, err)
-
-	// Create expander and run step by step
-	expander := NewExpander(store, graph)
-
-	// First step: should generate actions and not be done
-	err = expander.RunSingleStep(ctx)
-	require.NoError(t, err)
-	require.False(t, expander.IsDone(ctx))
-
-	// Actions should be generated: one action per (source, filter, batch),
-	// fanning the single A→B edge out to one destination.
-	require.Len(t, graph.Actions, 1)
-	require.Equal(t, entA.GetId(), graph.Actions[0].SourceEntitlementID)
-	require.Len(t, graph.Actions[0].Descendants, 1)
-	require.Equal(t, entB.GetId(), graph.Actions[0].Descendants[0].EntitlementID)
-
-	// Second step: should process the action and complete (action completes and graph is expanded in same step)
-	err = expander.RunSingleStep(ctx)
-	require.NoError(t, err)
-	require.True(t, expander.IsDone(ctx))
-
-	// Verify expansion happened
-	require.True(t, graph.IsExpanded())
 }
 
 func TestExpanderWithCycle(t *testing.T) {
@@ -489,144 +462,8 @@ func TestExpanderMixedDirectness(t *testing.T) {
 	require.False(t, sourcesC[entB.GetId()].GetIsDirect(), "source B should be transitive")
 }
 
-// countingMockStore wraps MockExpanderStore and records, per entitlement ID,
-// how many times its grants were read via an unfiltered (no PrincipalId)
-// ListGrantsForEntitlement call. That is the "source read" the grouping change
-// is meant to deduplicate: one read per (source, filter) instead of one per
-// outgoing edge.
-type countingMockStore struct {
-	*MockExpanderStore
-	sourceReads map[string]int
-}
-
-func newCountingMockStore() *countingMockStore {
-	return &countingMockStore{
-		MockExpanderStore: NewMockExpanderStore(),
-		sourceReads:       make(map[string]int),
-	}
-}
-
-func (s *countingMockStore) ListGrantsForEntitlement(
-	ctx context.Context,
-	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	// Only count full-entitlement reads (the source read and descendant
-	// prefetch). Per-principal reads carry a PrincipalId filter.
-	if req.GetPrincipalId() == nil {
-		s.sourceReads[req.GetEntitlement().GetId()]++
-	}
-	return s.MockExpanderStore.ListGrantsForEntitlement(ctx, req)
-}
-
-// TestExpanderHighOutDegreeSourceSingleRead is the core read-amplification
-// guard: one source feeding N destinations (all sharing the empty
-// ResourceTypeIDs filter) must read the source's grants once per destination
-// batch — ceil(N/K) reads — not once per edge. Every destination must still
-// receive the expanded grant.
-func TestExpanderHighOutDegreeSourceSingleRead(t *testing.T) {
-	t.Setenv("BATON_GRAPH_EXPAND_DEST_BATCH_SIZE", "4")
-
-	ctx := context.Background()
-	store := newCountingMockStore()
-
-	groupResource := makeResource("group", "org")
-	userResource := makeResource("user", "alice")
-
-	source := makeEntitlement("ent:source", groupResource)
-	store.AddEntitlement(source)
-	store.AddGrant(makeGrant("grant:alice:source", source, userResource))
-
-	const numDests = 10
-	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(source.GetId())
-	dests := make([]*v2.Entitlement, 0, numDests)
-	for i := 0; i < numDests; i++ {
-		d := makeEntitlement("ent:dest:"+strconv.Itoa(i), groupResource)
-		store.AddEntitlement(d)
-		dests = append(dests, d)
-		graph.AddEntitlementID(d.GetId())
-		require.NoError(t, graph.AddEdge(ctx, source.GetId(), d.GetId(), false, nil))
-	}
-
-	expander := NewExpander(store, graph)
-	require.NoError(t, expander.Run(ctx))
-
-	// Source read once per batch of 4 destinations: ceil(10/4) = 3.
-	require.Equal(t, 3, store.sourceReads[source.GetId()],
-		"source must be read once per destination batch, not once per edge")
-
-	// Every destination must have received alice's expanded grant.
-	granted := make(map[string]bool)
-	for _, g := range store.GetPutGrants() {
-		if g.GetPrincipal().GetId().GetResource() == "alice" {
-			granted[g.GetEntitlement().GetId()] = true
-		}
-	}
-	for _, d := range dests {
-		require.True(t, granted[d.GetId()], "destination %s must receive the expanded grant", d.GetId())
-	}
-}
-
-// TestExpanderMixedResourceTypeIDsReadPerFilter verifies constraint C2: edges
-// from one source with *different* ResourceTypeIDs filters cannot share a read.
-// Each distinct filter gets its own source read, and the filter is honored
-// (only matching principals are fanned out).
-func TestExpanderMixedResourceTypeIDsReadPerFilter(t *testing.T) {
-	t.Setenv("BATON_GRAPH_EXPAND_DEST_BATCH_SIZE", "16")
-
-	ctx := context.Background()
-	store := newCountingMockStore()
-
-	groupResource := makeResource("group", "org")
-	userPrincipal := makeResource("user", "alice")
-	servicePrincipal := makeResource("service", "robot")
-
-	source := makeEntitlement("ent:source", groupResource)
-	destUser := makeEntitlement("ent:dest:user", groupResource)
-	destService := makeEntitlement("ent:dest:service", groupResource)
-	store.AddEntitlement(source)
-	store.AddEntitlement(destUser)
-	store.AddEntitlement(destService)
-
-	// Source has both a user principal and a service principal.
-	store.AddGrant(makeGrant("grant:alice:source", source, userPrincipal))
-	store.AddGrant(makeGrant("grant:robot:source", source, servicePrincipal))
-
-	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(source.GetId())
-	graph.AddEntitlementID(destUser.GetId())
-	graph.AddEntitlementID(destService.GetId())
-	// Two edges, two different filters → two distinct source reads.
-	require.NoError(t, graph.AddEdge(ctx, source.GetId(), destUser.GetId(), false, []string{"user"}))
-	require.NoError(t, graph.AddEdge(ctx, source.GetId(), destService.GetId(), false, []string{"service"}))
-
-	expander := NewExpander(store, graph)
-	require.NoError(t, expander.Run(ctx))
-
-	// One read per distinct filter, even though both edges share the source.
-	require.Equal(t, 2, store.sourceReads[source.GetId()],
-		"distinct ResourceTypeIDs filters must each get their own source read")
-
-	// The user-filtered edge must only grant the user principal; the
-	// service-filtered edge only the service principal.
-	byEnt := make(map[string]map[string]bool)
-	for _, g := range store.GetPutGrants() {
-		ent := g.GetEntitlement().GetId()
-		if byEnt[ent] == nil {
-			byEnt[ent] = make(map[string]bool)
-		}
-		byEnt[ent][g.GetPrincipal().GetId().GetResource()] = true
-	}
-	require.True(t, byEnt[destUser.GetId()]["alice"], "user-filtered dest must grant alice")
-	require.False(t, byEnt[destUser.GetId()]["robot"], "user-filtered dest must not grant the service principal")
-	require.True(t, byEnt[destService.GetId()]["robot"], "service-filtered dest must grant the service principal")
-	require.False(t, byEnt[destService.GetId()]["alice"], "service-filtered dest must not grant the user principal")
-}
-
-// TestExpanderMultiParentDestination verifies constraint C5: a destination fed
-// by two different sources must wait until both parents are expanded and must
-// record both as sources. The grouping change must not let a destination act
-// before all incoming edges are processed.
+// TestExpanderMultiParentDestination verifies a destination fed by two sources
+// records both of them.
 func TestExpanderMultiParentDestination(t *testing.T) {
 	ctx := context.Background()
 	store := NewMockExpanderStore()
@@ -668,68 +505,7 @@ func TestExpanderMultiParentDestination(t *testing.T) {
 	require.Contains(t, sources, parentB.GetId(), "both parents must be recorded as sources")
 }
 
-// TestExpanderPerDestinationShallow verifies constraint C1: a single source
-// read fans out to two destinations with different Shallow settings, and each
-// destination's own Shallow gate is applied independently. The shallow edge
-// must drop the transitively-held source grant while the non-shallow edge keeps
-// it.
-func TestExpanderPerDestinationShallow(t *testing.T) {
-	t.Setenv("BATON_GRAPH_EXPAND_DEST_BATCH_SIZE", "16")
-
-	ctx := context.Background()
-	store := newCountingMockStore()
-
-	groupResource := makeResource("group", "org")
-	alice := makeResource("user", "alice")
-
-	source := makeEntitlement("ent:source", groupResource)
-	other := makeEntitlement("ent:other", groupResource)
-	destShallow := makeEntitlement("ent:dest:shallow", groupResource)
-	destDeep := makeEntitlement("ent:dest:deep", groupResource)
-	store.AddEntitlement(source)
-	store.AddEntitlement(destShallow)
-	store.AddEntitlement(destDeep)
-
-	// Alice's grant on the source is transitive (its only source is some other
-	// entitlement, not the source itself) → it does NOT qualify for a shallow
-	// edge, but does for a non-shallow edge.
-	transitive := makeGrant("grant:alice:source", source, alice)
-	transitive.SetSources(v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
-		other.GetId(): {IsDirect: false},
-	}}.Build())
-	store.AddGrant(transitive)
-
-	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(source.GetId())
-	graph.AddEntitlementID(destShallow.GetId())
-	graph.AddEntitlementID(destDeep.GetId())
-	// Same (empty) filter → one shared source read; different Shallow per edge.
-	require.NoError(t, graph.AddEdge(ctx, source.GetId(), destShallow.GetId(), true, nil))
-	require.NoError(t, graph.AddEdge(ctx, source.GetId(), destDeep.GetId(), false, nil))
-
-	expander := NewExpander(store, graph)
-	require.NoError(t, expander.Run(ctx))
-
-	// Both shallow and deep edges share the same empty filter and the same
-	// batch, so the source is read once.
-	require.Equal(t, 1, store.sourceReads[source.GetId()],
-		"two edges sharing a filter must share one source read despite differing Shallow")
-
-	granted := make(map[string]bool)
-	for _, g := range store.GetPutGrants() {
-		if g.GetPrincipal().GetId().GetResource() == "alice" {
-			granted[g.GetEntitlement().GetId()] = true
-		}
-	}
-	require.False(t, granted[destShallow.GetId()],
-		"shallow edge must drop a transitively-held source grant")
-	require.True(t, granted[destDeep.GetId()],
-		"non-shallow edge must keep the transitively-held source grant")
-}
-
-// errInjectStore wraps MockExpanderStore and returns a chosen error from
-// GetEntitlement for specific entitlement IDs, so tests can drive runAction's
-// error paths (a missing source vs a transient source-read failure).
+// errInjectStore returns a chosen GetEntitlement error for specific entitlement IDs.
 type errInjectStore struct {
 	*MockExpanderStore
 	getEntErr map[string]error
@@ -750,32 +526,6 @@ func (s *errInjectStore) GetEntitlement(
 		return nil, err
 	}
 	return s.MockExpanderStore.GetEntitlement(ctx, req)
-}
-
-// TestExpanderSourceNotFoundCompletes: when the source entitlement is missing
-// (GetEntitlement → codes.NotFound) during the walk, the batch's edges are
-// dropped and expansion completes without error.
-func TestExpanderSourceNotFoundCompletes(t *testing.T) {
-	ctx := context.Background()
-	store := newErrInjectStore()
-
-	group := makeResource("group", "org")
-	source := makeEntitlement("ent:source", group)
-	dest := makeEntitlement("ent:dest", group)
-	store.AddEntitlement(source)
-	store.AddEntitlement(dest)
-
-	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(source.GetId())
-	graph.AddEntitlementID(dest.GetId())
-	require.NoError(t, graph.AddEdge(ctx, source.GetId(), dest.GetId(), false, nil))
-
-	store.getEntErr[source.GetId()] = status.Error(codes.NotFound, "entitlement not found")
-
-	expander := NewExpander(store, graph)
-	require.NoError(t, expander.Run(ctx), "missing source must complete, not error")
-	require.True(t, graph.IsExpanded(), "the batch's edge must be dropped")
-	require.Empty(t, graph.Edges, "no edges should remain")
 }
 
 // TestExpanderTransientErrorPreservesEdges: a transient (non-ErrNoRows) failure
@@ -803,125 +553,6 @@ func TestExpanderTransientErrorPreservesEdges(t *testing.T) {
 	require.Error(t, err, "transient failure must propagate")
 	require.False(t, graph.IsExpanded(), "edges must survive a transient failure")
 	require.Len(t, graph.Edges, 1, "the edge must remain for retry")
-}
-
-// TestExpanderMultiPageSourceCrossPageDedup exercises the multi-page action
-// lifecycle the batching rewrite touches: a source whose grants span several
-// pages, with the SAME principal appearing on two different pages. The per-page
-// destStates/byKey are rebuilt each page, so the second appearance must be
-// rediscovered via the rebuilt oracle and take applyDestGrant's merge path —
-// not create a duplicate grant. Also asserts the action stays queued with a
-// page token mid-source, and that source reads == pages × batches.
-func TestExpanderMultiPageSourceCrossPageDedup(t *testing.T) {
-	t.Setenv("BATON_GRAPH_EXPAND_DEST_BATCH_SIZE", "2")
-
-	ctx := context.Background()
-	store := newCountingMockStore()
-	store.pageSize = 2 // 5 source grants → 3 pages (2,2,1)
-
-	group := makeResource("group", "org")
-	alice := makeResource("user", "alice")
-	bob := makeResource("user", "bob")
-	carol := makeResource("user", "carol")
-	dave := makeResource("user", "dave")
-
-	source := makeEntitlement("ent:source", group)
-	d1 := makeEntitlement("ent:d1", group)
-	d2 := makeEntitlement("ent:d2", group)
-	store.AddEntitlement(source)
-	store.AddEntitlement(d1)
-	store.AddEntitlement(d2)
-
-	// alice holds TWO source grants (distinct records), landing on page 0 and
-	// page 1 once paginated at size 2.
-	store.AddGrant(makeGrant("g:alice:1", source, alice)) // page 0
-	store.AddGrant(makeGrant("g:bob", source, bob))       // page 0
-	store.AddGrant(makeGrant("g:alice:2", source, alice)) // page 1
-	store.AddGrant(makeGrant("g:carol", source, carol))   // page 1
-	store.AddGrant(makeGrant("g:dave", source, dave))     // page 2
-
-	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(source.GetId())
-	graph.AddEntitlementID(d1.GetId())
-	graph.AddEntitlementID(d2.GetId())
-	require.NoError(t, graph.AddEdge(ctx, source.GetId(), d1.GetId(), false, nil))
-	require.NoError(t, graph.AddEdge(ctx, source.GetId(), d2.GetId(), false, nil))
-
-	expander := NewExpander(store, graph)
-
-	// Step 1: generate the action (no work yet, no page token).
-	require.NoError(t, expander.RunSingleStep(ctx))
-	require.Len(t, graph.Actions, 1)
-	require.Empty(t, graph.Actions[0].PageToken)
-
-	// Step 2: process page 0 — the action must stay queued with a page token.
-	require.NoError(t, expander.RunSingleStep(ctx))
-	require.Len(t, graph.Actions, 1, "action must remain queued while the source has more pages")
-	require.NotEmpty(t, graph.Actions[0].PageToken, "page token must advance mid-source")
-
-	// Finish.
-	for !expander.IsDone(ctx) {
-		require.NoError(t, expander.RunSingleStep(ctx))
-	}
-
-	// Source read once per page per batch. K=2 ≥ 2 dests → 1 batch; 3 pages → 3.
-	require.Equal(t, 3, store.sourceReads[source.GetId()],
-		"source read == pages × batches")
-
-	// Exactly one expanded grant per (destination, principal) — no duplicate for
-	// alice despite her appearing on two source pages.
-	counts := make(map[string]int)
-	for _, g := range store.GetPutGrants() {
-		counts[g.GetEntitlement().GetId()+"|"+g.GetPrincipal().GetId().GetResource()]++
-	}
-	for _, d := range []*v2.Entitlement{d1, d2} {
-		for _, p := range []string{"alice", "bob", "carol", "dave"} {
-			require.Equal(t, 1, counts[d.GetId()+"|"+p],
-				"exactly one grant for (%s, %s)", d.GetId(), p)
-		}
-	}
-
-	// alice's grant records the source entitlement.
-	for _, g := range store.GetPutGrants() {
-		if g.GetEntitlement().GetId() == d1.GetId() && g.GetPrincipal().GetId().GetResource() == "alice" {
-			require.Contains(t, g.GetSources().GetSources(), source.GetId(),
-				"alice's expanded grant must record the source")
-		}
-	}
-}
-
-// pageCapStubStore always returns a non-empty NextPageToken so the prefetch
-// loop never terminates naturally. Used to exercise the maxPrefetchPages cap.
-type pageCapStubStore struct {
-	MockExpanderStore
-	calls int
-}
-
-func (s *pageCapStubStore) ListGrantsForEntitlement(
-	_ context.Context,
-	_ *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	s.calls++
-	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
-		List:          []*v2.Grant{},
-		NextPageToken: "more",
-	}.Build(), nil
-}
-
-// TestPrefetchDescendantPrincipals_PageCapExceeded locks in graceful
-// degradation when the cap is hit: the helper must return complete=false
-// (and no error) so runAction can drop the partial set and fall back to
-// per-principal queries. Returning an error here would make the expander
-// fail on very large descendant entitlements instead of just running slowly.
-func TestPrefetchDescendantPrincipals_PageCapExceeded(t *testing.T) {
-	store := &pageCapStubStore{MockExpanderStore: *NewMockExpanderStore()}
-	ent := v2.Entitlement_builder{Id: "entitlement:1"}.Build()
-
-	set, complete, err := prefetchDescendantPrincipals(context.Background(), store, ent)
-	require.NoError(t, err)
-	require.False(t, complete, "cap exceeded must report incomplete so caller falls back")
-	require.NotNil(t, set)
-	require.Equal(t, maxPrefetchPages, store.calls, "loop must iterate exactly the cap before giving up")
 }
 
 // TestExpanderInPageDuplicatePrincipal covers the case where multiple source

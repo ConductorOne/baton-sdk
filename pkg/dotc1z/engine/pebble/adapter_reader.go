@@ -173,17 +173,6 @@ func (e *Engine) ListEntitlementsByIds(
 	}.Build(), nil
 }
 
-// GrantsForEntitlementPrincipalSorted reports whether ListGrantsForEntitlement
-// yields grants in non-decreasing principal (resource_type, resource) order.
-// True under the structured key layout: the primary grant key ends in the
-// tuple-encoded (principal_rt, principal_id) components and the tuple codec
-// is order-preserving, so a per-entitlement primary prefix scan IS a
-// principal-ordered scan. This gates the topological-merge expansion path;
-// streamingPrincipalGroupStream additionally fails loudly if the order
-// invariant is ever violated, and the differential/parity suites compare
-// the sorted and unsorted evaluators against SQLite.
-func (e *Engine) GrantsForEntitlementPrincipalSorted() bool { return true }
-
 // ListGrantsForEntitlement paginates grants on a specific
 // entitlement, optionally narrowed by principal_id or
 // principal_resource_type_ids. Implements
