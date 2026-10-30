@@ -22,8 +22,9 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// ListPageWindow is a response annotation emitted by SDK machinery when a list
-// walk stops at a configured page window while the vendor still has more pages.
+// ListPageWindow is a response annotation emitted by a connector or runtime that
+// caps list pagination when a list walk stops at a configured page window while
+// the vendor still has more pages.
 // It reports a bounded walk, not vendor-terminated completion, and does not
 // instruct the consumer to change pagination behavior.
 type ListPageWindow struct {
