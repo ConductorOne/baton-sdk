@@ -4077,6 +4077,8 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 // synchronously outside scheduler locks and must support concurrent workers.
 // Ledger restart reconstruction starts a new window, so a resumed ledger walk
 // may return one additional window of pages per restart.
+// Connector-signaled cursor restarts retain already-counted pages, so rewound
+// pages consume the remaining window and may reduce the sample of distinct rows.
 func WithListPageWindow(window uint32, handler func(ListPageWindowReport)) SyncOpt {
 	return func(s *syncer) {
 		s.cfg.listPageWindow = window

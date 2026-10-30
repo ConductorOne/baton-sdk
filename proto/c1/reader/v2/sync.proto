@@ -36,6 +36,7 @@ message SyncStats {
   map<string, CallStat> connector_call_stats = 10;
   map<string, CallStat> session_store_stats = 11;
   // Named syncer counters, including bounded list-walk sampling.
+  // Only list_page_window.* keys are contractual; other keys are engine-dependent internals.
   map<string, int64> counters = 12;
 }
 
