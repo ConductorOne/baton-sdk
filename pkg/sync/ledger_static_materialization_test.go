@@ -2,8 +2,10 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -96,7 +98,19 @@ func (c *staticOrderConnector) ListStaticEntitlements(
 	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{List: []*v2.Entitlement{template("first"), template("last")}}.Build(), nil
 }
 
+func entitlementsSortedByID(list []*v2.Entitlement) []*v2.Entitlement {
+	cloned := make([]*v2.Entitlement, len(list))
+	for i, ent := range list {
+		cloned[i] = proto.Clone(ent).(*v2.Entitlement)
+	}
+	slices.SortFunc(cloned, func(a, b *v2.Entitlement) int {
+		return cmp.Compare(a.GetId(), b.GetId())
+	})
+	return cloned
+}
+
 func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
+	var uninterrupted []*v2.Entitlement
 	for _, interrupted := range []bool{false, true} {
 		t.Run(map[bool]string{false: "uninterrupted", true: "cold-resume"}[interrupted], func(t *testing.T) {
 			s, f, _ := staticPageFixture(t)
@@ -156,6 +170,13 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 			require.Len(t, response.GetList(), 2)
 			for _, ent := range response.GetList() {
 				require.Equal(t, "last", ent.GetDisplayName())
+			}
+			got := entitlementsSortedByID(response.GetList())
+			if interrupted {
+				require.NotNil(t, uninterrupted)
+				equalProtoLists(t, uninterrupted, got)
+			} else {
+				uninterrupted = got
 			}
 			first, found, err := f.ledger.GetLedgerRow(t.Context(), root)
 			require.NoError(t, err)
