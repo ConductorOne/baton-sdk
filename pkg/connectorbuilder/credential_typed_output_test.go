@@ -11,7 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe"
-	"github.com/conductorone/baton-sdk/pkg/secretcontracts"
+	"github.com/conductorone/baton-sdk/pkg/secret"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -41,7 +41,7 @@ func (i *typedIssuer) IssueCapabilityDetails(context.Context) (*v2.CredentialDet
 }
 func (i *typedIssuer) Issue(ctx context.Context, input *CredentialIssueInput) (*CredentialIssueOutput, error) {
 	i.input = input
-	var payload secretcontracts.Payload
+	var payload secret.Payload
 	var err error
 	switch i.contentType {
 	case "password_v2":
@@ -49,15 +49,15 @@ func (i *typedIssuer) Issue(ctx context.Context, input *CredentialIssueInput) (*
 		if i.emptyValue {
 			password = ""
 		}
-		payload, err = (secretcontracts.PasswordV2{Password: password}).Encode()
+		payload, err = (secret.PasswordV2{Password: password}).Encode()
 	case "api_key_v2":
 		key := "test-key"
 		if i.emptyValue {
 			key = ""
 		}
-		payload, err = (secretcontracts.APIKeyV2{KeyValue: key}).Encode()
+		payload, err = (secret.APIKeyV2{KeyValue: key}).Encode()
 	default:
-		payload = secretcontracts.Payload{Bytes: []byte{0xff, 1}}
+		payload = secret.Payload{Bytes: []byte{0xff, 1}}
 	}
 	if err != nil {
 		i.calls++
