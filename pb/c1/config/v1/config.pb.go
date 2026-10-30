@@ -565,8 +565,9 @@ type Field struct {
 	// through ActionHandlerWithSecrets; it is omitted from the public response
 	// and returned as EncryptedData.
 	IsSecret bool `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
-	// Secret action return content type. Absent means generic; not valid on
-	// configuration fields, action arguments, or public returns.
+	// Content type for secret action return fields; absent means generic.
+	// Action registration rejects it on arguments and non-secret returns.
+	// It has no configuration-field semantics; syntax validation still applies.
 	SecretContentType *string `protobuf:"bytes,8,opt,name=secret_content_type,json=secretContentType,proto3,oneof" json:"secret_content_type,omitempty"`
 	// Types that are valid to be assigned to Field:
 	//
@@ -1128,8 +1129,9 @@ type Field_builder struct {
 	// through ActionHandlerWithSecrets; it is omitted from the public response
 	// and returned as EncryptedData.
 	IsSecret bool
-	// Secret action return content type. Absent means generic; not valid on
-	// configuration fields, action arguments, or public returns.
+	// Content type for secret action return fields; absent means generic.
+	// Action registration rejects it on arguments and non-secret returns.
+	// It has no configuration-field semantics; syntax validation still applies.
 	SecretContentType *string
 	// Fields of oneof Field:
 	StringField          *StringField
