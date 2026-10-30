@@ -73,7 +73,6 @@ func KnownAnnotationPolicies() map[protoreflect.FullName]AnnotationPolicy {
 		policy("c1.connector.v2.ResourceDoesNotExist", AnnotationProvisioning, ObligationConsume, true, "delete-response"),
 		policy("c1.connector.v2.RateLimitWaitReport", AnnotationTelemetry, ObligationReport, true, "response"),
 		policy("c1.connector.v2.SessionStoreUsage", AnnotationTelemetry, ObligationReport, true, "response"),
-		policy("c1.connector.v2.ListPageWindow", AnnotationTelemetry, ObligationReport, true, "response"),
 		policy("c1.connector.v2.ETag", AnnotationCompatibility, ObligationIgnore, true, "record"),
 		policy("c1.connector.v2.ETagMetadata", AnnotationCompatibility, ObligationIgnore, true, "response"),
 		policy("c1.connector.v2.ETagMatch", AnnotationCompatibility, ObligationIgnore, true, "request"),

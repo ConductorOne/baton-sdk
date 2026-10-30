@@ -60,6 +60,9 @@ func (s *syncer) refreshPendingWindow(ctx context.Context) error {
 	s.run.spawnedAdmitted = make(map[parallelActionKey]string)
 	for i := len(actions) - 1; i >= 0; i-- {
 		action := actions[i]
+		if old, ok := prior[action.ID]; ok && old.WorkRevision == action.WorkRevision {
+			action.WindowPages = old.WindowPages
+		}
 		if action.Op == SyncGrantExpansionOp || action.Op == SyncExternalResourcesOp {
 			if old, ok := prior[action.ID]; ok && old.WorkRevision == action.WorkRevision {
 				action.PageToken = old.PageToken
@@ -136,6 +139,7 @@ func (s *syncer) publishPendingTransition(ctx context.Context, action *Action, n
 	defer s.run.mu.Unlock()
 	updated := s.run.actions[action.ID]
 	updated.PageToken = next
+	updated.WindowPages = action.WindowPages
 	updated.WorkPageToken = next
 	updated.WorkRevision = action.WorkRevision + 1
 	s.run.actions[action.ID] = updated

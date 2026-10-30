@@ -16,6 +16,7 @@ func LedgerSyncStats(facts map[string]string, counters LedgerCounters) SyncStats
 			StepDurationsMs:    maps.Clone(counters.StepDurationsMs),
 			ConnectorCallStats: maps.Clone(counters.ConnectorCalls),
 			SessionStoreStats:  maps.Clone(counters.SessionCalls),
+			Counters:           maps.Clone(counters.Counters),
 		},
 		IngestQuality: &IngestQuality{
 			SourceCacheReplayBlocked: blocked, ReasonFlags: counters.Flags,

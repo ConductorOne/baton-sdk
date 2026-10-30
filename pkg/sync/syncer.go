@@ -666,6 +666,7 @@ func (s *syncer) markTypeScopedPlanned(action *Action) {
 // could not see rows a non-stream ingestion path wrote.
 const maxEntitlementsPerExclusionGroup = 50
 
+
 func (s *syncer) transitionActionState(
 	ctx context.Context,
 	action *Action,
@@ -2668,6 +2669,18 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 		if f != nil {
 			s.cfg.transitionHandler = f
 		}
+	}
+}
+
+// WithListPageWindow bounds successful resources, entitlements, and grants pages
+// per list walk. Zero leaves pagination unbounded. The handler may be nil; it runs
+// synchronously outside scheduler locks and must support concurrent workers.
+// Ledger restart reconstruction starts a new window, so a resumed ledger walk
+// may return one additional window of pages per restart.
+func WithListPageWindow(window uint32, handler func(ListPageWindowReport)) SyncOpt {
+	return func(s *syncer) {
+		s.cfg.listPageWindow = window
+		s.cfg.listPageWindowHandler = handler
 	}
 }
 
