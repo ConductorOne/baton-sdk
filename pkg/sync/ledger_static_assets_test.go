@@ -159,7 +159,7 @@ func TestLedgerAssetHandlerReopen(t *testing.T) {
 	require.Equal(t, []string{"icon"}, c.calls)
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
-	asset, err := f.engine.GetAssetRecord(t.Context(), "icon")
+	asset, err := f.engine.Records().GetAssetRecord(t.Context(), "icon")
 	require.NoError(t, err)
 	require.Equal(t, []byte("asset icon"), asset.GetData())
 	require.Equal(t, "image/example", asset.GetContentType())
@@ -293,7 +293,7 @@ func TestLedgerAssetHandlerMultipleReferences(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.Equal(t, []string{"icon", "logo", "icon", "logo"}, c.calls)
 	for _, id := range []string{"icon", "logo"} {
-		asset, err := f.engine.GetAssetRecord(t.Context(), id)
+		asset, err := f.engine.Records().GetAssetRecord(t.Context(), id)
 		require.NoError(t, err)
 		require.Equal(t, []byte("asset "+id), asset.GetData())
 	}

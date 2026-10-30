@@ -55,7 +55,7 @@ func batchDeleteFixture(t *testing.T) *Engine {
 	require.NoError(t, err)
 	putEnt(t, e, ctx, "ent-A")
 	putEnt(t, e, ctx, "ent-B")
-	require.NoError(t, e.PutGrantRecords(ctx, batchDeleteFixtureGrants()...))
+	require.NoError(t, e.records.PutGrantRecords(ctx, batchDeleteFixtureGrants()...))
 	require.NoError(t, a.EndSync(ctx))
 	require.NoError(t, a.SetCurrentSync(ctx, batchDeleteSyncID))
 
@@ -114,7 +114,7 @@ func deleteSingularly(t *testing.T, e *Engine, records ...*v3.GrantRecord) {
 	t.Helper()
 	ctx := context.Background()
 	for _, r := range records {
-		require.NoError(t, e.DeleteGrantByIdentityRefs(ctx, r))
+		require.NoError(t, e.records.DeleteGrantByIdentityRefs(ctx, r))
 	}
 }
 
@@ -129,7 +129,7 @@ func deleteBatchedWithChunk(ctx context.Context, e *Engine, chunk int, records .
 		}
 		ids = append(ids, id)
 	}
-	return e.deleteGrantsByIdentities(ctx, chunk, ids)
+	return e.records.deleteGrantsByIdentities(ctx, chunk, ids)
 }
 
 // TestDeleteGrantsByRefsMatchesSingularPath is the equivalence oracle: the
@@ -184,7 +184,7 @@ func TestDeleteGrantsByRefsAbsentGrantIsNoOp(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, rootPresent, "fixture premise: the sealed store has a global digest root")
 
-	require.NoError(t, e.DeleteGrantsByIdentityRefs(ctx, absent...))
+	require.NoError(t, e.records.DeleteGrantsByIdentityRefs(ctx, absent...))
 
 	for name, keys := range grantKeyspaces(t, e) {
 		require.Equal(t, before[name], keys,
@@ -272,7 +272,7 @@ func batchDeleteScaleFixture(t *testing.T, n int) (*Engine, []*v3.GrantRecord) {
 	for i := range n {
 		recs = append(recs, makeGrant("", "g-"+strconv.Itoa(i), "ent-A", "user-"+strconv.Itoa(i)))
 	}
-	require.NoError(t, e.PutGrantRecords(ctx, recs...))
+	require.NoError(t, e.records.PutGrantRecords(ctx, recs...))
 	require.NoError(t, a.EndSync(ctx))
 	require.NoError(t, a.SetCurrentSync(ctx, batchDeleteSyncID))
 	require.Equal(t, n, countKeys(t, e, encodeGrantPrefix()))
@@ -289,7 +289,7 @@ func TestDeleteGrantsByRefsCommitsInChunks(t *testing.T) {
 	e, recs := batchDeleteScaleFixture(t, n)
 
 	probe := &chunkProbeCtx{Context: context.Background()}
-	require.NoError(t, e.DeleteGrantsByIdentityRefs(probe, recs...))
+	require.NoError(t, e.records.DeleteGrantsByIdentityRefs(probe, recs...))
 
 	require.Equal(t, 3, probe.checks,
 		"%d grants at a chunk of %d must be committed as 3 chunks", n, grantDeleteBatchChunk)
@@ -331,7 +331,7 @@ func TestDeleteGrantsByRefsHonorsCancellation(t *testing.T) {
 	// Pass the first boundary check, fail the second: exactly one chunk
 	// commits.
 	probe := &chunkProbeCtx{Context: context.Background(), cancelUpon: 2}
-	err := e.DeleteGrantsByIdentityRefs(probe, recs...)
+	err := e.records.DeleteGrantsByIdentityRefs(probe, recs...)
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, n-grantDeleteBatchChunk, countKeys(t, e, encodeGrantPrefix()),
@@ -345,7 +345,7 @@ func TestDeleteGrantsByRefsRefusesSealedEngine(t *testing.T) {
 	e := batchDeleteFixture(t)
 	require.NoError(t, NewAdapter(e).EndSync(ctx))
 
-	err := e.DeleteGrantsByIdentityRefs(ctx, batchDeleteFixtureGrants()...)
+	err := e.records.DeleteGrantsByIdentityRefs(ctx, batchDeleteFixtureGrants()...)
 	require.ErrorIs(t, err, ErrEngineSealed)
 	require.Equal(t, 6, countKeys(t, e, encodeGrantPrefix()),
 		"a sealed engine must not have deleted anything")
@@ -382,7 +382,7 @@ func TestDeleteGrantsByRefsCompletesBeforeSeal(t *testing.T) {
 		}
 		require.False(t, e.IsSealed(), "the snapshot must not flip under a writer")
 	}
-	require.NoError(t, e.DeleteGrantsByIdentityRefs(probe, recs...),
+	require.NoError(t, e.records.DeleteGrantsByIdentityRefs(probe, recs...),
 		"a delete that started before the seal completes every chunk")
 	<-sealed
 	require.True(t, e.IsSealed())

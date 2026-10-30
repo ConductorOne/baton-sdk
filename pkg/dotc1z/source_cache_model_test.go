@@ -190,21 +190,21 @@ func (h *sourceCacheModelHarness) storeRowKeys(kind sourcecache.RowKind, scope s
 	keys := map[string]struct{}{}
 	switch kind {
 	case sourcecache.RowKindResources:
-		require.NoError(h.t, h.engine.IterateResources(h.t.Context(), func(rec *v3.ResourceRecord) bool {
+		require.NoError(h.t, h.engine.Records().IterateResources(h.t.Context(), func(rec *v3.ResourceRecord) bool {
 			if rec.GetSourceScopeKey() == scope {
 				keys[rec.GetResourceTypeId()+"|"+rec.GetResourceId()] = struct{}{}
 			}
 			return true
 		}))
 	case sourcecache.RowKindEntitlements:
-		require.NoError(h.t, h.engine.IterateEntitlements(h.t.Context(), func(rec *v3.EntitlementRecord) bool {
+		require.NoError(h.t, h.engine.Records().IterateEntitlements(h.t.Context(), func(rec *v3.EntitlementRecord) bool {
 			if rec.GetSourceScopeKey() == scope {
 				keys[rec.GetExternalId()] = struct{}{}
 			}
 			return true
 		}))
 	case sourcecache.RowKindGrants:
-		require.NoError(h.t, h.engine.IterateGrants(h.t.Context(), func(rec *v3.GrantRecord) bool {
+		require.NoError(h.t, h.engine.Records().IterateGrants(h.t.Context(), func(rec *v3.GrantRecord) bool {
 			if rec.GetSourceScopeKey() == scope {
 				keys[rec.GetExternalId()] = struct{}{}
 			}

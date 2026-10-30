@@ -62,7 +62,7 @@ func TestDeferredIndexPendingSurvivesReopen(t *testing.T) {
 	// The by_principal index must serve every deferred-written grant.
 	for _, principal := range []string{"alice", "bob", "carol", "dave"} {
 		n := 0
-		require.NoError(t, e2.IterateGrantsByPrincipal(ctx, "user", principal, func(*v3.GrantRecord) bool {
+		require.NoError(t, e2.records.IterateGrantsByPrincipal(ctx, "user", principal, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		}))

@@ -104,18 +104,18 @@ func benchmarkScopeIngest(b *testing.B, put func(ctx context.Context, e *Engine,
 
 func BenchmarkScopeIngestEntitlements(b *testing.B) {
 	benchmarkScopeIngest(b, func(ctx context.Context, e *Engine, offset, count int) error {
-		return e.PutEntitlementRecords(ctx, makeEntitlementRecordBatch(offset, count)...)
+		return e.records.PutEntitlementRecords(ctx, makeEntitlementRecordBatch(offset, count)...)
 	})
 }
 
 func BenchmarkScopeIngestGrants(b *testing.B) {
 	benchmarkScopeIngest(b, func(ctx context.Context, e *Engine, offset, count int) error {
-		return e.PutGrantRecords(ctx, makeGrantRecordBatch(benchGrantSyncID, offset, count)...)
+		return e.records.PutGrantRecords(ctx, makeGrantRecordBatch(benchGrantSyncID, offset, count)...)
 	})
 }
 
 func BenchmarkScopeIngestResources(b *testing.B) {
 	benchmarkScopeIngest(b, func(ctx context.Context, e *Engine, offset, count int) error {
-		return e.PutResourceRecords(ctx, makeResourceRecordBatch(offset, count)...)
+		return e.records.PutResourceRecords(ctx, makeResourceRecordBatch(offset, count)...)
 	})
 }

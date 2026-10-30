@@ -402,7 +402,7 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 		stage(t, u)
 		require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil),
 			"premise: this page commits when its sync is still the open one")
-		_, err = e.GetResourceRecord(ctx, "user", "u1")
+		_, err = e.records.GetResourceRecord(ctx, "user", "u1")
 		require.NoError(t, err)
 	})
 
@@ -425,7 +425,7 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 		require.Contains(t, err.Error(), syncA, "the error names the sync the page was begun under")
 		require.Contains(t, err.Error(), syncB, "and the one open now")
 
-		_, err = e.GetResourceRecord(ctx, "user", "u1")
+		_, err = e.records.GetResourceRecord(ctx, "user", "u1")
 		require.ErrorIs(t, err, pebble.ErrNotFound, "A's buffered rows must not land in B")
 		_, err = readLedgerRowRaw(e, id)
 		require.ErrorIs(t, err, pebble.ErrNotFound, "and B's ledger must not claim a page A ran")

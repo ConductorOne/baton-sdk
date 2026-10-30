@@ -24,7 +24,7 @@ func TestResumeSyncUnknownIDFailsClosed(t *testing.T) {
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutResourceTypes(ctx,
+	require.NoError(t, a.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
 	require.NoError(t, a.EndSync(ctx))
 	require.NotEmpty(t, syncID)
@@ -34,7 +34,7 @@ func TestResumeSyncUnknownIDFailsClosed(t *testing.T) {
 
 	// The failure must not have cost us the data.
 	require.NoError(t, a.SetCurrentSync(ctx, syncID))
-	resp, err := a.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
+	resp, err := a.records.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1, "ResumeSync failure must leave records intact")
 }
@@ -53,7 +53,7 @@ func TestResumeSyncOnEndedSyncAllowsWrites(t *testing.T) {
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutResourceTypes(ctx,
+	require.NoError(t, a.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
 	require.NoError(t, a.EndSync(ctx))
 
@@ -62,11 +62,11 @@ func TestResumeSyncOnEndedSyncAllowsWrites(t *testing.T) {
 	require.Equal(t, syncID, resumed)
 
 	// The write is the point: a rebind that left the engine sealed would fail here.
-	require.NoError(t, a.PutResourceTypes(ctx,
+	require.NoError(t, a.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()),
 		"resumed ended sync must accept writes")
 
-	resp, err := a.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
+	resp, err := a.records.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 2, "the resumed write must land alongside the originals")
 }
@@ -90,7 +90,7 @@ func TestStartOrResumeSyncUnknownIDWipesRecords(t *testing.T) {
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutResourceTypes(ctx,
+	require.NoError(t, a.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()))
 	require.NoError(t, a.EndSync(ctx))
 
@@ -99,7 +99,7 @@ func TestStartOrResumeSyncUnknownIDWipesRecords(t *testing.T) {
 	require.True(t, startedNew, "unresolvable id falls through to StartNewSync")
 	require.NotEqual(t, syncID, newID)
 
-	resp, err := a.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
+	resp, err := a.records.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Empty(t, resp.GetList(), "StartNewSync's reset drops the prior records")
 }

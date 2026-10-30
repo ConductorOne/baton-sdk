@@ -36,7 +36,7 @@ func BenchmarkSourceCacheReplayResources(b *testing.B) {
 						SourceScopeKey: "benchmark-scope",
 					}.Build())
 				}
-				if err := prev.PutResourceRecords(ctx, records...); err != nil {
+				if err := prev.records.PutResourceRecords(ctx, records...); err != nil {
 					b.Fatal(err)
 				}
 			}

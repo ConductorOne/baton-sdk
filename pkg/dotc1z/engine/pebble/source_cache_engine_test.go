@@ -26,7 +26,7 @@ func TestInvalidateSourceCacheReplayStateCommitFailureIsAtomic(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, scopeA), scGrant("member", "alice", false)))
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, scopeA), scGrant("member", "alice", false)))
 	require.NoError(t, a.Expansion().PebbleEngine().PutSourceCacheEntry(ctx, string(sourcecache.RowKindGrants), scopeA, "validator"))
 	require.NoError(t, a.EndSync(ctx))
 
@@ -114,9 +114,9 @@ func TestSourceCacheReplayGrantsAcrossEngines(t *testing.T) {
 	gUnstamped := scGrant("member", "dave", false)
 
 	scopedCtx := sourcecache.WithScope(ctx, scopeA)
-	require.NoError(t, prev.PutGrants(scopedCtx, gExpandable, gPlain))
-	require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, scopeB), gOtherScope))
-	require.NoError(t, prev.PutGrants(ctx, gUnstamped))
+	require.NoError(t, prev.records.PutGrants(scopedCtx, gExpandable, gPlain))
+	require.NoError(t, prev.records.PutGrants(sourcecache.WithScope(ctx, scopeB), gOtherScope))
+	require.NoError(t, prev.records.PutGrants(ctx, gUnstamped))
 	require.NoError(t, prev.Expansion().PebbleEngine().PutSourceCacheEntry(ctx, "grants", scopeA, "etag-a"))
 	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindGrants, scopeA)
 
@@ -130,17 +130,17 @@ func TestSourceCacheReplayGrantsAcrossEngines(t *testing.T) {
 	require.True(t, res.NeedsExpansion, "replay must report the expandable grant so the syncer can arm expansion")
 
 	// Replayed rows are readable by ID and carry their expansion flag.
-	got, err := cur.Expansion().PebbleEngine().GetGrantRecord(ctx, gExpandable.GetId())
+	got, err := cur.Expansion().PebbleEngine().records.GetGrantRecord(ctx, gExpandable.GetId())
 	require.NoError(t, err)
 	require.True(t, got.GetNeedsExpansion())
 	require.Equal(t, scopeA, got.GetSourceScopeKey())
-	_, err = cur.Expansion().PebbleEngine().GetGrantRecord(ctx, gPlain.GetId())
+	_, err = cur.Expansion().PebbleEngine().records.GetGrantRecord(ctx, gPlain.GetId())
 	require.NoError(t, err)
 
 	// Rows outside the scope are not copied.
-	_, err = cur.Expansion().PebbleEngine().GetGrantRecord(ctx, gOtherScope.GetId())
+	_, err = cur.Expansion().PebbleEngine().records.GetGrantRecord(ctx, gOtherScope.GetId())
 	require.ErrorIs(t, err, pebble.ErrNotFound)
-	_, err = cur.Expansion().PebbleEngine().GetGrantRecord(ctx, gUnstamped.GetId())
+	_, err = cur.Expansion().PebbleEngine().records.GetGrantRecord(ctx, gUnstamped.GetId())
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	// The by_source_scope index came across too: a second replay FROM the
@@ -169,7 +169,7 @@ func TestSourceCacheReplayIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	g1 := scGrant("member", "alice", true)
 	g2 := scGrant("member", "bob", false)
-	require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, scopeA), g1, g2))
+	require.NoError(t, prev.records.PutGrants(sourcecache.WithScope(ctx, scopeA), g1, g2))
 	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindGrants, scopeA)
 
 	cur := newAdapter(t)
@@ -187,7 +187,7 @@ func TestSourceCacheReplayIsIdempotent(t *testing.T) {
 
 	// State after double replay is exactly the two rows, once each.
 	var seen int
-	require.NoError(t, cur.Expansion().PebbleEngine().IterateGrants(ctx, func(*v3.GrantRecord) bool {
+	require.NoError(t, cur.Expansion().PebbleEngine().records.IterateGrants(ctx, func(*v3.GrantRecord) bool {
 		seen++
 		return true
 	}))
@@ -207,13 +207,13 @@ func TestSourceCacheReplayRejectsStaleIndexEntries(t *testing.T) {
 
 	// Row genuinely stamped with scopeB...
 	g := scGrant("member", "alice", false)
-	require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, scopeB), g))
+	require.NoError(t, prev.records.PutGrants(sourcecache.WithScope(ctx, scopeB), g))
 	// Seal BEFORE the corruption below: scopeA's sealed count is an honest
 	// zero, so the stale index is detected by the walk, not the count.
 	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindGrants, scopeA, scopeB)
 
 	// ...plus a stale index entry claiming it belongs to scopeA.
-	rec, err := prev.Expansion().PebbleEngine().GetGrantRecord(ctx, g.GetId())
+	rec, err := prev.Expansion().PebbleEngine().records.GetGrantRecord(ctx, g.GetId())
 	require.NoError(t, err)
 	staleIdx := replayTestGrantScopeIndexKey(t, scopeA, rec)
 	require.NoError(t, prev.Expansion().PebbleEngine().Expansion().UnsafeForTesting().Set(staleIdx, nil, nil))
@@ -225,7 +225,7 @@ func TestSourceCacheReplayRejectsStaleIndexEntries(t *testing.T) {
 	_, err = cur.Expansion().PebbleEngine().ReplaySourceCacheGrants(ctx, prev.Expansion().PebbleEngine(), scopeA)
 	require.ErrorContains(t, err, "preflight",
 		"a stale source index must fail closed before any destination mutation")
-	_, err = cur.Expansion().PebbleEngine().GetGrantRecord(ctx, g.GetId())
+	_, err = cur.Expansion().PebbleEngine().records.GetGrantRecord(ctx, g.GetId())
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	// The genuine scope still replays.
@@ -256,9 +256,9 @@ func TestEntitlementRestampCleansOldScopeIndex(t *testing.T) {
 
 	// First put stamps scopeA (and consumes the fresh-empty fast path);
 	// the rewrite stamps scopeB and must clean scopeA's index entry.
-	require.NoError(t, prev.PutEntitlements(sourcecache.WithScope(ctx, scopeA), ent1))
+	require.NoError(t, prev.records.PutEntitlements(sourcecache.WithScope(ctx, scopeA), ent1))
 	ent1b := v2.Entitlement_builder{Id: entID, Resource: res1, DisplayName: "member (renamed)"}.Build()
-	require.NoError(t, prev.PutEntitlements(sourcecache.WithScope(ctx, scopeB), ent1b))
+	require.NoError(t, prev.records.PutEntitlements(sourcecache.WithScope(ctx, scopeB), ent1b))
 	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindEntitlements, scopeA, scopeB)
 
 	cur := newAdapter(t)
@@ -276,7 +276,7 @@ func TestEntitlementRestampCleansOldScopeIndex(t *testing.T) {
 	resB, err := cur.Expansion().PebbleEngine().ReplaySourceCacheEntitlements(ctx, prev.Expansion().PebbleEngine(), scopeB)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), resB.Rows)
-	got, err := cur.Expansion().PebbleEngine().GetEntitlementRecord(ctx, entID)
+	got, err := cur.Expansion().PebbleEngine().records.GetEntitlementRecord(ctx, entID)
 	require.NoError(t, err)
 	require.Equal(t, scopeB, got.GetSourceScopeKey())
 	require.Equal(t, "member (renamed)", got.GetDisplayName())
@@ -289,16 +289,16 @@ func TestGrantAndResourceRestampCleanOldScopeIndexes(t *testing.T) {
 	require.NoError(t, err)
 
 	grant := scGrant("member", "alice", false)
-	require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, scopeA), grant))
-	require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, scopeB), grant))
+	require.NoError(t, prev.records.PutGrants(sourcecache.WithScope(ctx, scopeA), grant))
+	require.NoError(t, prev.records.PutGrants(sourcecache.WithScope(ctx, scopeB), grant))
 
 	resource := v2.Resource_builder{
 		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 		DisplayName: "Alice",
 	}.Build()
-	require.NoError(t, prev.PutResources(sourcecache.WithScope(ctx, scopeA), resource))
+	require.NoError(t, prev.records.PutResources(sourcecache.WithScope(ctx, scopeA), resource))
 	resource.SetDisplayName("Alice Updated")
-	require.NoError(t, prev.PutResources(sourcecache.WithScope(ctx, scopeB), resource))
+	require.NoError(t, prev.records.PutResources(sourcecache.WithScope(ctx, scopeB), resource))
 	sealReplaySourceMulti(ctx, t, prev.Expansion().PebbleEngine(), map[sourcecache.RowKind][]string{
 		sourcecache.RowKindGrants:    {scopeA, scopeB},
 		sourcecache.RowKindResources: {scopeA, scopeB},
@@ -348,10 +348,10 @@ func TestDeleteGrantsByPrincipalsInScope(t *testing.T) {
 
 	gAlice := scGrant("member", "alice", false)
 	gBob := scGrant("member", "bob", true)
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, scopeA), gAlice, gBob))
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, scopeA), gAlice, gBob))
 	// Same principal, different scope — must survive an A-scoped delete.
 	gAliceOther := scGrant("owner", "alice", false)
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, scopeB), gAliceOther))
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, scopeB), gAliceOther))
 
 	deleted, err := a.Expansion().PebbleEngine().DeleteGrantsByPrincipalsInScope(ctx, scopeA, map[string]struct{}{
 		"alice":   {},
@@ -361,11 +361,11 @@ func TestDeleteGrantsByPrincipalsInScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), deleted)
 
-	_, err = a.Expansion().PebbleEngine().GetGrantRecord(ctx, gAlice.GetId())
+	_, err = a.Expansion().PebbleEngine().records.GetGrantRecord(ctx, gAlice.GetId())
 	require.ErrorIs(t, err, pebble.ErrNotFound)
-	_, err = a.Expansion().PebbleEngine().GetGrantRecord(ctx, gBob.GetId())
+	_, err = a.Expansion().PebbleEngine().records.GetGrantRecord(ctx, gBob.GetId())
 	require.ErrorIs(t, err, pebble.ErrNotFound)
-	_, err = a.Expansion().PebbleEngine().GetGrantRecord(ctx, gAliceOther.GetId())
+	_, err = a.Expansion().PebbleEngine().records.GetGrantRecord(ctx, gAliceOther.GetId())
 	require.NoError(t, err, "same principal in a different scope must survive")
 
 	// Scope index entries went with the rows: a replay of scopeA from this
@@ -389,9 +389,9 @@ func TestDeleteResourcesByIDsInScope(t *testing.T) {
 
 	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
 	u2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build(), DisplayName: "U2"}.Build()
-	require.NoError(t, a.PutResources(sourcecache.WithScope(ctx, scopeA), u1, u2))
+	require.NoError(t, a.records.PutResources(sourcecache.WithScope(ctx, scopeA), u1, u2))
 	u3 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u3"}.Build(), DisplayName: "U3"}.Build()
-	require.NoError(t, a.PutResources(sourcecache.WithScope(ctx, scopeB), u3))
+	require.NoError(t, a.records.PutResources(sourcecache.WithScope(ctx, scopeB), u3))
 
 	deleted, err := a.Expansion().PebbleEngine().DeleteResourcesByIDsInScope(ctx, scopeA, map[string]struct{}{
 		"u1": {}, "u3": {}, // u3 is in scope B — must not die from an A-scoped tombstone
@@ -399,11 +399,11 @@ func TestDeleteResourcesByIDsInScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleted)
 
-	_, err = a.Expansion().PebbleEngine().GetResourceRecord(ctx, "user", "u1")
+	_, err = a.Expansion().PebbleEngine().records.GetResourceRecord(ctx, "user", "u1")
 	require.ErrorIs(t, err, pebble.ErrNotFound)
-	_, err = a.Expansion().PebbleEngine().GetResourceRecord(ctx, "user", "u2")
+	_, err = a.Expansion().PebbleEngine().records.GetResourceRecord(ctx, "user", "u2")
 	require.NoError(t, err)
-	_, err = a.Expansion().PebbleEngine().GetResourceRecord(ctx, "user", "u3")
+	_, err = a.Expansion().PebbleEngine().records.GetResourceRecord(ctx, "user", "u3")
 	require.NoError(t, err, "tombstone must be scope-relative")
 }
 
@@ -417,16 +417,16 @@ func TestDeleteGrantRecordBounded(t *testing.T) {
 	require.NoError(t, err)
 
 	g := scGrant("member", "alice", false)
-	require.NoError(t, a.PutGrants(ctx, g))
+	require.NoError(t, a.records.PutGrants(ctx, g))
 
 	// Absent id (well-formed, no row): no-op, no error.
 	require.NoError(t, a.Expansion().PebbleEngine().DeleteGrantRecordBounded(ctx, "group:g1:custom:member:user:ghost"))
-	_, err = a.Expansion().PebbleEngine().GetGrantRecord(ctx, g.GetId())
+	_, err = a.Expansion().PebbleEngine().records.GetGrantRecord(ctx, g.GetId())
 	require.NoError(t, err)
 
 	// Present id: deleted.
 	require.NoError(t, a.Expansion().PebbleEngine().DeleteGrantRecordBounded(ctx, g.GetId()))
-	_, err = a.Expansion().PebbleEngine().GetGrantRecord(ctx, g.GetId())
+	_, err = a.Expansion().PebbleEngine().records.GetGrantRecord(ctx, g.GetId())
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 }
 
@@ -445,8 +445,8 @@ func TestSourceCacheReplayResourcesAndEntitlements(t *testing.T) {
 	ent1 := v2.Entitlement_builder{Id: entID, Resource: res1, DisplayName: "member"}.Build()
 
 	scoped := sourcecache.WithScope(ctx, scopeA)
-	require.NoError(t, prev.PutResources(scoped, res1))
-	require.NoError(t, prev.PutEntitlements(scoped, ent1))
+	require.NoError(t, prev.records.PutResources(scoped, res1))
+	require.NoError(t, prev.records.PutEntitlements(scoped, ent1))
 	sealReplaySourceMulti(ctx, t, prev.Expansion().PebbleEngine(), map[sourcecache.RowKind][]string{
 		sourcecache.RowKindResources:    {scopeA},
 		sourcecache.RowKindEntitlements: {scopeA},
@@ -463,12 +463,12 @@ func TestSourceCacheReplayResourcesAndEntitlements(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), eres.Rows)
 
-	gotRes, err := cur.Expansion().PebbleEngine().GetResourceRecord(ctx, "group", "g1")
+	gotRes, err := cur.Expansion().PebbleEngine().records.GetResourceRecord(ctx, "group", "g1")
 	require.NoError(t, err)
 	require.Equal(t, "Group One", gotRes.GetDisplayName())
 	require.Equal(t, scopeA, gotRes.GetSourceScopeKey())
 
-	gotEnt, err := cur.Expansion().PebbleEngine().GetEntitlementRecord(ctx, entID)
+	gotEnt, err := cur.Expansion().PebbleEngine().records.GetEntitlementRecord(ctx, entID)
 	require.NoError(t, err)
 	require.Equal(t, scopeA, gotEnt.GetSourceScopeKey())
 }
@@ -493,7 +493,7 @@ func TestReplayInvalidatesEntitlementIDLookup(t *testing.T) {
 	}.Build()
 	entID := "group:g1:member"
 	ent1 := v2.Entitlement_builder{Id: entID, Resource: res1, DisplayName: "member"}.Build()
-	require.NoError(t, prev.PutEntitlements(sourcecache.WithScope(ctx, scopeA), ent1))
+	require.NoError(t, prev.records.PutEntitlements(sourcecache.WithScope(ctx, scopeA), ent1))
 	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindEntitlements, scopeA)
 
 	cur := newAdapter(t)
@@ -502,7 +502,7 @@ func TestReplayInvalidatesEntitlementIDLookup(t *testing.T) {
 
 	// Force the lazy bare-id map to build BEFORE the replay (empty
 	// keyspace → entID resolves to nothing).
-	_, err = cur.Expansion().PebbleEngine().GetEntitlementRecord(ctx, entID)
+	_, err = cur.Expansion().PebbleEngine().records.GetEntitlementRecord(ctx, entID)
 	require.Error(t, err, "sanity: entitlement must not resolve before replay")
 
 	rres, err := cur.Expansion().PebbleEngine().ReplaySourceCacheEntitlements(ctx, prev.Expansion().PebbleEngine(), scopeA)
@@ -511,14 +511,14 @@ func TestReplayInvalidatesEntitlementIDLookup(t *testing.T) {
 
 	// The replayed row must be visible through the bare-id lookup (the
 	// map built above is stale and must have been invalidated) ...
-	gotEnt, err := cur.Expansion().PebbleEngine().GetEntitlementRecord(ctx, entID)
+	gotEnt, err := cur.Expansion().PebbleEngine().records.GetEntitlementRecord(ctx, entID)
 	require.NoError(t, err, "replayed entitlement must resolve by external id after a pre-replay map build")
 	require.Equal(t, scopeA, gotEnt.GetSourceScopeKey())
 
 	// ... and, the actual production stake: a delta tombstone against the
 	// replayed row must DELETE it, not silently no-op.
-	require.NoError(t, cur.Expansion().PebbleEngine().DeleteEntitlementRecord(ctx, entID))
-	_, err = cur.Expansion().PebbleEngine().GetEntitlementRecord(ctx, entID)
+	require.NoError(t, cur.Expansion().PebbleEngine().records.DeleteEntitlementRecord(ctx, entID))
+	_, err = cur.Expansion().PebbleEngine().records.GetEntitlementRecord(ctx, entID)
 	require.Error(t, err, "tombstoned replayed entitlement must be gone")
 }
 
@@ -535,7 +535,7 @@ func TestStoreExpandedGrantsPreservesSourceScope(t *testing.T) {
 	require.NoError(t, err)
 
 	g := scGrant("member", "alice", true)
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, scopeA), g))
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, scopeA), g))
 
 	// Expander-style rewrite: same grant, Sources baked in, no scope ctx.
 	rewrite := scGrant("member", "alice", false)
@@ -546,7 +546,7 @@ func TestStoreExpandedGrantsPreservesSourceScope(t *testing.T) {
 	}.Build())
 	require.NoError(t, a.Grants().StoreExpandedGrants(ctx, rewrite))
 
-	got, err := a.Expansion().PebbleEngine().GetGrantRecord(ctx, g.GetId())
+	got, err := a.Expansion().PebbleEngine().records.GetGrantRecord(ctx, g.GetId())
 	require.NoError(t, err)
 	require.Equal(t, scopeA, got.GetSourceScopeKey(), "expander rewrite clobbered the source scope stamp")
 	require.True(t, got.GetNeedsExpansion(), "expansion side-state must be preserved too")
@@ -559,7 +559,7 @@ func TestStoreExpandedGrantsPreservesSourceScope(t *testing.T) {
 	res, err := cur.Expansion().PebbleEngine().ReplaySourceCacheGrants(ctx, a.Expansion().PebbleEngine(), scopeA)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), res.Rows)
-	replayed, err := cur.Expansion().PebbleEngine().GetGrantRecord(ctx, g.GetId())
+	replayed, err := cur.Expansion().PebbleEngine().records.GetGrantRecord(ctx, g.GetId())
 	require.NoError(t, err)
 	// Replay-equivalence: expander-written Sources (self-source present)
 	// are stripped so the current sync's expansion recomputes them from
@@ -590,7 +590,7 @@ func TestSourceCacheReplayPreservesConnectorSetSources(t *testing.T) {
 			"group:other:member": {},
 		},
 	}.Build())
-	require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, scopeA), g))
+	require.NoError(t, prev.records.PutGrants(sourcecache.WithScope(ctx, scopeA), g))
 	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindGrants, scopeA)
 
 	cur := newAdapter(t)
@@ -600,7 +600,7 @@ func TestSourceCacheReplayPreservesConnectorSetSources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), res.Rows)
 
-	replayed, err := cur.Expansion().PebbleEngine().GetGrantRecord(ctx, g.GetId())
+	replayed, err := cur.Expansion().PebbleEngine().records.GetGrantRecord(ctx, g.GetId())
 	require.NoError(t, err)
 	require.Len(t, replayed.GetSources(), 1, "connector-set Sources must survive replay")
 	_, ok := replayed.GetSources()["group:other:member"]

@@ -46,7 +46,7 @@ func seedDigestCrashRecords(t *testing.T, e *Engine) {
 		putEnt(t, e, ctx, entID)
 		for _, p := range principals {
 			g := makeGrant("", "g-"+entID+"-"+p, entID, p)
-			require.NoError(t, e.PutGrantRecords(ctx, g), "PutGrantRecords(%s/%s)", entID, p)
+			require.NoError(t, e.records.PutGrantRecords(ctx, g), "PutGrantRecords(%s/%s)", entID, p)
 		}
 	}
 }

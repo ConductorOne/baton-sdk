@@ -78,15 +78,15 @@ func TestVerificationSourceScopeGateLifecycle(t *testing.T) {
 	// scope index keys. Two batches per kind so the second one runs past
 	// the fresh-first-batch skip and exercises the gate's own skip.
 	for batch := 0; batch < 2; batch++ {
-		require.NoError(t, e.PutResourceRecords(ctx, scopeGateResource(fmt.Sprintf("u-%d", batch), "")))
-		require.NoError(t, e.PutEntitlementRecords(ctx, scopeGateEntitlement(fmt.Sprintf("ent-%d", batch), "")))
-		require.NoError(t, a.PutGrants(ctx, scGrant("member", fmt.Sprintf("p-%d", batch), false)))
+		require.NoError(t, e.records.PutResourceRecords(ctx, scopeGateResource(fmt.Sprintf("u-%d", batch), "")))
+		require.NoError(t, e.records.PutEntitlementRecords(ctx, scopeGateEntitlement(fmt.Sprintf("ent-%d", batch), "")))
+		require.NoError(t, a.records.PutGrants(ctx, scGrant("member", fmt.Sprintf("p-%d", batch), false)))
 	}
 	require.False(t, e.db.SourceScopeMayExist(), "unscoped writes must not arm the gate")
 	require.Zero(t, countAllSourceScopeKeys(t, e))
 
 	// The first stamped record arms the gate and stages its entry.
-	require.NoError(t, e.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-scoped", scopeA)))
+	require.NoError(t, e.records.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-scoped", scopeA)))
 	require.True(t, e.db.SourceScopeMayExist(), "a stamped record must arm the gate at staging")
 	require.Equal(t, 1, countKeys(t, e, EntitlementBySourceScopeLowerBound()))
 	require.NoError(t, auditSourceScopeBiconditional(e))
@@ -190,7 +190,7 @@ func TestVerificationSourceScopeGateUnarmedSkipsPriorValueScan(t *testing.T) {
 
 	// Burn the fresh-first-batch skip so the gate is the only thing
 	// standing between the put and the read-before-write.
-	require.NoError(t, e.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-burn", "")))
+	require.NoError(t, e.records.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-burn", "")))
 
 	plantPoison := func(id string) {
 		rec := scopeGateEntitlement(id, "")
@@ -203,15 +203,15 @@ func TestVerificationSourceScopeGateUnarmedSkipsPriorValueScan(t *testing.T) {
 
 	plantPoison("ent-poison")
 	require.False(t, e.db.SourceScopeMayExist(), "premise: gate unarmed")
-	require.NoError(t, e.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-poison", "")),
+	require.NoError(t, e.records.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-poison", "")),
 		"unarmed overwrite must not consult the prior value")
 
 	// Arm the gate (stamped write on an unrelated identity), re-plant,
 	// and prove the armed path does consult the prior value.
-	require.NoError(t, e.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-scoped", scopeA)))
+	require.NoError(t, e.records.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-scoped", scopeA)))
 	require.True(t, e.db.SourceScopeMayExist(), "premise: gate armed")
 	plantPoison("ent-poison")
-	require.Error(t, e.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-poison", "")),
+	require.Error(t, e.records.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-poison", "")),
 		"armed overwrite must scan the prior value and reject the poison")
 }
 
@@ -230,7 +230,7 @@ func TestVerificationSourceScopeGatePostInvalidationWrites(t *testing.T) {
 	a := NewAdapter(e)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.PutEntitlementRecords(ctx,
+	require.NoError(t, e.records.PutEntitlementRecords(ctx,
 		scopeGateEntitlement("ent-1", scopeA),
 		scopeGateEntitlement("ent-2", scopeA),
 	))
@@ -253,13 +253,13 @@ func TestVerificationSourceScopeGatePostInvalidationWrites(t *testing.T) {
 
 	// Unstamped overwrite of a stale-stamped row: succeeds, replaces the
 	// stamp, creates nothing, stays unarmed.
-	require.NoError(t, e2.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-1", "")))
+	require.NoError(t, e2.records.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-1", "")))
 	require.False(t, e2.db.SourceScopeMayExist())
 	require.Zero(t, countAllSourceScopeKeys(t, e2))
 
 	// Stamped overwrite of the other stale-stamped row: re-arms, stages
 	// its entry; no cleanup was owed for the vanished old entry.
-	require.NoError(t, e2.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-2", scopeB)))
+	require.NoError(t, e2.records.PutEntitlementRecords(ctx, scopeGateEntitlement("ent-2", scopeB)))
 	require.True(t, e2.db.SourceScopeMayExist())
 	require.Equal(t, 1, countKeys(t, e2, EntitlementBySourceScopeLowerBound()))
 	require.NoError(t, auditSourceScopeBiconditional(e2))
@@ -323,7 +323,7 @@ func TestVerificationFoldBatchArmsSourceScopeGate(t *testing.T) {
 		Principal:      stamped.GetPrincipal(),
 		SourceScopeKey: scopeB,
 	}.Build()
-	require.NoError(t, e.PutGrantRecords(ctx, restamped))
+	require.NoError(t, e.records.PutGrantRecords(ctx, restamped))
 	require.Equal(t, 1, countKeys(t, e, GrantBySourceScopeLowerBound()))
 	require.NoError(t, auditSourceScopeBiconditional(e))
 }
@@ -390,7 +390,7 @@ func TestVerificationBulkImportFinishReprobesSourceScopeGate(t *testing.T) {
 		Principal:      stamped.GetPrincipal(),
 		SourceScopeKey: scopeB,
 	}.Build()
-	require.NoError(t, e.PutGrantRecords(ctx, restamped))
+	require.NoError(t, e.records.PutGrantRecords(ctx, restamped))
 	require.Equal(t, 1, countKeys(t, e, GrantBySourceScopeLowerBound()))
 	require.NoError(t, auditSourceScopeBiconditional(e))
 }

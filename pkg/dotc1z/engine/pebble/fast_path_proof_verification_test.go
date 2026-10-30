@@ -56,13 +56,13 @@ func putFastPathProofRow(
 	t.Helper()
 	switch kind {
 	case sourcecache.RowKindResources:
-		require.NoError(t, e.PutResourceRecords(t.Context(), v3.ResourceRecord_builder{
+		require.NoError(t, e.records.PutResourceRecords(t.Context(), v3.ResourceRecord_builder{
 			ResourceTypeId: "user",
 			ResourceId:     fmt.Sprintf("%s-%d", prefix, row),
 			SourceScopeKey: scope,
 		}.Build()))
 	case sourcecache.RowKindEntitlements:
-		require.NoError(t, e.PutEntitlementRecords(t.Context(), v3.EntitlementRecord_builder{
+		require.NoError(t, e.records.PutEntitlementRecords(t.Context(), v3.EntitlementRecord_builder{
 			ExternalId: fmt.Sprintf("%s-entitlement-%d", prefix, row),
 			Resource: v3.ResourceRef_builder{
 				ResourceTypeId: "group",
@@ -71,7 +71,7 @@ func putFastPathProofRow(
 			SourceScopeKey: scope,
 		}.Build()))
 	case sourcecache.RowKindGrants:
-		require.NoError(t, e.PutGrantRecords(t.Context(), v3.GrantRecord_builder{
+		require.NoError(t, e.records.PutGrantRecords(t.Context(), v3.GrantRecord_builder{
 			ExternalId: fmt.Sprintf("%s-grant-%d", prefix, row),
 			Entitlement: v3.EntitlementRef_builder{
 				ResourceTypeId: "group",

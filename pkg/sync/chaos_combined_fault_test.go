@@ -262,10 +262,10 @@ func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, finished, "recovered run must seal")
 	require.Equal(t, unfinished.GetSyncId(), finished.ID, "recovery must resume the interrupted sync")
-	actual, err := chaosoracle.ReadIdentities(ctx, recovered)
+	actual, err := chaosoracle.ReadIdentities(ctx, recovered.Records())
 	require.NoError(t, err)
 	require.NoError(t, chaosoracle.CompareIdentities(expected, actual))
-	resumedContent, err := chaosoracle.ReadLogicalContent(ctx, recovered)
+	resumedContent, err := chaosoracle.ReadLogicalContent(ctx, recovered.Records())
 	require.NoError(t, err)
 	require.NoError(t, chaosoracle.CompareLogicalContent(baselineContent, resumedContent),
 		"recovered logical store must equal the uninterrupted reference")
@@ -295,7 +295,7 @@ func runCombinedFaultBaseline(
 	finished, err := engine.SyncRuns().SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, finished)
-	content, err := chaosoracle.ReadLogicalContent(ctx, engine)
+	content, err := chaosoracle.ReadLogicalContent(ctx, engine.Records())
 	require.NoError(t, err)
 	require.NoError(t, syncer.Close(ctx))
 	return content

@@ -272,7 +272,7 @@ func TestMergeGrantPrimaryMigrationChunksFoldsAcrossChunks(t *testing.T) {
 
 	require.NoError(t, e.Expansion().IngestSSTs(ctx, []string{sstPath}))
 	got := map[string]*v3.GrantRecord{}
-	require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		got[r.GetExternalId()] = r
 		return true
 	}))

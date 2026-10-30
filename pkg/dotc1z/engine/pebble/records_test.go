@@ -27,8 +27,8 @@ func TestPutGetResourceType(t *testing.T) {
 		Traits:       []string{"trait-user"},
 		DiscoveredAt: timestamppb.Now(),
 	}.Build()
-	require.NoErrorf(t, e.PutResourceTypeRecord(ctx, r), "PutResourceTypeRecord")
-	got, err := e.GetResourceTypeRecord(ctx, "user")
+	require.NoErrorf(t, e.records.PutResourceTypeRecord(ctx, r), "PutResourceTypeRecord")
+	got, err := e.records.GetResourceTypeRecord(ctx, "user")
 	require.NoErrorf(t, err, "GetResourceTypeRecord")
 	require.Equal(t, "User", got.GetDisplayName(), "display_name")
 }
@@ -43,10 +43,10 @@ func TestIterateResourceTypesBySync(t *testing.T) {
 			ExternalId:  ksuid.New().String(),
 			DisplayName: "RT",
 		}.Build()
-		require.NoError(t, e.PutResourceTypeRecord(ctx, r))
+		require.NoError(t, e.records.PutResourceTypeRecord(ctx, r))
 	}
 	count := 0
-	require.NoError(t, e.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
+	require.NoError(t, e.records.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
 		count++
 		return true
 	}))
@@ -64,7 +64,7 @@ func TestResourceWithParentIndex(t *testing.T) {
 		ResourceId:     "admins",
 		DisplayName:    "Admins",
 	}.Build()
-	require.NoError(t, e.PutResourceRecord(ctx, parent))
+	require.NoError(t, e.records.PutResourceRecord(ctx, parent))
 
 	// 5 user resources with `parent` pointing at the admins group.
 	for i := 0; i < 5; i++ {
@@ -77,7 +77,7 @@ func TestResourceWithParentIndex(t *testing.T) {
 				ResourceId:     "admins",
 			}.Build(),
 		}.Build()
-		require.NoError(t, e.PutResourceRecord(ctx, child))
+		require.NoError(t, e.records.PutResourceRecord(ctx, child))
 	}
 	// 3 resources NOT under the admins group.
 	for i := 0; i < 3; i++ {
@@ -85,11 +85,11 @@ func TestResourceWithParentIndex(t *testing.T) {
 			ResourceTypeId: "user",
 			ResourceId:     ksuid.New().String(),
 		}.Build()
-		require.NoError(t, e.PutResourceRecord(ctx, other))
+		require.NoError(t, e.records.PutResourceRecord(ctx, other))
 	}
 
 	childCount := 0
-	require.NoError(t, e.IterateResourcesByParent(ctx, "group", "admins", func(*v3.ResourceRecord) bool {
+	require.NoError(t, e.records.IterateResourcesByParent(ctx, "group", "admins", func(*v3.ResourceRecord) bool {
 		childCount++
 		return true
 	}))
@@ -97,7 +97,7 @@ func TestResourceWithParentIndex(t *testing.T) {
 
 	// Total resources: parent + 5 children + 3 others = 9.
 	total := 0
-	require.NoError(t, e.IterateResources(ctx, func(*v3.ResourceRecord) bool {
+	require.NoError(t, e.records.IterateResources(ctx, func(*v3.ResourceRecord) bool {
 		total++
 		return true
 	}))
@@ -136,9 +136,9 @@ func TestResourceAttributesPersistence(t *testing.T) {
 			Id: "icon-alice",
 		}.Build(),
 	}.Build()
-	require.NoError(t, e.PutResources(ctx, res))
+	require.NoError(t, e.records.PutResources(ctx, res))
 
-	rec, err := e.GetResourceRecord(ctx, "user", "alice")
+	rec, err := e.records.GetResourceRecord(ctx, "user", "alice")
 	require.NoError(t, err, "GetResourceRecord")
 	require.Equal(t, "alice@example.com", rec.GetProfile().GetFields()["email"].GetStringValue(), "stored profile")
 	require.Equal(t, v3.StatusRecord_RESOURCE_STATUS_DISABLED, rec.GetStatus().GetStatus(), "stored status")
@@ -170,7 +170,7 @@ func TestEntitlementByResourceIndex(t *testing.T) {
 			}.Build(),
 			DisplayName: "ent",
 		}.Build()
-		require.NoError(t, e.PutEntitlementRecord(ctx, r))
+		require.NoError(t, e.records.PutEntitlementRecord(ctx, r))
 	}
 	for i := 0; i < 2; i++ {
 		r := v3.EntitlementRecord_builder{
@@ -180,15 +180,15 @@ func TestEntitlementByResourceIndex(t *testing.T) {
 				ResourceId:     "devs",
 			}.Build(),
 		}.Build()
-		require.NoError(t, e.PutEntitlementRecord(ctx, r))
+		require.NoError(t, e.records.PutEntitlementRecord(ctx, r))
 	}
 
 	var a, d int
-	require.NoError(t, e.IterateEntitlementsByResource(ctx, "group", "admins", func(*v3.EntitlementRecord) bool {
+	require.NoError(t, e.records.IterateEntitlementsByResource(ctx, "group", "admins", func(*v3.EntitlementRecord) bool {
 		a++
 		return true
 	}))
-	require.NoError(t, e.IterateEntitlementsByResource(ctx, "group", "devs", func(*v3.EntitlementRecord) bool {
+	require.NoError(t, e.records.IterateEntitlementsByResource(ctx, "group", "devs", func(*v3.EntitlementRecord) bool {
 		d++
 		return true
 	}))
@@ -209,8 +209,8 @@ func TestAssetRoundtrip(t *testing.T) {
 		ContentType: "image/png",
 		Data:        payload,
 	}.Build()
-	require.NoError(t, e.PutAssetRecord(ctx, r))
-	got, err := e.GetAssetRecord(ctx, "icon-1")
+	require.NoError(t, e.records.PutAssetRecord(ctx, r))
+	got, err := e.records.GetAssetRecord(ctx, "icon-1")
 	require.NoErrorf(t, err, "GetAssetRecord")
 	require.Equal(t, "image/png", got.GetContentType(), "content_type")
 	require.Equal(t, string(payload), string(got.GetData()), "data roundtrip lost bytes")

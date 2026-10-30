@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
-	v2pb "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
@@ -39,20 +38,8 @@ type Engine struct {
 	opts       *Options
 	pebbleOpts *pebble.Options
 
-	// Embedded Unimplemented stubs for the gRPC service surfaces the
-	// engine's connectorstore face (adapter.go / adapter_reader.go)
-	// implements partially. Each implemented method overrides the
-	// stub. GrantsReaderServiceServer is deliberately NOT stubbed: the
-	// engine implements it in full, and adapter_reader.go asserts the
-	// complete contract — re-adding the stub would make that assertion
-	// vacuous.
-	v2pb.UnimplementedResourceTypesServiceServer
-	reader_v2.UnimplementedResourceTypesReaderServiceServer
-	v2pb.UnimplementedResourcesServiceServer
-	reader_v2.UnimplementedResourcesReaderServiceServer
-	v2pb.UnimplementedEntitlementsServiceServer
-	reader_v2.UnimplementedEntitlementsReaderServiceServer
-	v2pb.UnimplementedGrantsServiceServer
+	// GetSync, ListSyncs, and GetLatestFinishedSync stay on Engine, so
+	// this stub stays with them. The record-service stubs live on Records.
 	reader_v2.UnimplementedSyncsReaderServiceServer
 
 	// corruption is the first on-disk corruption pebble reported for
@@ -134,18 +121,11 @@ type Engine struct {
 	// resumeCompactions (package-private; see those funcs for why).
 	compactionScheduler *pausableCompactionScheduler
 
-	// Lazy bare-id entitlement lookup (see lookup.go). entIDLookupGen is
-	// bumped by every entitlement-keyspace mutation; the map rebuilds on the
-	// next lookup when its built generation is stale.
-	entIDLookupGen      atomic.Uint64
-	entIDLookupMu       sync.Mutex
-	entIDLookup         map[string][]entitlementIdentity
-	entIDLookupBuiltGen uint64
-
 	ledger    Ledger
 	syncRuns  SyncRuns
 	digests   Digests
 	expansion Expansion
+	records   Records
 
 	// migratedOnOpen reports that this Open ran the in-place id-index
 	// migration. The store layer uses it to mark a writable store dirty so
@@ -208,6 +188,7 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	e.syncRuns.e = e
 	e.digests.e = e
 	e.expansion.e = e
+	e.records.e = e
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
 	}
@@ -383,7 +364,7 @@ func (e *Engine) Close() error {
 	// A leaked synthesized-grant layer session (possible only if a panic
 	// unwound past the expansion driver's Abort) has a worker merging into
 	// its staging dir; drain it before tearing the DB down.
-	_ = e.abortSynthesizedGrantLayerLocked(context.Background())
+	_ = e.records.abortSynthesizedGrantLayerLocked(context.Background())
 	// Invariant: flush before close on any write path. This drives the
 	// memtable out to an SST so a Close is never the step that leaves
 	// un-materialized writes behind — independent of whether EndSync or
@@ -810,7 +791,7 @@ func (e *Engine) CurrentDBSizeBytes() (int64, error) {
 // state (see lookup.go). Engine write paths call this internally; it
 // is exported for callers that mutate the entitlement keyspace through
 // the merge surface (merge_surface.go) directly.
-func (e *Engine) InvalidateBareIDLookups() { e.noteEntitlementKeyspaceWrite() }
+func (e *Engine) InvalidateBareIDLookups() { e.records.noteEntitlementKeyspaceWrite() }
 
 // MigratedOnOpen reports whether this Open ran the in-place id-index
 // migration (see migratedOnOpen).

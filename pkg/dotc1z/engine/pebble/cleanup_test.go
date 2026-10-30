@@ -60,7 +60,7 @@ func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
 				}.Build(),
 			}.Build())
 		}
-		require.NoErrorf(t, e.PutGrantRecords(ctx, batch...), "PutGrantRecords")
+		require.NoErrorf(t, e.records.PutGrantRecords(ctx, batch...), "PutGrantRecords")
 	}
 	require.NoErrorf(t, a.EndSync(ctx), "EndSync")
 

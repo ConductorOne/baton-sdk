@@ -84,7 +84,7 @@ func TestMergeFoldCommitFailureRetryConvergesAndClosesCleanly(t *testing.T) {
 	srcSyncID, dstSyncID := ksuid.New().String(), ksuid.New().String()
 	require.NoError(t, src.SetCurrentSync(ctx, srcSyncID))
 	require.NoError(t, dst.SetCurrentSync(ctx, dstSyncID))
-	require.NoError(t, src.PutGrantRecords(ctx, grantAt(srcSyncID, "grant", time.Unix(1, 0).UTC())))
+	require.NoError(t, src.Records().PutGrantRecords(ctx, grantAt(srcSyncID, "grant", time.Unix(1, 0).UTC())))
 
 	var grantBucket bucketSpec
 	for _, candidate := range allBuckets() {

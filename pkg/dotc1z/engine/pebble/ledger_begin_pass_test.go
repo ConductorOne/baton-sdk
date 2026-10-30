@@ -53,7 +53,7 @@ func TestLedgerBeginPassPreservesHistory(t *testing.T) {
 	require.Equal(t, c1zstore.LedgerQueueCollecting, phase)
 	require.Len(t, pending, 1)
 	require.Equal(t, seed.Action.Identity, pending[0].Action.Identity)
-	records, err := e.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{})
+	records, err := e.records.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{})
 	require.NoError(t, err)
 	require.Len(t, records.GetList(), 1)
 	require.ErrorIs(t, e.CheckpointSync(ctx, "forbidden"), ErrLedgeredSyncWritesNoToken)

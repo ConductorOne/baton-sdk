@@ -118,7 +118,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			require.NoError(t, err)
 			counters, err := recovered.Ledger().Counters(t.Context())
 			require.NoError(t, err)
-			types, err := recovered.ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
+			types, err := recovered.Records().ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
 			require.NoError(t, err)
 			_, hasFact := facts["runtime-fact"]
 			require.Equal(t, found, hasFact)

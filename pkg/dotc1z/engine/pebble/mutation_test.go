@@ -29,10 +29,10 @@ func TestPutGrantRecordOverwriteCleansIndexes(t *testing.T) {
 
 	// Initial: grant g1 on ent-A, principal alice
 	g1Old := makeGrant(syncID, "g1", "ent-A", "alice")
-	require.NoError(t, e.PutGrantRecord(ctx, g1Old))
+	require.NoError(t, e.records.PutGrantRecord(ctx, g1Old))
 	// Sanity: by_ent(ent-A) returns 1
 	count := 0
-	err := e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
+	err := e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})
@@ -41,7 +41,7 @@ func TestPutGrantRecordOverwriteCleansIndexes(t *testing.T) {
 
 	// Same external_id with ent-B + bob is a distinct structured identity.
 	g1New := makeGrant(syncID, "g1", "ent-B", "bob")
-	require.NoError(t, e.PutGrantRecord(ctx, g1New))
+	require.NoError(t, e.records.PutGrantRecord(ctx, g1New))
 
 	// After write, both structured identities coexist.
 	for _, c := range []struct {
@@ -50,16 +50,16 @@ func TestPutGrantRecordOverwriteCleansIndexes(t *testing.T) {
 		expected int
 	}{
 		{"ent-A", func(y func(*v3.GrantRecord) bool) error {
-			return e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), y)
+			return e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), y)
 		}, 1},
 		{"ent-B", func(y func(*v3.GrantRecord) bool) error {
-			return e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-B"), y)
+			return e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-B"), y)
 		}, 1},
 		{"alice", func(y func(*v3.GrantRecord) bool) error {
-			return e.IterateGrantsByPrincipal(ctx, "user", "alice", y)
+			return e.records.IterateGrantsByPrincipal(ctx, "user", "alice", y)
 		}, 1},
 		{"bob", func(y func(*v3.GrantRecord) bool) error {
-			return e.IterateGrantsByPrincipal(ctx, "user", "bob", y)
+			return e.records.IterateGrantsByPrincipal(ctx, "user", "bob", y)
 		}, 1},
 	} {
 		n := 0
@@ -92,16 +92,16 @@ func TestPutResourceRecordOverwriteCleansIndexes(t *testing.T) {
 		}.Build()
 	}
 
-	require.NoError(t, e.PutResourceRecord(ctx, mkRes("group", "admins")))
+	require.NoError(t, e.records.PutResourceRecord(ctx, mkRes("group", "admins")))
 	// Re-parent alice from admins → users.
-	require.NoError(t, e.PutResourceRecord(ctx, mkRes("group", "users")))
+	require.NoError(t, e.records.PutResourceRecord(ctx, mkRes("group", "users")))
 
 	for _, c := range []struct {
 		parentID string
 		expected int
 	}{{"admins", 0}, {"users", 1}} {
 		n := 0
-		err := e.IterateResourcesByParent(ctx, "group", c.parentID, func(*v3.ResourceRecord) bool {
+		err := e.records.IterateResourcesByParent(ctx, "group", c.parentID, func(*v3.ResourceRecord) bool {
 			n++
 			return true
 		})
@@ -126,15 +126,15 @@ func TestPutEntitlementRecordOverwriteCleansIndexes(t *testing.T) {
 			}.Build(),
 		}.Build()
 	}
-	require.NoError(t, e.PutEntitlementRecord(ctx, mkEnt("github")))
+	require.NoError(t, e.records.PutEntitlementRecord(ctx, mkEnt("github")))
 	// Re-target read from github → gitlab.
-	require.NoError(t, e.PutEntitlementRecord(ctx, mkEnt("gitlab")))
+	require.NoError(t, e.records.PutEntitlementRecord(ctx, mkEnt("gitlab")))
 	for _, c := range []struct {
 		resID    string
 		expected int
 	}{{"github", 1}, {"gitlab", 1}} {
 		n := 0
-		err := e.IterateEntitlementsByResource(ctx, "app", c.resID, func(*v3.EntitlementRecord) bool {
+		err := e.records.IterateEntitlementsByResource(ctx, "app", c.resID, func(*v3.EntitlementRecord) bool {
 			n++
 			return true
 		})
@@ -158,8 +158,8 @@ func TestFreshSyncDuplicateExternalIDCleansIndexes(t *testing.T) {
 	require.NoError(t, err)
 	// Write g1 on ent-A, then overwrite with ent-B — all within one
 	// fresh sync.
-	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")))
-	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent-B", "user", "bob")))
+	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")))
+	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("g1", "ent-B", "user", "bob")))
 	require.NoError(t, a.EndSync(ctx))
 
 	// ent-A must be empty (old index entry cleaned).
@@ -168,7 +168,7 @@ func TestFreshSyncDuplicateExternalIDCleansIndexes(t *testing.T) {
 		expected int
 	}{{"ent-A", 1}, {"ent-B", 1}} {
 		n := 0
-		err := a.IterateGrantsByEntitlement(ctx, canonicalTestEntID(c.ent), func(*v3.GrantRecord) bool {
+		err := a.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID(c.ent), func(*v3.GrantRecord) bool {
 			n++
 			return true
 		})
@@ -181,7 +181,7 @@ func TestFreshSyncDuplicateExternalIDCleansIndexes(t *testing.T) {
 		expected  int
 	}{{"alice", 1}, {"bob", 1}} {
 		n := 0
-		err := a.IterateGrantsByPrincipal(ctx, "user", c.principal, func(*v3.GrantRecord) bool {
+		err := a.records.IterateGrantsByPrincipal(ctx, "user", c.principal, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		})
@@ -210,13 +210,13 @@ func TestFreshSyncWithinCallDuplicateResourceDedup(t *testing.T) {
 			}.Build(),
 		}.Build()
 	}
-	require.NoError(t, e.PutResourceRecords(ctx, mkRes("admins"), mkRes("users")))
+	require.NoError(t, e.records.PutResourceRecords(ctx, mkRes("admins"), mkRes("users")))
 	for _, c := range []struct {
 		parentID string
 		expected int
 	}{{"admins", 0}, {"users", 1}} {
 		n := 0
-		err := e.IterateResourcesByParent(ctx, "group", c.parentID, func(*v3.ResourceRecord) bool {
+		err := e.records.IterateResourcesByParent(ctx, "group", c.parentID, func(*v3.ResourceRecord) bool {
 			n++
 			return true
 		})
@@ -241,13 +241,13 @@ func TestFreshSyncWithinCallDuplicateEntitlementDedup(t *testing.T) {
 			}.Build(),
 		}.Build()
 	}
-	require.NoError(t, e.PutEntitlementRecords(ctx, mkEnt("github"), mkEnt("gitlab")))
+	require.NoError(t, e.records.PutEntitlementRecords(ctx, mkEnt("github"), mkEnt("gitlab")))
 	for _, c := range []struct {
 		resID    string
 		expected int
 	}{{"github", 1}, {"gitlab", 1}} {
 		n := 0
-		err := e.IterateEntitlementsByResource(ctx, "app", c.resID, func(*v3.EntitlementRecord) bool {
+		err := e.records.IterateEntitlementsByResource(ctx, "app", c.resID, func(*v3.EntitlementRecord) bool {
 			n++
 			return true
 		})
@@ -271,7 +271,7 @@ func TestFreshSyncWithinCallDuplicateExternalIDDedup(t *testing.T) {
 	_, err := a.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
 	// One PutGrants call carrying two records with the same id g1.
-	require.NoError(t, a.PutGrants(ctx,
+	require.NoError(t, a.records.PutGrants(ctx,
 		mkV2Grant("g1", "ent-A", "user", "alice"),
 		mkV2Grant("g1", "ent-B", "user", "bob"),
 	))
@@ -282,7 +282,7 @@ func TestFreshSyncWithinCallDuplicateExternalIDDedup(t *testing.T) {
 		expected int
 	}{{"ent-A", 1}, {"ent-B", 1}} {
 		n := 0
-		err := a.IterateGrantsByEntitlement(ctx, canonicalTestEntID(c.ent), func(*v3.GrantRecord) bool {
+		err := a.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID(c.ent), func(*v3.GrantRecord) bool {
 			n++
 			return true
 		})
@@ -294,7 +294,7 @@ func TestFreshSyncWithinCallDuplicateExternalIDDedup(t *testing.T) {
 		expected  int
 	}{{"alice", 1}, {"bob", 1}} {
 		n := 0
-		err := a.IterateGrantsByPrincipal(ctx, "user", c.principal, func(*v3.GrantRecord) bool {
+		err := a.records.IterateGrantsByPrincipal(ctx, "user", c.principal, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		})
@@ -312,15 +312,15 @@ func TestNonFreshSyncOverwriteWorksThroughAdapter(t *testing.T) {
 	a := newAdapter(t)
 	syncID, err := a.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")))
+	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")))
 	require.NoError(t, a.EndSync(ctx))
 	// Re-attach via SetCurrentSync — clears freshSync flag.
 	require.NoError(t, a.SetCurrentSync(ctx, syncID))
-	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent-B", "user", "bob")))
+	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("g1", "ent-B", "user", "bob")))
 
 	// ent-A should now be empty (old index cleaned up).
 	n := 0
-	err = a.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
+	err = a.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
 		n++
 		return true
 	})
@@ -328,7 +328,7 @@ func TestNonFreshSyncOverwriteWorksThroughAdapter(t *testing.T) {
 	require.Equal(t, 1, n, "ent-A after structured-identity add")
 	// ent-B should have 1.
 	n = 0
-	err = a.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-B"), func(*v3.GrantRecord) bool {
+	err = a.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-B"), func(*v3.GrantRecord) bool {
 		n++
 		return true
 	})
@@ -345,29 +345,29 @@ func TestDeleteThenPutCleansAndRewrites(t *testing.T) {
 	require.NoError(t, e.bindCurrentSync(syncID))
 	for i := 0; i < 5; i++ {
 		p := "alice-" + strconv.Itoa(i)
-		require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("ent-A", "user", p), "ent-A", p)))
+		require.NoError(t, e.records.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("ent-A", "user", p), "ent-A", p)))
 	}
-	require.NoError(t, e.DeleteGrantRecord(ctx, canonicalTestGrantID("ent-A", "user", "alice-2")))
+	require.NoError(t, e.records.DeleteGrantRecord(ctx, canonicalTestGrantID("ent-A", "user", "alice-2")))
 	// by_ent(ent-A) should have 4 entries (5 - 1 deleted).
 	n := 0
-	err := e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
+	err := e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
 		n++
 		return true
 	})
 	require.NoError(t, err)
 	require.Equal(t, 4, n, "after delete: by_ent count")
 	// Re-Put the deleted principal's grant with different indexed fields.
-	require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("ent-C", "user", "carol"), "ent-C", "carol")))
+	require.NoError(t, e.records.PutGrantRecord(ctx, makeGrant(syncID, canonicalTestGrantID("ent-C", "user", "carol"), "ent-C", "carol")))
 	// by_ent(ent-A) still 4; by_ent(ent-C) = 1.
 	n = 0
-	err = e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
+	err = e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(*v3.GrantRecord) bool {
 		n++
 		return true
 	})
 	require.NoError(t, err)
 	require.Equal(t, 4, n, "after delete + repuT: by_ent(A)")
 	n = 0
-	err = e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-C"), func(*v3.GrantRecord) bool {
+	err = e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-C"), func(*v3.GrantRecord) bool {
 		n++
 		return true
 	})
@@ -386,12 +386,12 @@ func TestFreshSyncWithinCallDuplicateResourceTypeDedup(t *testing.T) {
 	mkRT := func(displayName string) *v3.ResourceTypeRecord {
 		return v3.ResourceTypeRecord_builder{ExternalId: "app", DisplayName: displayName}.Build()
 	}
-	require.NoError(t, e.PutResourceTypeRecords(ctx, mkRT("stale"), mkRT("fresh")))
+	require.NoError(t, e.records.PutResourceTypeRecords(ctx, mkRT("stale"), mkRT("fresh")))
 
-	got, err := e.GetResourceTypeRecord(ctx, "app")
+	got, err := e.records.GetResourceTypeRecord(ctx, "app")
 	require.NoError(t, err)
 	require.Equal(t, "fresh", got.GetDisplayName(), "the last occurrence of an external ID wins")
 	n := 0
-	require.NoError(t, e.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool { n++; return true }))
+	require.NoError(t, e.records.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool { n++; return true }))
 	require.Equal(t, 1, n)
 }

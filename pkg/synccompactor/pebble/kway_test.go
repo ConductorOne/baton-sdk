@@ -45,12 +45,12 @@ func writeKWaySource(t *testing.T, ctx context.Context, path string, grants []kw
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	now := timestamppb.New(time.Unix(1, 0).UTC())
-	require.NoError(t, eng.PutResourceTypeRecords(ctx,
+	require.NoError(t, eng.Records().PutResourceTypeRecords(ctx,
 		v3.ResourceTypeRecord_builder{ExternalId: "user", DisplayName: "User", DiscoveredAt: now}.Build(),
 		v3.ResourceTypeRecord_builder{ExternalId: "group", DisplayName: "Group", DiscoveredAt: now}.Build(),
 	))
 	parent := v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "engineering"}.Build()
-	require.NoError(t, eng.PutResourceRecords(ctx,
+	require.NoError(t, eng.Records().PutResourceRecords(ctx,
 		v3.ResourceRecord_builder{ResourceTypeId: "group", ResourceId: "engineering", DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "alice", Parent: parent, DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "bob", Parent: parent, DiscoveredAt: now}.Build(),
@@ -70,7 +70,7 @@ func writeKWaySource(t *testing.T, ctx context.Context, path string, grants []kw
 		}.Build())
 	}
 	if len(entRecords) > 0 {
-		require.NoError(t, eng.PutEntitlementRecords(ctx, entRecords...))
+		require.NoError(t, eng.Records().PutEntitlementRecords(ctx, entRecords...))
 	}
 	grantRecords := make([]*v3.GrantRecord, 0, len(grants))
 	for _, g := range grants {
@@ -87,10 +87,10 @@ func writeKWaySource(t *testing.T, ctx context.Context, path string, grants []kw
 		}.Build())
 	}
 	if len(grantRecords) > 0 {
-		require.NoError(t, eng.PutGrantRecords(ctx, grantRecords...))
+		require.NoError(t, eng.Records().PutGrantRecords(ctx, grantRecords...))
 	}
 	if withAsset {
-		require.NoError(t, eng.PutAssetRecord(ctx, v3.AssetRecord_builder{SyncId: syncID, ExternalId: "asset-1", ContentType: "text/plain", Data: []byte("asset")}.Build()))
+		require.NoError(t, eng.Records().PutAssetRecord(ctx, v3.AssetRecord_builder{SyncId: syncID, ExternalId: "asset-1", ContentType: "text/plain", Data: []byte("asset")}.Build()))
 	}
 	require.NoError(t, store.EndSync(ctx))
 	require.NoError(t, store.Close(ctx))
@@ -130,7 +130,7 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 	dest, _ := mergeKWayFixtures(t, ctx, []kwaySourceFixture{src1, src2}, 50)
 
 	grants := map[string]*v3.GrantRecord{}
-	require.NoError(t, dest.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.Records().IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		grants[g.GetExternalId()] = g
 		return true
 	}))
@@ -138,34 +138,34 @@ func TestMergeFilesIntoKWayNewerWinsTieIndexesAndDropsAssets(t *testing.T) {
 	require.NotContains(t, grants, "shared", "same structured identity is superseded by tie")
 	require.Equal(t, "bob", grants["tie"].GetPrincipal().GetResourceId(), "retained external_id map observes later structured identity")
 	var byEntitlement []string
-	require.NoError(t, dest.IterateGrantsByEntitlement(ctx, "member", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.Records().IterateGrantsByEntitlement(ctx, "member", func(g *v3.GrantRecord) bool {
 		byEntitlement = append(byEntitlement, g.GetExternalId())
 		return true
 	}))
 	sort.Strings(byEntitlement)
 	require.Equal(t, fmtSprint([]string{"only-src2", "tie", "tie"}), fmtSprint(byEntitlement), "by_entitlement index")
 	var byPrincipal []string
-	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.Records().IterateGrantsByPrincipal(ctx, "user", "alice", func(g *v3.GrantRecord) bool {
 		byPrincipal = append(byPrincipal, g.GetExternalId())
 		return true
 	}))
 	sort.Strings(byPrincipal)
 	require.Equal(t, fmtSprint([]string{"only-src1", "tie"}), fmtSprint(byPrincipal), "by_principal index")
 	var needsExpansion []string
-	require.NoError(t, dest.IterateGrantsByNeedsExpansion(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.Records().IterateGrantsByNeedsExpansion(ctx, func(g *v3.GrantRecord) bool {
 		needsExpansion = append(needsExpansion, g.GetExternalId())
 		return true
 	}))
 	require.Equal(t, fmtSprint([]string{"only-src1"}), fmtSprint(needsExpansion), "needs_expansion index")
 	var children []string
-	require.NoError(t, dest.IterateResourcesByParent(ctx, "group", "engineering", func(r *v3.ResourceRecord) bool {
+	require.NoError(t, dest.Records().IterateResourcesByParent(ctx, "group", "engineering", func(r *v3.ResourceRecord) bool {
 		children = append(children, r.GetResourceId())
 		return true
 	}))
 	sort.Strings(children)
 	require.Equal(t, fmtSprint([]string{"alice", "bob", "carol"}), fmtSprint(children), "resource_by_parent index")
 	assetCount := 0
-	require.NoError(t, dest.IterateAssets(ctx, func(*v3.AssetRecord) bool {
+	require.NoError(t, dest.Records().IterateAssets(ctx, func(*v3.AssetRecord) bool {
 		assetCount++
 		return true
 	}))
@@ -276,7 +276,7 @@ func TestFinishChunkRunFileJoinsRemovalFailure(t *testing.T) {
 func grantPrincipalMap(t *testing.T, ctx context.Context, e *enginepkg.Engine, syncID string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	require.NoError(t, e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, e.Records().IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		out[g.GetExternalId()] = g.GetPrincipal().GetResourceId()
 		return true
 	}))

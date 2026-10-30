@@ -35,11 +35,11 @@ func writeEntitlementRTSource(t *testing.T, ctx context.Context, path string, en
 	syncID, err := w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	now := timestamppb.New(time.Unix(1, 0).UTC())
-	require.NoError(t, eng.PutResourceTypeRecords(ctx,
+	require.NoError(t, eng.Records().PutResourceTypeRecords(ctx,
 		v3.ResourceTypeRecord_builder{ExternalId: "user", DisplayName: "User", DiscoveredAt: now}.Build(),
 		v3.ResourceTypeRecord_builder{ExternalId: "group", DisplayName: "Group", DiscoveredAt: now}.Build(),
 	))
-	require.NoError(t, eng.PutResourceRecords(ctx,
+	require.NoError(t, eng.Records().PutResourceRecords(ctx,
 		v3.ResourceRecord_builder{ResourceTypeId: "group", ResourceId: "engineering", DiscoveredAt: now}.Build(),
 		v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "alice", DiscoveredAt: now}.Build(),
 	))
@@ -51,7 +51,7 @@ func writeEntitlementRTSource(t *testing.T, ctx context.Context, path string, en
 			DiscoveredAt: now,
 		}.Build())
 	}
-	require.NoError(t, eng.PutEntitlementRecords(ctx, recs...))
+	require.NoError(t, eng.Records().PutEntitlementRecords(ctx, recs...))
 	require.NoError(t, w.EndSync(ctx))
 	require.NoError(t, w.Close(ctx))
 	return kwaySourceFixture{path: path, syncID: syncID}

@@ -31,11 +31,11 @@ import (
 // ORDER — the cursor resumes by positional index, so a reorder is
 // as fatal as a drop/add; any change to the list (including order)
 // restarts from the beginning rather than silently mis-paginating.
-func (e *Engine) ListGrantsForEntitlements(
+func (r *Records) ListGrantsForEntitlements(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementsResponse, error) {
-	records, next, err := e.listGrantsForEntitlements(ctx, req)
+	records, next, err := r.e.listGrantsForEntitlements(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ EntitlementLoop:
 		if ents[i].GetId() == "" {
 			continue
 		}
-		entID, err := e.entitlementIdentityForRequest(ctx, ents[i])
+		entID, err := e.records.entitlementIdentityForRequest(ctx, ents[i])
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue // unknown entitlement → no grants
@@ -108,7 +108,7 @@ EntitlementLoop:
 			if err := ctx.Err(); err != nil {
 				return nil, "", err
 			}
-			records, next, err := e.PaginateGrantsByEntitlement(ctx, entID, intraCursor, limit-len(out))
+			records, next, err := e.records.PaginateGrantsByEntitlement(ctx, entID, intraCursor, limit-len(out))
 			if err != nil {
 				return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 			}

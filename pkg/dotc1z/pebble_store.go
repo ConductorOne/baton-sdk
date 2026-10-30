@@ -516,7 +516,7 @@ func (s *pebbleStore) PutAsset(ctx context.Context, assetRef *v2.AssetRef, conte
 	if err := s.writeHook(ctx, "PutAsset"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.PutAsset(ctx, assetRef, contentType, data))
+	return s.markDirty(s.Engine.Records().PutAsset(ctx, assetRef, contentType, data))
 }
 
 // PutEntitlementGraphBlob / GetEntitlementGraphBlob / DeleteEntitlementGraphBlob
@@ -584,7 +584,7 @@ func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error 
 	if err := s.writeHook(ctx, "PutGrants"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.PutGrants(ctx, grants...))
+	return s.markDirty(s.Engine.Records().PutGrants(ctx, grants...))
 }
 
 // UnsafePutUniqueGrants is the trusted-import write path (no
@@ -595,35 +595,35 @@ func (s *pebbleStore) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.G
 	if err := s.writeHook(ctx, "UnsafePutUniqueGrants"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.UnsafePutUniqueGrants(ctx, grants...))
+	return s.markDirty(s.Engine.Records().UnsafePutUniqueGrants(ctx, grants...))
 }
 
 func (s *pebbleStore) PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error {
 	if err := s.writeHook(ctx, "PutResourceTypes"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.PutResourceTypes(ctx, resourceTypes...))
+	return s.markDirty(s.Engine.Records().PutResourceTypes(ctx, resourceTypes...))
 }
 
 func (s *pebbleStore) PutResources(ctx context.Context, resources ...*v2.Resource) error {
 	if err := s.writeHook(ctx, "PutResources"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.PutResources(ctx, resources...))
+	return s.markDirty(s.Engine.Records().PutResources(ctx, resources...))
 }
 
 func (s *pebbleStore) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
 	if err := s.writeHook(ctx, "PutEntitlements"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.PutEntitlements(ctx, entitlements...))
+	return s.markDirty(s.Engine.Records().PutEntitlements(ctx, entitlements...))
 }
 
 func (s *pebbleStore) DeleteGrant(ctx context.Context, grantID string) error {
 	if err := s.writeHook(ctx, "DeleteGrant"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.DeleteGrant(ctx, grantID))
+	return s.markDirty(s.Engine.Records().DeleteGrant(ctx, grantID))
 }
 
 func (s *pebbleStore) BeginPage() c1zstore.PageWriter {
@@ -693,7 +693,7 @@ func (s *pebbleStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) er
 	if err := s.writeHook(ctx, "DeleteGrantByRefs"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.DeleteGrantByRefs(ctx, grant))
+	return s.markDirty(s.Engine.Records().DeleteGrantByRefs(ctx, grant))
 }
 
 // DeleteGrantsByRefs is the bulk form of DeleteGrantByRefs: identical
@@ -712,7 +712,7 @@ func (s *pebbleStore) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Gran
 		return err
 	}
 	s.MarkDirty()
-	return s.Engine.DeleteGrantsByRefs(ctx, grants...)
+	return s.Engine.Records().DeleteGrantsByRefs(ctx, grants...)
 }
 
 // DeleteResourceRecord removes a resource and marks the envelope dirty so an
@@ -721,7 +721,7 @@ func (s *pebbleStore) DeleteResourceRecord(ctx context.Context, resourceTypeID, 
 	if err := s.writeHook(ctx, "DeleteResourceRecord"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.DeleteResourceRecord(ctx, resourceTypeID, resourceID))
+	return s.markDirty(s.Engine.Records().DeleteResourceRecord(ctx, resourceTypeID, resourceID))
 }
 
 // DeleteEntitlementByRefs removes one exact entitlement identity and preserves

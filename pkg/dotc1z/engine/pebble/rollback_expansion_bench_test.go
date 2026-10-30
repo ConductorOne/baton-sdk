@@ -38,7 +38,7 @@ func BenchmarkRollbackExpansionPebble(b *testing.B) {
 				batch = append(batch, rollbackTestGrant("ent-A", principal, true, "ent-B"))
 			}
 			if len(batch) == chunk {
-				require.NoError(b, e.PutGrantRecords(ctx, batch...))
+				require.NoError(b, e.records.PutGrantRecords(ctx, batch...))
 				batch = batch[:0]
 			}
 		}

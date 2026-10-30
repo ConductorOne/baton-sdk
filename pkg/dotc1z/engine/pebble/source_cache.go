@@ -435,14 +435,14 @@ func (e *Engine) InvalidateSourceCacheReplayState(ctx context.Context, dropScope
 // DeleteGrantRecordsBounded with an acting scope instead.
 func (e *Engine) DeleteGrantRecordBounded(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		id, err := e.resolveGrantIdentityByCandidates(ctx, externalID)
+		id, err := e.records.resolveGrantIdentityByCandidates(ctx, externalID)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				return nil // absent (or custom-id) — tombstone no-op
 			}
 			return err
 		}
-		return e.deleteGrantByIdentityLocked(id)
+		return e.records.deleteGrantByIdentityLocked(id)
 	})
 }
 
@@ -463,7 +463,7 @@ func (e *Engine) DeleteGrantRecordsBounded(ctx context.Context, externalIDs []st
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			id, err := e.resolveGrantIdentityByCandidates(ctx, externalID)
+			id, err := e.records.resolveGrantIdentityByCandidates(ctx, externalID)
 			if err != nil {
 				if errors.Is(err, pebble.ErrNotFound) {
 					continue
@@ -1163,7 +1163,7 @@ func (e *Engine) clearReplayDestinationScopeLocked(
 		// entitlement keyspace must invalidate the cached map as each
 		// chunk lands, not when the caller finishes.
 		if deletedInBatch > 0 && recordType == typeEntitlement {
-			e.noteEntitlementKeyspaceWrite()
+			e.records.noteEntitlementKeyspaceWrite()
 		}
 		_ = batch.Close()
 		batch = e.db.NewRecordBatch()
@@ -1463,7 +1463,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		opts := recordWriteOpts
 		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "entitlements", typeEntitlement, scopeKey, prefix, opts)
 		if deleted > 0 {
-			e.noteEntitlementKeyspaceWrite()
+			e.records.noteEntitlementKeyspaceWrite()
 			_ = e.takeFreshEntitlementsEmpty()
 		}
 		if err != nil {
@@ -1483,7 +1483,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		// can report landed progress.)
 		defer func() {
 			if committedRows > 0 {
-				e.noteEntitlementKeyspaceWrite()
+				e.records.noteEntitlementKeyspaceWrite()
 				_ = e.takeFreshEntitlementsEmpty()
 			}
 		}()
@@ -1562,7 +1562,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 				// invalidate the cached map — deferring to function exit
 				// would let a reader build and keep serving a map
 				// missing every entitlement this chunk just committed.
-				e.noteEntitlementKeyspaceWrite()
+				e.records.noteEntitlementKeyspaceWrite()
 				_ = batch.Close()
 				batch = e.db.NewRecordBatch()
 				rowsInBatch = 0

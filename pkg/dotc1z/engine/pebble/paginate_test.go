@@ -27,7 +27,7 @@ func pageThroughGrants(t *testing.T, a *Adapter, pageSize uint32, expectedTotal 
 	for {
 		pages++
 		require.LessOrEqual(t, pages, expectedTotal+1, "pagination did not terminate after %d pages (expected ~%d)", pages, (expectedTotal/int(pageSize))+1)
-		resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		resp, err := a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 			PageSize:  pageSize,
 			PageToken: pageToken,
 		}.Build())
@@ -70,7 +70,7 @@ func TestListGrantsPagination(t *testing.T) {
 			"user-"+strconv.Itoa(i),
 		)
 	}
-	require.NoErrorf(t, a.PutGrants(ctx, grants...), "PutGrants")
+	require.NoErrorf(t, a.records.PutGrants(ctx, grants...), "PutGrants")
 
 	t.Run("page=10", func(t *testing.T) { pageThroughGrants(t, a, 10, total) })
 	t.Run("page=50", func(t *testing.T) { pageThroughGrants(t, a, 50, total) })
@@ -79,7 +79,7 @@ func TestListGrantsPagination(t *testing.T) {
 	t.Run("page=251_overshoot", func(t *testing.T) { pageThroughGrants(t, a, 251, total) })
 	t.Run("page=default_zero", func(t *testing.T) {
 		// page_size=0 clamps to DefaultPageSize (10000); single page expected.
-		resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+		resp, err := a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 		require.NoError(t, err)
 		require.Equal(t, total, len(resp.GetList()), "default page: got %d records, want %d", len(resp.GetList()), total)
 		require.Empty(t, resp.GetNextPageToken(), "default page should not have next token, got %q", resp.GetNextPageToken())
@@ -109,7 +109,7 @@ func TestListGrantsPaginationByEntitlementResource(t *testing.T) {
 		// — see mkV2Grant) so the by_entitlement_resource index
 		// covers every record. Principals vary so the test wouldn't
 		// have worked accidentally via a principal-side filter.
-		require.NoError(t, a.PutGrants(ctx, mkV2Grant(
+		require.NoError(t, a.records.PutGrants(ctx, mkV2Grant(
 			"grant-"+strconv.Itoa(i),
 			"ent-"+strconv.Itoa(i%5),
 			"user",
@@ -127,7 +127,7 @@ func TestListGrantsPaginationByEntitlementResource(t *testing.T) {
 	for {
 		pages++
 		require.LessOrEqual(t, pages, 50, "pagination did not terminate: %d pages", pages)
-		resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		resp, err := a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 			Resource:  entitlementResource,
 			PageSize:  15,
 			PageToken: pageToken,
@@ -160,12 +160,12 @@ func TestListResourcesPagination(t *testing.T) {
 			DisplayName: "User " + strconv.Itoa(i),
 		}.Build()
 	}
-	require.NoError(t, a.PutResources(ctx, resources...))
+	require.NoError(t, a.records.PutResources(ctx, resources...))
 
 	seen := map[string]struct{}{}
 	pageToken := ""
 	for {
-		resp, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		resp, err := a.records.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 			PageSize:  20,
 			PageToken: pageToken,
 		}.Build())
@@ -196,12 +196,12 @@ func TestListEntitlementsPagination(t *testing.T) {
 			}.Build(),
 		}.Build()
 	}
-	require.NoError(t, a.PutEntitlements(ctx, entitlements...))
+	require.NoError(t, a.records.PutEntitlements(ctx, entitlements...))
 
 	seen := map[string]struct{}{}
 	pageToken := ""
 	for {
-		resp, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+		resp, err := a.records.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 			PageSize:  7,
 			PageToken: pageToken,
 		}.Build())
@@ -229,11 +229,11 @@ func TestListResourceTypesPagination(t *testing.T) {
 			DisplayName: "RT " + strconv.Itoa(i),
 		}.Build()
 	}
-	require.NoError(t, a.PutResourceTypes(ctx, rts...))
+	require.NoError(t, a.records.PutResourceTypes(ctx, rts...))
 	seen := map[string]struct{}{}
 	pageToken := ""
 	for {
-		resp, err := a.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+		resp, err := a.records.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
 			PageSize:  8,
 			PageToken: pageToken,
 		}.Build())
@@ -257,7 +257,7 @@ func TestPageTokenMalformed(t *testing.T) {
 	// not-base64 — must surface ErrInvalidPageToken so a buggy caller
 	// who corrupts the token gets a clear error rather than silently
 	// returning the first page again.
-	_, err = a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+	_, err = a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		PageToken: "not!base64!!!",
 	}.Build())
 	require.ErrorIs(t, err, ErrInvalidPageToken, "malformed token: got err=%v, want ErrInvalidPageToken", err)
@@ -273,16 +273,16 @@ func TestPaginationClampedPageSize(t *testing.T) {
 	const total = 50
 	for i := 0; i < total; i++ {
 		r := &v3.GrantRecord{}
-		require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g"+strconv.Itoa(i), "ent", "user-"+strconv.Itoa(i))))
+		require.NoError(t, e.records.PutGrantRecord(ctx, makeGrant(syncID, "g"+strconv.Itoa(i), "ent", "user-"+strconv.Itoa(i))))
 		_ = r
 	}
 	// Passing 0 should clamp to DefaultPageSize and return all 50.
-	recs, next, err := e.PaginateGrants(ctx, "", 0)
+	recs, next, err := e.records.PaginateGrants(ctx, "", 0)
 	require.NoError(t, err)
 	require.Equal(t, total, len(recs), "clamp(0): got %d, want %d", len(recs), total)
 	require.Empty(t, next, "clamp(0): expected empty next cursor, got %q", next)
 	// Passing MaxPageSize+1 should clamp identically.
-	recs2, _, err := e.PaginateGrants(ctx, "", MaxPageSize+1)
+	recs2, _, err := e.records.PaginateGrants(ctx, "", MaxPageSize+1)
 	require.NoError(t, err)
 	require.Equal(t, total, len(recs2), "clamp(max+1): got %d, want %d", len(recs2), total)
 }
