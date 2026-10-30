@@ -1,0 +1,27 @@
+# List-page-window verification plan
+
+## Contract
+
+An opt-in syncer page window bounds successful resources, entitlements, and grants pages per action. Zero preserves existing behavior and token bytes. Static entitlements and planning actions are excluded. Each spawned cursor and each new walk starts at zero. Serial and parallel checkpoints retain the action count. Ledger restart reconstruction may restart the count, allowing at most one additional window per restart.
+
+The synchronous report includes operation, resource and parent identities, type-scoped/spawned markers, pages returned, configured window, and vendor termination. At the window a nonempty continuation is cleared and counted as sampled; an empty continuation is reported as vendor-terminated and is not sampled. Earlier termination emits no report. Handlers run outside scheduler and run-state locks and must support concurrent workers.
+
+Sampling counters survive both token-based and ledger-based EndSync and are readable through the additive SyncStats counters map. The CLI and local runner propagate the option. The unreleased annotation and its helpers are removed; compatibility is checked against main.
+
+## Frozen coverage criteria
+
+- W1: cross product of serial, parallel, and ledger transitions with top-level resources, parented resources with same-ID/different-type parents, per-resource entitlements, per-resource grants, and type-scoped grants with spawned cursors.
+- W2: each cell covers sampled (five vendor pages/window two), terminated at window, terminated before window, and disabled window. Assert call counts, report identity and termination, sampled counters, and stored second-page data.
+- W3: static entitlements remain unbounded; siblings have independent windows; rewalking one identity reports again.
+- W4: disabled/default action serialization is byte-identical; serial checkpoint restart retains the count; ledger restart limitation is explicit.
+- W5: handlers run outside locks; unsuccessful transitions do not invoke handlers.
+- W6: token overlay and ledger seal expose counters; CLI-to-local-runner propagation is exercised.
+- W7: generated artifacts are fresh; Buf lint, format, and breaking against main pass; scoped tests, race checks, and repository CI pass.
+
+## Risk and cost
+
+Opt-in sampling changes durable completeness reporting and interacts with scheduling and restart, so verification uses the high-risk process. The page-window check adds constant work per successful list page and one action-local uint32; it adds no identity map or growing per-page state. Existing default-path collection and expansion algorithms are unchanged.
+
+## Scope exclusions
+
+No annotation transport, connector-side policy, production default change, or ledger schema persistence for the page count. Release publication and merge remain owner actions.
