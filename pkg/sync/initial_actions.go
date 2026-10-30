@@ -60,32 +60,22 @@ func (s *syncer) initialActions(targetedResources []*v2.Resource) ([]Action, []s
 
 func (s *syncer) initializeAction(ctx context.Context, action *Action, targetedResources []*v2.Resource) error {
 	children, facts := s.initialActions(targetedResources)
-	if s.ledgered {
-		invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-		if !ok {
-			return errors.New("ledger Init requires an open page")
-		}
-		if err := s.recordFirstReportOptions(invocation.page); err != nil {
+	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+	if !ok {
+		return errors.New("ledger Init requires an open page")
+	}
+	if err := s.recordFirstReportOptions(invocation.page); err != nil {
+		return err
+	}
+	if s.stats.ingestQuality() != nil {
+		if err := invocation.page.setFact(ledgerFactIngestKnown); err != nil {
 			return err
 		}
-		if s.stats.ingestQuality() != nil {
-			if err := invocation.page.setFact(ledgerFactIngestKnown); err != nil {
-				return err
-			}
-		}
-		for _, fact := range facts {
-			if err := invocation.page.setFact(fact); err != nil {
-				return err
-			}
-		}
-		return s.nextPageOrFinishAction(ctx, action, "", children...)
 	}
-	s.finishAction(ctx, action)
 	for _, fact := range facts {
-		s.run.setFact(fact)
+		if err := invocation.page.setFact(fact); err != nil {
+			return err
+		}
 	}
-	for _, child := range children {
-		s.run.pushAction(ctx, child)
-	}
-	return s.Checkpoint(ctx, true)
+	return s.nextPageOrFinishAction(ctx, action, "", children...)
 }

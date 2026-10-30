@@ -8,7 +8,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -17,12 +16,8 @@ type ownershipGuardStore struct {
 	putCalls int
 }
 
-// SyncMeta answers the capability resolution setStore performs at attach; see
-// legacyPaginatedCheckpointStore.SyncMeta.
 func (s *ownershipGuardStore) SyncMeta() c1zstore.SyncMeta { return nil }
 
-// Grants answers the same attach-time capability resolution; see
-// legacyPaginatedCheckpointStore.Grants.
 func (s *ownershipGuardStore) Grants() c1zstore.GrantStore { return nil }
 
 func (s *ownershipGuardStore) PutResources(context.Context, ...*v2.Resource) error {
@@ -33,7 +28,7 @@ func (s *ownershipGuardStore) PutResources(context.Context, ...*v2.Resource) err
 func TestPutConnectorResourcesRejectsReservedOwnership(t *testing.T) {
 	store := &ownershipGuardStore{}
 	syncer := &syncer{}
-	syncer.setStore(store)
+	syncer.setStore(withTripwireLedgerCaps(store))
 	reserved := v2.Resource_builder{
 		Id: v2.ResourceId_builder{
 			ResourceType: "user",
@@ -64,8 +59,4 @@ func TestPutConnectorResourcesRejectsReservedOwnership(t *testing.T) {
 	}.Build()
 	require.NoError(t, syncer.putConnectorResources(t.Context(), clean))
 	require.Equal(t, 1, store.putCalls)
-}
-
-func (s *ownershipGuardStore) Metadata() connectorstore.StoreMetadata {
-	return connectorstore.StoreMetadata{}
 }

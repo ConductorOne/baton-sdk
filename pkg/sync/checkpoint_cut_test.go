@@ -343,7 +343,6 @@ func runCutAttempt(
 		return nil
 	})
 	var commits atomic.Int64
-	sc.testHooks.checkpointHook = func(string) { t.Error("Pebble wrote a checkpoint token") }
 	sc.testHooks.ledgerCommitted = func(c1zstore.LedgerRow) {
 		n := commits.Add(1)
 		if spec.commit > 0 && n == int64(spec.commit) {

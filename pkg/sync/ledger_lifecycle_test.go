@@ -11,7 +11,7 @@ import (
 )
 
 func ledgerContinuationSyncer(f *ledgerFixture) *syncer {
-	return &syncer{ledgered: true, syncID: f.engine.CurrentSyncID(), store: f.store, caps: resolveStoreCaps(f.store), cfg: syncConfig{workerCount: 1}}
+	return &syncer{syncID: f.engine.CurrentSyncID(), store: f.store, caps: resolveStoreCaps(f.store), cfg: syncConfig{workerCount: 1}}
 }
 
 // A finished sync's one further pass is expansion.

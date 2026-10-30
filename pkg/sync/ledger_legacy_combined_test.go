@@ -180,7 +180,6 @@ func runLegacyCombinedMigration(t *testing.T, path string, workers int, cut stri
 		require.NoError(t, err)
 		s := created.(*syncer)
 		observeLedgerRestore(t, s, f)
-		s.testHooks.checkpointHook = func(string) { t.Error("migration wrote a checkpoint") }
 		s.caps.pageLedger = legacyCombinedStore{ledgerPublicCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) {
 			if reached != cut {
 				return

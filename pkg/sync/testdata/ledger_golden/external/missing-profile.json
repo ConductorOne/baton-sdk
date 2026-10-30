@@ -1,0 +1,107 @@
+{
+  "entitlements": [
+    {
+      "resource": {
+        "id": {
+          "resourceType": "group",
+          "resource": "application"
+        }
+      },
+      "id": "group:application:member",
+      "displayName": "member",
+      "purpose": "PURPOSE_VALUE_ASSIGNMENT",
+      "slug": "member"
+    },
+    {
+      "resource": {
+        "id": {
+          "resourceType": "user",
+          "resource": "fresh"
+        }
+      },
+      "id": "user:fresh:member",
+      "displayName": "member",
+      "annotations": [
+        {
+          "@type": "type.googleapis.com/c1.connector.v2.EntitlementImmutable"
+        }
+      ],
+      "purpose": "PURPOSE_VALUE_ASSIGNMENT",
+      "slug": "member"
+    }
+  ],
+  "grants": [
+    {
+      "entitlement": {
+        "resource": {
+          "id": {
+            "resourceType": "user",
+            "resource": "fresh"
+          }
+        },
+        "id": "user:fresh:member"
+      },
+      "principal": {
+        "id": {
+          "resourceType": "user",
+          "resource": "fresh"
+        }
+      },
+      "id": "user:fresh:member:user:fresh",
+      "annotations": [
+        {
+          "@type": "type.googleapis.com/c1.connector.v2.GrantImmutable"
+        }
+      ]
+    }
+  ],
+  "resource_types": [
+    {
+      "id": "group",
+      "displayName": "Group",
+      "traits": [
+        "TRAIT_GROUP"
+      ]
+    },
+    {
+      "id": "user",
+      "displayName": "User",
+      "traits": [
+        "TRAIT_USER"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "id": {
+        "resourceType": "group",
+        "resource": "application"
+      }
+    },
+    {
+      "id": {
+        "resourceType": "user",
+        "resource": "fresh"
+      },
+      "displayName": "fresh",
+      "annotations": [
+        {
+          "@type": "type.googleapis.com/c1.connector.v2.UserTrait",
+          "status": {
+            "status": "STATUS_ENABLED"
+          },
+          "accountType": "ACCOUNT_TYPE_HUMAN"
+        },
+        {
+          "@type": "type.googleapis.com/c1.connector.v2.BatonID"
+        }
+      ],
+      "profile": {
+        "email": "fresh@example.com"
+      },
+      "status": {
+        "status": "RESOURCE_STATUS_ENABLED"
+      }
+    }
+  ]
+}

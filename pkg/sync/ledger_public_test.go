@@ -62,14 +62,13 @@ func TestLedgerPublicEngineAttachment(t *testing.T) {
 				afterWrites := len(f.audit.events)
 				f.audit.mu.Unlock()
 				require.Equal(t, writes, afterWrites)
-				valid := engine == "pebble" && capability || engine != "pebble" && !capability
-				if !valid {
+				if engine != "pebble" || !capability {
 					require.Error(t, err)
 					require.Nil(t, created)
 					return
 				}
 				require.NoError(t, err)
-				require.Equal(t, engine == "pebble", created.(*syncer).ledgered)
+				require.Nil(t, created.(*syncer).storeAttachErr)
 			})
 		}
 	}
@@ -323,7 +322,7 @@ func TestLedgerPublicPathAttachment(t *testing.T) {
 			require.NoError(t, err)
 			s := created.(*syncer)
 			require.NoError(t, s.loadStore(t.Context()))
-			require.Equal(t, engine == c1zstore.EnginePebble, s.ledgered)
+			require.Nil(t, s.storeAttachErr)
 			require.NoError(t, s.Close(t.Context()))
 		})
 	}

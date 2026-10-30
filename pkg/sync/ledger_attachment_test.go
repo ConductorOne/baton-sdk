@@ -65,14 +65,13 @@ func TestLedgerPublicRegisteredPathAttachment(t *testing.T) {
 				afterWrites := len(f.audit.events)
 				f.audit.mu.Unlock()
 				require.Equal(t, writes, afterWrites)
-				valid := engine == "pebble" && capability || engine != "pebble" && !capability
-				if !valid {
+				if engine != "pebble" || !capability {
 					require.Error(t, err)
 					require.Equal(t, 1, closeStore.closes)
 					return
 				}
 				require.NoError(t, err)
-				require.Equal(t, engine == "pebble", s.ledgered)
+				require.Nil(t, s.storeAttachErr)
 				require.Zero(t, closeStore.closes)
 				require.NoError(t, s.Close(ctx))
 				require.Equal(t, 1, closeStore.closes)
@@ -94,7 +93,7 @@ func TestLedgerNilStoreFallsBackToPath(t *testing.T) {
 				require.NoError(t, err)
 				s := created.(*syncer)
 				require.NoError(t, s.loadStore(t.Context()))
-				require.Equal(t, engine == c1zstore.EnginePebble, s.ledgered)
+				require.Nil(t, s.storeAttachErr)
 				require.NoError(t, s.Close(t.Context()))
 			})
 		}

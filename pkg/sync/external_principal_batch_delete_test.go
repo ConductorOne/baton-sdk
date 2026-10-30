@@ -9,7 +9,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -28,14 +27,8 @@ type batchDeleteRouteStore struct {
 	putGrantIDs    []string
 }
 
-func (s *batchDeleteRouteStore) Metadata() connectorstore.StoreMetadata {
-	return connectorstore.StoreMetadata{}
-}
-
 func (s *batchDeleteRouteStore) Grants() c1zstore.GrantStore { return &s.grants }
 
-// SyncMeta answers the capability resolution setStore performs at attach; see
-// legacyPaginatedCheckpointStore.SyncMeta.
 func (s *batchDeleteRouteStore) SyncMeta() c1zstore.SyncMeta { return nil }
 
 func (s *batchDeleteRouteStore) PutGrants(_ context.Context, grants ...*v2.Grant) error {
@@ -113,7 +106,7 @@ func newExternalMatchSyncer(store c1zstore.Store) *syncer {
 	run := newRunState()
 	run.setFact(factHasExternalResourceGrants)
 	s := &syncer{run: run, stats: newRunStats(), graph: newExpansionGraph()}
-	s.setStore(store)
+	s.setStore(withTripwireLedgerCaps(store))
 	return s
 }
 

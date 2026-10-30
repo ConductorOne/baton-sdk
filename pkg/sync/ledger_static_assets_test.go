@@ -11,7 +11,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sync/progresslog"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -200,24 +199,13 @@ func TestLedgerStaticEntitlementPlanner(t *testing.T) {
 	require.EqualValues(t, 1, counters.Counters["ingest.invalid_resource_types_observed"])
 }
 
-func TestLedgerStaticEntitlementsMatchTokenHandler(t *testing.T) {
+func TestLedgerStaticEntitlementsMatchGolden(t *testing.T) {
 	ledger, f, _ := staticPageFixture(t)
-	baseline, b, _ := staticPageFixture(t)
-	baseline.ledgered = false
 	f.audit.enter(ledgerHandler)
 	_, err := runLedgerTestSync(t, ledger, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
-	_, err = runLedgerTestSync(t, baseline, t.Context(), t.Context(), nil)
-	require.NoError(t, err)
-	got, err := f.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
-	require.NoError(t, err)
-	expected, err := b.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
-	require.NoError(t, err)
-	require.Len(t, got.GetList(), len(expected.GetList()))
-	for i, value := range got.GetList() {
-		require.True(t, proto.Equal(value, expected.GetList()[i]))
-	}
+	assertLedgerGolden(t, f.store, "static_entitlements.json")
 }
 
 func TestLedgerStaticEntitlementReplay(t *testing.T) {

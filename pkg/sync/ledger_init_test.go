@@ -75,30 +75,6 @@ func assertInitialActionCase(t *testing.T, s *syncer, tc initialActionCase) {
 	}
 }
 
-func TestInitialActionBaseline(t *testing.T) {
-	for _, tc := range initialActionCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			s, f := newLedgerSchedulerFixture(t, 1)
-			s.ledgered = false
-			targeted := configureInitialActionCase(t, s, f, tc)
-			runCtx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			s.testHooks.checkpointHook = func(string) {
-				if current := s.run.current(); current == nil || current.Op != InitOp {
-					cancel()
-				}
-			}
-			_, err := runLedgerTestSync(t, s, t.Context(), runCtx, targeted)
-			if len(tc.ops) > 0 {
-				require.ErrorIs(t, err, context.Canceled)
-			} else {
-				require.NoError(t, err)
-			}
-			assertInitialActionCase(t, s, tc)
-		})
-	}
-}
-
 func TestLedgerInitialActionCommitFailureIsAtomic(t *testing.T) {
 	for _, stage := range []string{"fact", "counter", "commit"} {
 		t.Run(stage, func(t *testing.T) {
@@ -181,7 +157,7 @@ func TestLedgerInitialQualitySurvivesResume(t *testing.T) {
 			require.True(t, found)
 			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "quality-resume")
 			require.NoError(t, err)
-			resumed := &syncer{ledgered: true, ledger: runtime}
+			resumed := &syncer{ledger: runtime}
 			before = ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerWalk)
 			err = restoreLedgerTestState(t, resumed, t.Context(), ledgerResume{actions: roots}, false)
