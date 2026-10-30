@@ -479,10 +479,6 @@ type parallelActionQueue struct {
 	aborted     bool
 	refill      func() ([]*Action, error)
 	refillErr   error
-	// commitUnlocked releases mu around transition's commit callback. Set only
-	// for a ledger batch, whose commit is a durable store write that needs no
-	// queue state.
-	commitUnlocked bool
 	// The queue keeps NO cursor identity history (RFC 0007 phase 1
 	// restored the pre-identity-machinery posture that prod ran on for
 	// years): no batch-lifetime seen set, no cap, no cross-commit dedup,
@@ -621,24 +617,14 @@ func (q *parallelActionQueue) transition(
 		admitted = append(admitted, *child)
 	}
 
-	if q.commitUnlocked {
-		// The ledger commit is a durable batch, not the in-memory transition
-		// the token path performs here. It needs none of the queue's state, and
-		// holding q.mu across it stalls every other worker's next() and done()
-		// for its duration. An abort landing meanwhile does not undo a commit
-		// that has already published, so aborted is not re-read below.
-		q.audit.record(queueAuditEvent{kind: auditCommitBegin, batch: q.auditBatch})
-		q.mu.Unlock()
-		pushed, err := commit(nextPageToken, admitted)
-		q.mu.Lock()
-		if err != nil {
-			q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
-			return err
-		}
-		q.admitLocked(batchOp, pushed)
-		return nil
-	}
+	// The ledger commit is a durable batch. It needs none of the queue's state, and
+	// holding q.mu across it stalls every other worker's next() and done()
+	// for its duration. An abort landing meanwhile does not undo a commit
+	// that has already published, so aborted is not re-read below.
+	q.audit.record(queueAuditEvent{kind: auditCommitBegin, batch: q.auditBatch})
+	q.mu.Unlock()
 	pushed, err := commit(nextPageToken, admitted)
+	q.mu.Lock()
 	if err != nil {
 		q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
 		return err
@@ -771,7 +757,6 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	defer cancel(nil)
 
 	queue := newParallelActionQueue(actions)
-	queue.commitUnlocked = true
 	var after uint64
 	for _, action := range actions {
 		after = max(after, action.WorkID)
