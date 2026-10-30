@@ -131,13 +131,12 @@ surface without a coordinated major-version plan.
 
 ## Versioning And Communication
 
-Do not ask for a change to `pkg/sdk/version.go`. The release workflow
-(`.github/workflows/update-hardcoded-version.yaml`) writes it from the tag after a release
-is published; a PR that edits it by hand is wrong and should be flagged. The version to
-check is the one the PR's author or body proposes for the next tag. This repo is still
-pre-1.0, so a 0.x minor bump can be the compatibility signal for a break; do not assume a
-patch bump is safe for signature, wire, serialized-state, or default-behavior changes. A
-breaking change must say so in the PR body and name the minor bump it needs.
+Versions are chosen at tag time, not in the PR. Do not ask for a change to
+`pkg/sdk/version.go` (the release workflow
+`.github/workflows/update-hardcoded-version.yaml` writes it from the tag; a PR that edits
+it by hand is wrong and should be flagged), do not ask the PR to name a version or bump, and
+do not comment on which bump a change needs. A breaking change must say so in the PR body;
+that is the author's whole versioning obligation.
 
 If a change affects downstream connector behavior, the PR should include a migration note or
 rollout explanation. There is no separate changelog gate for the reviewer to rely on.
