@@ -1,4 +1,4 @@
-package secretcontracts
+package secret
 
 // Content type IDs used by the credential builders.
 const (

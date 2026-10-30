@@ -1,4 +1,4 @@
-package secretcontracts
+package secret
 
 // PasswordV2 is the password_v2 document.
 type PasswordV2 struct {
