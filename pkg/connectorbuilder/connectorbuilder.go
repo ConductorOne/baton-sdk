@@ -71,9 +71,14 @@ type closeWithoutContext interface {
 	Close() error
 }
 
+type taskMetrics interface {
+	RecordTaskFailure(context.Context, tasks.TaskType, time.Duration, error)
+	RecordTaskSuccess(context.Context, tasks.TaskType, time.Duration)
+}
+
 type builder struct {
 	ticketingEnabled        bool
-	m                       *metrics.M
+	m                       taskMetrics
 	nowFunc                 func() time.Time
 	clientSecret            *jose.JSONWebKey
 	sessionStore            sessions.SessionStore
@@ -550,6 +555,9 @@ func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredent
 		if err := validateCredentialIssueDescriptorShape(descriptor); err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid credential issue option %s: %v", descriptor.GetOption(), err)
 		}
+		if err := ValidateCredentialIssueRequestSchema(descriptor.GetRequestSchema()); err != nil {
+			return status.Errorf(codes.InvalidArgument, "invalid credential issue option %s request schema: %v", descriptor.GetOption(), err)
+		}
 		for _, profile := range descriptor.GetKeyProfiles() {
 			if err := validateKeyGenerationProfile(profile); err != nil {
 				return status.Errorf(codes.InvalidArgument, "invalid credential issue key profile: %v", err)
@@ -611,6 +619,9 @@ func validateCredentialIssuePreference(
 }
 
 func validateCredentialIssueDescriptorShape(descriptor *v2.CredentialIssueOptionDescriptor) error {
+	if descriptor.HasSecretContentType() && !crypto.ValidSecretContentType(descriptor.GetSecretContentType()) {
+		return fmt.Errorf("invalid secret content type")
+	}
 	hasScopes := len(descriptor.GetScopes()) != 0 || descriptor.GetCustomScopesAllowed()
 	hasAudiences := len(descriptor.GetAudiences()) != 0 || descriptor.GetCustomAudiencesAllowed()
 	hasKeyProfiles := len(descriptor.GetKeyProfiles()) != 0

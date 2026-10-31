@@ -2,12 +2,14 @@ package connectorbuilder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -15,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -159,6 +162,7 @@ type CredentialIssueInput struct {
 	CredentialOptions *v2.CredentialIssueOptions
 	ExpiresAt         *timestamppb.Timestamp
 	RequestID         string
+	RequestData       *structpb.Struct
 }
 
 type CredentialIssueOutput struct {
@@ -220,11 +224,25 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		CredentialOptions: request.GetCredentialOptions(),
 		ExpiresAt:         request.GetExpiresAt(),
 		RequestID:         request.GetRequestId(),
+		RequestData:       request.GetRequestData(),
 	}
 	descriptor, err := validateCredentialIssueInput(input, details, b.nowFunc())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		if errors.Is(err, ErrInvalidCredentialIssueRequestSchema) {
+			return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance request schema: %v", err)
+		}
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
+	}
+
+	if descriptor.HasSecretContentType() && descriptor.GetSecretContentType() != "generic" {
+		configs := request.GetEncryptionConfigs()
+		if len(configs) != 1 || strings.ToLower(strings.TrimSpace(configs[0].GetProvider())) != jwe.EncryptionProvider ||
+			!crypto.TypedOutputContextMatches(configs[0].GetJwkPublicKeyConfig().GetAdditionalAuthenticatedData(), descriptor.GetSecretContentType()) {
+			err = status.Error(codes.InvalidArgument, "typed credential requires a matching JWE recipient context")
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
 	}
 
 	output, err := issuer.Issue(ctx, input)
