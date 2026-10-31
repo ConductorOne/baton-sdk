@@ -1,0 +1,51 @@
+# List-page-window verification evidence
+
+## Coverage
+
+- W1/W2: `TestListPageWindowSyncMatrix` runs real syncs over serial token, two-worker parallel token, and Pebble ledger modes. Every mode explicitly asserts its selected transition mode. All four scenarios (sampled, terminated at window, terminated early, disabled) cover top-level resources, two same-ID/different-type parents, per-resource entitlements/grants, and type-scoped grants with two nonempty-token siblings. Assertions cover calls, report identities, sampled counters, and stored final-page rows.
+- W3: the matrix proves static entitlement pages remain unbounded and each sibling receives two pages independently. `TestListPageWindowActionCheckpointAndRewalk` proves two new actions for the same identity report twice.
+- W4: checkpoint round-trip preserves the live page count and prior sampled counters; `TestListPageWindowZeroPreservesSyncTokenBytes` compares whole serialized tokens with and without explicit zero. The unchanged golden corpus plus a recorded fixture pin default compatibility and the additive wire names. `TestListPageWindowLedgerPreservesWindowAcrossReopen` verifies page one commits, a cold reopen restores one counted page, and exactly two more pages exhaust window three.
+- W4 pending refresh: `TestListPageWindowPendingRefreshCarriesMatchingRevision` proves the page count survives a matching-revision refresh and is discarded for a different revision. Removing the refresh carry through a temporary Go overlay makes the matching-revision case fail (expected two pages, observed zero).
+- W5: the serial callback acquires the run-state and transition locks. Failed transition and ledger-stage-then-failure tests assert no report or sampled counter, and restore the caller's page count. Source audit confirms ledger callbacks use the existing after-commit boundary, outside queue/run-state locks.
+- W6: counter-only token overlays, ledger conversion, and signed-reader saturation have direct tests. The matrix reads both EndSync routes. `TestListPageWindowCLIToFinishedSyncStats` re-executes a real connector CLI and its service subprocess, then reopens the resulting c1z and checks two stored resources and one sampled list. CLI negative/overflow values are rejected before constructing the connector.
+- W6 portable keys: the matrix requires exactly the five sampling keys when sampled, and an empty counters map for every unsampled case in both token and ledger modes, including window zero. `TestLedgerSyncStatsPublishesOnlyListPageWindowCounters` also verifies that filtering does not alter internal completion/ingestion accounting.
+- W6 optional stats: `TestFinishedSyncMetadataIgnoresCorruptStatsSidecar` first proves a healthy cached counter is readable, then corrupts only the sidecar. Both full-sync and any-type lookups return the original finished identity with nil Stats and no error, and emit a warning.
+
+## Observed checks
+
+- Buf lint, format, and breaking against `origin/main`: pass. The removed annotation existed only on this unmerged branch; no annotation is removed from main's published protocol.
+- `make protogen`: pass with repository-pinned remote generators.
+- `go build -tags=baton_lambda_support ./...`: pass.
+- Changed handwritten packages: CI-pinned golangci-lint v2.14.0 reports zero issues.
+- Focused window tests: pass, including the subprocess CLI smoke and golden checkpoint assertions.
+- Race-instrumented window matrix, CLI smoke, and counter tests: pass.
+- Changed-package regression suites pass for syncer (92 seconds), c1zstore, Pebble engine, config, CLI, connectorrunner, local tasks, fields, annotations, and chaosconnector. The syncer rerun includes the required golden checkpoint fixture.
+
+## Instrument check and source audit
+
+A planted counter defect prevented the walk from reaching window two. The serial sampled matrix rejected it with five list calls instead of two. The source was restored and the positive matrix passed. An independent read-only source audit found a counters-only-token classification defect; the parser guard and direct test now cover it. A bounded re-read reported no additional verified correctness findings.
+
+The first full syncer run correctly rejected the new checkpoint fields because the golden corpus did not cover them. A fixture was recorded through the actual codec, registered in the existing corpus, and documented; no prior fixture or coverage exclusion changed.
+
+Removing only the ledger counter filter through a temporary Go overlay makes the window-zero ledger matrix fail: internal action/ingestion keys appear where the portable counters map must be empty. The overlay was removed and the unmodified matrix passed.
+
+## Limits
+
+Token checkpoints, ledger pending-work revisions, and cold ledger reopen preserve the same successful-page count and remaining window. Connector-signaled cursor restarts retain already-counted pages; rewound pages consume the remaining window and can reduce the sample of distinct rows.
+
+Sampling does not establish dataset completeness. Vendor termination is reported separately and does not increment sampled counters. No connector annotation, connector-side policy, merge, deployment, or release tag is part of this change.
+
+The sampling CLI flag is hidden until downstream consumers enforce the durable marker. Sampled artifacts remain local-only; production diff/upload is forbidden until the downstream upload/uplift gate consumes the marker on its SDK re-pin. A separate sampled-run sync-fact follow-up remains deferred.
+
+## Owner-feedback marker and restart proof
+
+- `TestSampledSyncMarkerAtSeal` covers token, ledger-overlay, and ledger-recovery sealing with positive and zero sampled counters. It checks the payload record, exported metadata, sorted metadata, reader RPC, and replay eligibility. `TestSampledSyncMarkerSurvivesResealWithoutCounters` pins monotonic sample identity for follow-on passes.
+- `TestSampledSyncMarkerStampDurability` checks an unfinished/unmarked record before the stamp and a crash image immediately after it. Both token and ledger images contain ended_at, sampled, and prior page data before the optional stats sidecar exists.
+- The replay refusal table covers resources, entitlements, and grants. Compactor tests refuse sampled bases and partials in fold, K-way, and overlay modes; raw Compact/MergeInto/K-way/overlay tests exercise the shared payload guard. A new selected complete sync remains eligible after an earlier sampled run.
+- `TestPendingWorkPreservesWindowPages` checks row conversion, pending revisions, and connector-signaled restart preservation. `TestListPageWindowLedgerPreservesWindowAcrossReopen` closes after page one, reopens cold with count one, and needs exactly two more pages to exhaust window three; the sealed run is sampled.
+- `TestListPageWindowCLIIsHidden` pins the interim hidden flag. The real CLI subprocess smoke still accepts the explicit flag and verifies the durable sampled verdict.
+- Temporary Go overlays disabling the marker stamp, durable page-count copy, compactor refusal, and replay refusal are each rejected by their behavioral regression. The overlays were removed without modifying source files.
+
+The final shape intentionally has no manifest sampled projection, presence fallback, high-level duplicate refusal sites, or token-to-ledger takeover extension. Existing header selection is unchanged; merge seams read the selected payload's authoritative record.
+
+The simplified owner-feedback candidate passes the full affected suites (16 packages, with four protobuf/support packages having no tests), targeted race checks, scoped CI-pinned lint, additive Buf lint/format/breaking checks, and the full SDK build. The token corpus, manifest schema/projection, and token-takeover implementation are unchanged from the pre-owner-feedback head.

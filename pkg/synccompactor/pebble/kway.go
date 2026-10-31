@@ -331,6 +331,11 @@ func openSourceChunk(ctx context.Context, tmpDir string, sources []SourceFile, b
 			stats: source.Stats,
 		})
 	}
+	for _, handle := range chunk.handles {
+		if err := requireUnsampledSource(ctx, handle.engine, handle.syncID); err != nil {
+			return nil, cleanupOnError(err)
+		}
+	}
 	return chunk, nil
 }
 

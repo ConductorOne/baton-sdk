@@ -1555,6 +1555,8 @@ func (m *SyncRunRecord) validate(all bool) error {
 
 	// no validation rules for IngestInvariantMode
 
+	// no validation rules for Sampled
+
 	if len(errors) > 0 {
 		return SyncRunRecordMultiError(errors)
 	}
@@ -1824,6 +1826,8 @@ func (m *SyncStatsRecord) validate(all bool) error {
 			}
 		}
 	}
+
+	// no validation rules for Counters
 
 	if all {
 		switch v := interface{}(m.GetWrittenAt()).(type) {
@@ -2754,6 +2758,8 @@ func (m *LedgerRow) validate(all bool) error {
 	// no validation rules for WorkRevision
 
 	// no validation rules for Restarted
+
+	// no validation rules for WindowPages
 
 	if len(errors) > 0 {
 		return LedgerRowMultiError(errors)

@@ -1494,8 +1494,8 @@ type SyncRunRecord struct {
 	//
 	// "Can this sync be used as a source-cache replay source?" is the
 	// predicate c1zstore.SyncRun.UsableAsReplaySource: type == FULL and
-	// !compacted. The syncer enforces it — feeding a compacted or
-	// partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
+	// !compacted and !sampled. The syncer enforces it — feeding a compacted,
+	// sampled, or partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
 	// (full-fetch) sync. Orchestrators deciding which artifact to
 	// materialize as the previous sync should apply the same predicate
 	// instead of guessing from provenance.
@@ -1512,8 +1512,12 @@ type SyncRunRecord struct {
 	// "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
 	// Empty when ingest_invariant_generation is empty.
 	IngestInvariantMode string `protobuf:"bytes,12,opt,name=ingest_invariant_mode,json=ingestInvariantMode,proto3" json:"ingest_invariant_mode,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Set when a list-page window cleared a nonempty continuation. The artifact
+	// is a sample, not a complete snapshot, and must not be used for replay,
+	// compaction, or production upload/uplift.
+	Sampled       bool `protobuf:"varint,13,opt,name=sampled,proto3" json:"sampled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SyncRunRecord) Reset() {
@@ -1618,6 +1622,13 @@ func (x *SyncRunRecord) GetIngestInvariantMode() string {
 	return ""
 }
 
+func (x *SyncRunRecord) GetSampled() bool {
+	if x != nil {
+		return x.Sampled
+	}
+	return false
+}
+
 func (x *SyncRunRecord) SetSyncId(v string) {
 	x.SyncId = v
 }
@@ -1660,6 +1671,10 @@ func (x *SyncRunRecord) SetIngestInvariantCoverage(v []string) {
 
 func (x *SyncRunRecord) SetIngestInvariantMode(v string) {
 	x.IngestInvariantMode = v
+}
+
+func (x *SyncRunRecord) SetSampled(v bool) {
+	x.Sampled = v
 }
 
 func (x *SyncRunRecord) HasStartedAt() bool {
@@ -1706,8 +1721,8 @@ type SyncRunRecord_builder struct {
 	//
 	// "Can this sync be used as a source-cache replay source?" is the
 	// predicate c1zstore.SyncRun.UsableAsReplaySource: type == FULL and
-	// !compacted. The syncer enforces it — feeding a compacted or
-	// partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
+	// !compacted and !sampled. The syncer enforces it — feeding a compacted,
+	// sampled, or partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
 	// (full-fetch) sync. Orchestrators deciding which artifact to
 	// materialize as the previous sync should apply the same predicate
 	// instead of guessing from provenance.
@@ -1724,6 +1739,10 @@ type SyncRunRecord_builder struct {
 	// "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
 	// Empty when ingest_invariant_generation is empty.
 	IngestInvariantMode string
+	// Set when a list-page window cleared a nonempty continuation. The artifact
+	// is a sample, not a complete snapshot, and must not be used for replay,
+	// compaction, or production upload/uplift.
+	Sampled bool
 }
 
 func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
@@ -1741,6 +1760,7 @@ func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
 	x.IngestInvariantGeneration = b.IngestInvariantGeneration
 	x.IngestInvariantCoverage = b.IngestInvariantCoverage
 	x.IngestInvariantMode = b.IngestInvariantMode
+	x.Sampled = b.Sampled
 	return m0
 }
 
@@ -1782,7 +1802,9 @@ type SyncStatsRecord struct {
 	IngestQuality *IngestQualityStats `protobuf:"bytes,13,opt,name=ingest_quality,json=ingestQuality,proto3" json:"ingest_quality,omitempty"`
 	// Compaction provenance, set only on compacted outputs (previously a
 	// section of the sync token; the token is not written for ledgered syncs).
-	Compaction    *CompactionProvenance  `protobuf:"bytes,14,opt,name=compaction,proto3" json:"compaction,omitempty"`
+	Compaction *CompactionProvenance `protobuf:"bytes,14,opt,name=compaction,proto3" json:"compaction,omitempty"`
+	// Bounded list-walk sampling counters, keyed by list_page_window.*.
+	Counters      map[string]uint64      `protobuf:"bytes,15,rep,name=counters,proto3" json:"counters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	WrittenAt     *timestamppb.Timestamp `protobuf:"bytes,100,opt,name=written_at,json=writtenAt,proto3" json:"written_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1911,6 +1933,13 @@ func (x *SyncStatsRecord) GetCompaction() *CompactionProvenance {
 	return nil
 }
 
+func (x *SyncStatsRecord) GetCounters() map[string]uint64 {
+	if x != nil {
+		return x.Counters
+	}
+	return nil
+}
+
 func (x *SyncStatsRecord) GetWrittenAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.WrittenAt
@@ -1972,6 +2001,10 @@ func (x *SyncStatsRecord) SetIngestQuality(v *IngestQualityStats) {
 
 func (x *SyncStatsRecord) SetCompaction(v *CompactionProvenance) {
 	x.Compaction = v
+}
+
+func (x *SyncStatsRecord) SetCounters(v map[string]uint64) {
+	x.Counters = v
 }
 
 func (x *SyncStatsRecord) SetWrittenAt(v *timestamppb.Timestamp) {
@@ -2045,7 +2078,9 @@ type SyncStatsRecord_builder struct {
 	// Compaction provenance, set only on compacted outputs (previously a
 	// section of the sync token; the token is not written for ledgered syncs).
 	Compaction *CompactionProvenance
-	WrittenAt  *timestamppb.Timestamp
+	// Bounded list-walk sampling counters, keyed by list_page_window.*.
+	Counters  map[string]uint64
+	WrittenAt *timestamppb.Timestamp
 }
 
 func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
@@ -2066,6 +2101,7 @@ func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
 	x.SessionStoreStats = b.SessionStoreStats
 	x.IngestQuality = b.IngestQuality
 	x.Compaction = b.Compaction
+	x.Counters = b.Counters
 	x.WrittenAt = b.WrittenAt
 	return m0
 }
@@ -2821,7 +2857,9 @@ type LedgerRow struct {
 	// The connector invalidated this page's token (RestartAction). The
 	// page wrote no records or children; the work item continues at
 	// next_page_token with revision + 1, not finished.
-	Restarted     bool `protobuf:"varint,26,opt,name=restarted,proto3" json:"restarted,omitempty"`
+	Restarted bool `protobuf:"varint,26,opt,name=restarted,proto3" json:"restarted,omitempty"`
+	// Successful list pages returned by this action, preserved across resume.
+	WindowPages   uint32 `protobuf:"varint,27,opt,name=window_pages,json=windowPages,proto3" json:"window_pages,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3033,6 +3071,13 @@ func (x *LedgerRow) GetRestarted() bool {
 	return false
 }
 
+func (x *LedgerRow) GetWindowPages() uint32 {
+	if x != nil {
+		return x.WindowPages
+	}
+	return 0
+}
+
 func (x *LedgerRow) SetIdentity(v *LedgerActionIdentity) {
 	x.Identity = v
 }
@@ -3140,6 +3185,10 @@ func (x *LedgerRow) SetRestarted(v bool) {
 	x.Restarted = v
 }
 
+func (x *LedgerRow) SetWindowPages(v uint32) {
+	x.WindowPages = v
+}
+
 func (x *LedgerRow) HasIdentity() bool {
 	if x == nil {
 		return false
@@ -3224,6 +3273,8 @@ type LedgerRow_builder struct {
 	// page wrote no records or children; the work item continues at
 	// next_page_token with revision + 1, not finished.
 	Restarted bool
+	// Successful list pages returned by this action, preserved across resume.
+	WindowPages uint32
 }
 
 func (b0 LedgerRow_builder) Build() *LedgerRow {
@@ -3256,6 +3307,7 @@ func (b0 LedgerRow_builder) Build() *LedgerRow {
 	x.WorkId = b.WorkId
 	x.WorkRevision = b.WorkRevision
 	x.Restarted = b.Restarted
+	x.WindowPages = b.WindowPages
 	return m0
 }
 
@@ -4377,7 +4429,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\x12?\n" +
 	"\rdiscovered_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:\"\x82\xf9+\x1e\n" +
-	"\x06assets\x12\async_id\x12\vexternal_id\"\xaf\x04\n" +
+	"\x06assets\x12\async_id\x12\vexternal_id\"\xc9\x04\n" +
 	"\rSyncRunRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x12$\n" +
@@ -4392,8 +4444,9 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bingest_invariant_generation\x18\n" +
 	" \x01(\tR\x19ingestInvariantGeneration\x12:\n" +
 	"\x19ingest_invariant_coverage\x18\v \x03(\tR\x17ingestInvariantCoverage\x122\n" +
-	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode:\x18\x82\xf9+\x14\n" +
-	"\tsync_runs\x12\async_idJ\x04\b\b\x10\tR\x0elinked_sync_id\"\xc3\f\n" +
+	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode\x12\x18\n" +
+	"\asampled\x18\r \x01(\bR\asampled:\x18\x82\xf9+\x14\n" +
+	"\tsync_runs\x12\async_idJ\x04\b\b\x10\tR\x0elinked_sync_id\"\xca\r\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
 	"\x0eresource_types\x18\x02 \x01(\x03R\rresourceTypes\x12\x1c\n" +
@@ -4411,7 +4464,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x0eingest_quality\x18\r \x01(\v2!.c1.storage.v3.IngestQualityStatsR\ringestQuality\x12C\n" +
 	"\n" +
 	"compaction\x18\x0e \x01(\v2#.c1.storage.v3.CompactionProvenanceR\n" +
-	"compaction\x129\n" +
+	"compaction\x12H\n" +
+	"\bcounters\x18\x0f \x03(\v2,.c1.storage.v3.SyncStatsRecord.CountersEntryR\bcounters\x129\n" +
 	"\n" +
 	"written_at\x18d \x01(\v2\x1a.google.protobuf.TimestampR\twrittenAt\x1aJ\n" +
 	"\x1cResourcesByResourceTypeEntry\x12\x10\n" +
@@ -4431,7 +4485,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\x1a]\n" +
 	"\x16SessionStoreStatsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\xf4\x02\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\x1a;\n" +
+	"\rCountersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\"\xf4\x02\n" +
 	"\x14CompactionProvenance\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x12 \n" +
 	"\fbase_sync_id\x18\x03 \x01(\tR\n" +
@@ -4474,7 +4531,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\vLedgerChild\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12\x18\n" +
 	"\aspawned\x18\x02 \x01(\bR\aspawned\x12\x17\n" +
-	"\awork_id\x18\x03 \x01(\x04R\x06workId\"\xda\b\n" +
+	"\awork_id\x18\x03 \x01(\x04R\x06workId\"\xfd\b\n" +
 	"\tLedgerRow\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12/\n" +
@@ -4504,7 +4561,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"collection\x12\x17\n" +
 	"\awork_id\x18\x18 \x01(\x04R\x06workId\x12#\n" +
 	"\rwork_revision\x18\x19 \x01(\x04R\fworkRevision\x12\x1c\n" +
-	"\trestarted\x18\x1a \x01(\bR\trestarted\"\xe8\x06\n" +
+	"\trestarted\x18\x1a \x01(\bR\trestarted\x12!\n" +
+	"\fwindow_pages\x18\x1b \x01(\rR\vwindowPages\"\xe8\x06\n" +
 	"\x15LedgerCollectionStats\x12%\n" +
 	"\x0elist_responses\x18\x01 \x01(\x04R\rlistResponses\x120\n" +
 	"\x14empty_list_responses\x18\x02 \x01(\x04R\x12emptyListResponses\x12R\n" +
@@ -4580,7 +4638,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05\x1a\x02\b\x01B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_c1_storage_v3_records_proto_goTypes = []any{
 	(SyncType)(0),                    // 0: c1.storage.v3.SyncType
 	(StatusRecord_ResourceStatus)(0), // 1: c1.storage.v3.StatusRecord.ResourceStatus
@@ -4614,41 +4672,42 @@ var file_c1_storage_v3_records_proto_goTypes = []any{
 	nil,                              // 29: c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
 	nil,                              // 30: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
 	nil,                              // 31: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
-	nil,                              // 32: c1.storage.v3.CompactionProvenance.RecordCountsEntry
-	nil,                              // 33: c1.storage.v3.LedgerCounterBucket.CountersEntry
-	nil,                              // 34: c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntry
-	nil,                              // 35: c1.storage.v3.LedgerCounterBucket.StepDurationsMsEntry
-	nil,                              // 36: c1.storage.v3.LedgerCounterBucket.SessionCallsEntry
-	(*anypb.Any)(nil),                // 37: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil),    // 38: google.protobuf.Timestamp
-	(*ResourceRef)(nil),              // 39: c1.storage.v3.ResourceRef
-	(*structpb.Struct)(nil),          // 40: google.protobuf.Struct
-	(*EntitlementRef)(nil),           // 41: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),             // 42: c1.storage.v3.PrincipalRef
+	nil,                              // 32: c1.storage.v3.SyncStatsRecord.CountersEntry
+	nil,                              // 33: c1.storage.v3.CompactionProvenance.RecordCountsEntry
+	nil,                              // 34: c1.storage.v3.LedgerCounterBucket.CountersEntry
+	nil,                              // 35: c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntry
+	nil,                              // 36: c1.storage.v3.LedgerCounterBucket.StepDurationsMsEntry
+	nil,                              // 37: c1.storage.v3.LedgerCounterBucket.SessionCallsEntry
+	(*anypb.Any)(nil),                // 38: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil),    // 39: google.protobuf.Timestamp
+	(*ResourceRef)(nil),              // 40: c1.storage.v3.ResourceRef
+	(*structpb.Struct)(nil),          // 41: google.protobuf.Struct
+	(*EntitlementRef)(nil),           // 42: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),             // 43: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
 	1,  // 0: c1.storage.v3.StatusRecord.status:type_name -> c1.storage.v3.StatusRecord.ResourceStatus
-	37, // 1: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	38, // 2: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	39, // 3: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	37, // 4: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	38, // 5: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	40, // 6: c1.storage.v3.ResourceRecord.profile:type_name -> google.protobuf.Struct
+	38, // 1: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	39, // 2: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	40, // 3: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	38, // 4: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	39, // 5: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	41, // 6: c1.storage.v3.ResourceRecord.profile:type_name -> google.protobuf.Struct
 	2,  // 7: c1.storage.v3.ResourceRecord.status:type_name -> c1.storage.v3.StatusRecord
-	38, // 8: c1.storage.v3.ResourceRecord.created_at:type_name -> google.protobuf.Timestamp
-	39, // 9: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	37, // 10: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	38, // 11: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	41, // 12: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	42, // 13: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	38, // 14: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	39, // 8: c1.storage.v3.ResourceRecord.created_at:type_name -> google.protobuf.Timestamp
+	40, // 9: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	38, // 10: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	39, // 11: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	42, // 12: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	43, // 13: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	39, // 14: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	3,  // 15: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	37, // 16: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	38, // 16: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
 	25, // 17: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	38, // 18: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	39, // 18: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	0,  // 19: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	38, // 20: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	38, // 21: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	39, // 20: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	39, // 21: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
 	26, // 22: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
 	27, // 23: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
 	28, // 24: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
@@ -4657,30 +4716,31 @@ var file_c1_storage_v3_records_proto_depIdxs = []int32{
 	31, // 27: c1.storage.v3.SyncStatsRecord.session_store_stats:type_name -> c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
 	14, // 28: c1.storage.v3.SyncStatsRecord.ingest_quality:type_name -> c1.storage.v3.IngestQualityStats
 	12, // 29: c1.storage.v3.SyncStatsRecord.compaction:type_name -> c1.storage.v3.CompactionProvenance
-	38, // 30: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
-	32, // 31: c1.storage.v3.CompactionProvenance.record_counts:type_name -> c1.storage.v3.CompactionProvenance.RecordCountsEntry
-	15, // 32: c1.storage.v3.LedgerChild.identity:type_name -> c1.storage.v3.LedgerActionIdentity
-	15, // 33: c1.storage.v3.LedgerRow.identity:type_name -> c1.storage.v3.LedgerActionIdentity
-	16, // 34: c1.storage.v3.LedgerRow.children:type_name -> c1.storage.v3.LedgerChild
-	38, // 35: c1.storage.v3.LedgerRow.committed_at:type_name -> google.protobuf.Timestamp
-	18, // 36: c1.storage.v3.LedgerRow.collection:type_name -> c1.storage.v3.LedgerCollectionStats
-	33, // 37: c1.storage.v3.LedgerCounterBucket.counters:type_name -> c1.storage.v3.LedgerCounterBucket.CountersEntry
-	34, // 38: c1.storage.v3.LedgerCounterBucket.connector_calls:type_name -> c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntry
-	35, // 39: c1.storage.v3.LedgerCounterBucket.step_durations_ms:type_name -> c1.storage.v3.LedgerCounterBucket.StepDurationsMsEntry
-	36, // 40: c1.storage.v3.LedgerCounterBucket.session_calls:type_name -> c1.storage.v3.LedgerCounterBucket.SessionCallsEntry
-	38, // 41: c1.storage.v3.LedgerFrontier.taken_over_at:type_name -> google.protobuf.Timestamp
-	38, // 42: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	4,  // 43: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
-	21, // 44: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	21, // 45: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	13, // 46: c1.storage.v3.CompactionProvenance.RecordCountsEntry.value:type_name -> c1.storage.v3.CompactionRecordCounts
-	21, // 47: c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntry.value:type_name -> c1.storage.v3.CallStat
-	21, // 48: c1.storage.v3.LedgerCounterBucket.SessionCallsEntry.value:type_name -> c1.storage.v3.CallStat
-	49, // [49:49] is the sub-list for method output_type
-	49, // [49:49] is the sub-list for method input_type
-	49, // [49:49] is the sub-list for extension type_name
-	49, // [49:49] is the sub-list for extension extendee
-	0,  // [0:49] is the sub-list for field type_name
+	32, // 30: c1.storage.v3.SyncStatsRecord.counters:type_name -> c1.storage.v3.SyncStatsRecord.CountersEntry
+	39, // 31: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	33, // 32: c1.storage.v3.CompactionProvenance.record_counts:type_name -> c1.storage.v3.CompactionProvenance.RecordCountsEntry
+	15, // 33: c1.storage.v3.LedgerChild.identity:type_name -> c1.storage.v3.LedgerActionIdentity
+	15, // 34: c1.storage.v3.LedgerRow.identity:type_name -> c1.storage.v3.LedgerActionIdentity
+	16, // 35: c1.storage.v3.LedgerRow.children:type_name -> c1.storage.v3.LedgerChild
+	39, // 36: c1.storage.v3.LedgerRow.committed_at:type_name -> google.protobuf.Timestamp
+	18, // 37: c1.storage.v3.LedgerRow.collection:type_name -> c1.storage.v3.LedgerCollectionStats
+	34, // 38: c1.storage.v3.LedgerCounterBucket.counters:type_name -> c1.storage.v3.LedgerCounterBucket.CountersEntry
+	35, // 39: c1.storage.v3.LedgerCounterBucket.connector_calls:type_name -> c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntry
+	36, // 40: c1.storage.v3.LedgerCounterBucket.step_durations_ms:type_name -> c1.storage.v3.LedgerCounterBucket.StepDurationsMsEntry
+	37, // 41: c1.storage.v3.LedgerCounterBucket.session_calls:type_name -> c1.storage.v3.LedgerCounterBucket.SessionCallsEntry
+	39, // 42: c1.storage.v3.LedgerFrontier.taken_over_at:type_name -> google.protobuf.Timestamp
+	39, // 43: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	4,  // 44: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
+	21, // 45: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	21, // 46: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	13, // 47: c1.storage.v3.CompactionProvenance.RecordCountsEntry.value:type_name -> c1.storage.v3.CompactionRecordCounts
+	21, // 48: c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntry.value:type_name -> c1.storage.v3.CallStat
+	21, // 49: c1.storage.v3.LedgerCounterBucket.SessionCallsEntry.value:type_name -> c1.storage.v3.CallStat
+	50, // [50:50] is the sub-list for method output_type
+	50, // [50:50] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_c1_storage_v3_records_proto_init() }
@@ -4697,7 +4757,7 @@ func file_c1_storage_v3_records_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   35,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

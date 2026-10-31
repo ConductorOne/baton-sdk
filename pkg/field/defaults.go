@@ -132,6 +132,13 @@ var (
 		WithHidden(true),
 	)
 
+	listPageWindow = IntField("list-page-window",
+		WithDescription("Bound successful pages per list walk; 0 = unbounded"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+		WithHidden(true),
+	)
+
 	syncResourceTypeIDs = StringSliceField("sync-resource-types",
 		WithDescription("The resource type IDs to sync"),
 		WithPersistent(true),
@@ -423,6 +430,7 @@ var DefaultFields = append([]SchemaField{
 	syncResourceTypeIDs,
 	skipEntitlementsAndGrants,
 	skipGrants,
+	listPageWindow,
 	externalResourceC1ZField,
 	externalResourceEntitlementIdFilter,
 	externalResourceTraitsField,

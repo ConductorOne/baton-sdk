@@ -34,7 +34,7 @@ func restartTestCommit(t *testing.T, e *Engine, work c1zstore.LedgerWork, restar
 	if stage != nil {
 		stage(writer)
 	}
-	return writer.Commit(t.Context(), work.Action.Identity, &c1zstore.LedgerRow{NextPageToken: restartToken, Restarted: true})
+	return writer.Commit(t.Context(), work.Action.Identity, &c1zstore.LedgerRow{NextPageToken: restartToken, Restarted: true, WindowPages: work.WindowPages})
 }
 
 func pendingItems(t *testing.T, e *Engine) []c1zstore.LedgerWork {

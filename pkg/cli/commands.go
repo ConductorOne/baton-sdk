@@ -425,6 +425,15 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
 		}
 
+		if n := v.GetInt("list-page-window"); n > 0 {
+			if uint64(n) > uint64(^uint32(0)) {
+				return fmt.Errorf("list-page-window exceeds uint32 range")
+			}
+			opts = append(opts, connectorrunner.WithListPageWindow(uint32(n)))
+		} else if n < 0 {
+			return fmt.Errorf("list-page-window must be nonnegative")
+		}
+
 		httpTimeout := v.GetInt(field.HttpTimeoutField.GetName())
 		if httpTimeout <= 0 {
 			return fmt.Errorf("field %s: value must be greater than or equal to 1 but got %d", field.HttpTimeoutField.GetName(), httpTimeout)

@@ -77,6 +77,7 @@ func (i *ledgerInvocation) stage(action *Action, next string, children []Action)
 		}
 		rows = append(rows, c1zstore.LedgerChild{Identity: ledgerIdentity(child), Spawned: child.Spawned})
 	}
+	i.page.row.WindowPages = action.WindowPages
 	if err := i.page.transition(next, rows...); err != nil {
 		return err
 	}
@@ -110,6 +111,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	invocation := &ledgerInvocation{action: action, attempts: attempts}
 	var warning error
 	var handlerFailure error
+	previousWindowPages := action.WindowPages
 	_, err := s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
 		invocation.page = page
 		page.row.WorkID = action.WorkID
@@ -194,6 +196,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		return s.nextPageOrFinishAction(commitCtx, action, page.row.NextPageToken, invocation.children...)
 	})
 	if err != nil {
+		action.WindowPages = previousWindowPages
 		if handlerFailure == nil && isWarning(ctx, err) {
 			return ledgerPageWriteError{cause: err}
 		}

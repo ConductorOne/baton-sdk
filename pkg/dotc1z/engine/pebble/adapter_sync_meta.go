@@ -11,6 +11,8 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 // SyncMeta returns the SyncMeta sub-store backed by the Pebble
@@ -125,7 +127,15 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 	if best == nil {
 		return nil, nil
 	}
-	return syncRunRecordToExported(best), nil
+	run := syncRunRecordToExported(best)
+	// Cached stats are optional for identity-only callers, including compactors.
+	stats, _, err := CachedSyncStats(ctx, s.e, run.ID)
+	if err != nil {
+		ctxzap.Extract(ctx).Warn("finished sync stats unavailable", zap.String("sync_id", run.ID), zap.Error(err))
+		return run, nil
+	}
+	run.Stats = stats
+	return run, nil
 }
 
 // Stats returns a map of record-type → row count for the named sync.
@@ -177,6 +187,7 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 		ParentSyncID:                r.GetParentSyncId(),
 		SupportsDiff:                r.GetSupportsDiff(),
 		Compacted:                   r.GetCompacted(),
+		Sampled:                     r.GetSampled(),
 		IngestInvariantVerification: verification,
 	}
 	if t := r.GetStartedAt(); t != nil {
@@ -220,6 +231,7 @@ func (e *Engine) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error)
 			ParentSyncID:                r.GetParentSyncId(),
 			SupportsDiff:                r.GetSupportsDiff(),
 			Compacted:                   r.GetCompacted(),
+			Sampled:                     r.GetSampled(),
 			IngestInvariantVerification: verification,
 		}
 		if t := r.GetStartedAt(); t != nil {

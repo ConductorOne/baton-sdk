@@ -11,31 +11,31 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-func (e *Engine) restoreEndSyncStats(ctx context.Context, syncID string) error {
+func (e *Engine) restoreEndSyncStats(ctx context.Context, syncID string) (bool, error) {
 	facts, err := e.ledger.Facts(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	counters, err := e.ledger.Counters(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	lo, hi := rawdb.LedgerBounds()
 	it, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
-		return err
+		return false, err
 	}
 	present := it.First()
 	if present && bytes.Equal(it.Key(), encodeLedgerFactKey(c1zstore.LedgerFactDiscardOnSeal)) {
 		present = it.Next()
 	}
 	if err := errors.Join(it.Error(), it.Close()); err != nil {
-		return err
+		return false, err
 	}
 	if !present {
 		archive, err := e.readLedgerArchive(ctx)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if archive != nil && archive.SyncID == syncID {
 			facts, counters = archive.Facts, archive.Counters
@@ -43,10 +43,10 @@ func (e *Engine) restoreEndSyncStats(ctx context.Context, syncID string) error {
 	}
 	active, err := e.ledger.active()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if active || len(facts) != 0 {
 		e.setSyncStatsOverlay(syncID, syncStatsOverlay(c1zstore.LedgerSyncStats(facts, counters)))
 	}
-	return nil
+	return c1zstore.SampledFromCounters(counters.Counters), nil
 }

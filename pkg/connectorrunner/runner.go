@@ -428,6 +428,7 @@ type runnerConfig struct {
 	keepPreviousSyncC1ZEnabled            bool
 	skipEntitlementsAndGrants             bool
 	skipGrants                            bool
+	listPageWindow                        uint32
 	sessionStoreEnabled                   bool
 	syncResourceTypeIDs                   []string
 	defaultCapabilitiesConnectorBuilder   connectorbuilder.ConnectorBuilder
@@ -882,6 +883,13 @@ func WithSkipGrants(skip bool) Option {
 	}
 }
 
+func WithListPageWindow(window uint32) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.listPageWindow = window
+		return nil
+	}
+}
+
 // WithDefaultCapabilitiesConnectorBuilder sets the default connector builder for the runner
 // This is used by the "capabilities" sub-command to instantiate the connector.
 func WithDefaultCapabilitiesConnectorBuilder(t connectorbuilder.ConnectorBuilder) Option {
@@ -1138,6 +1146,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithTargetedSyncResources(resources),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
 				local.WithSkipGrants(cfg.skipGrants),
+				local.WithListPageWindow(cfg.listPageWindow),
 				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
 				local.WithWorkerCount(cfg.workerCount),
 				local.WithStorageEngine(cfg.storageEngine),
