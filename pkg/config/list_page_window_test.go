@@ -93,6 +93,7 @@ func TestListPageWindowCLIToFinishedSyncStats(t *testing.T) {
 	run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, run)
+	require.True(t, run.Sampled)
 	require.NotNil(t, run.Stats)
 	require.EqualValues(t, 2, run.Stats.GetResources())
 	require.EqualValues(t, 1, run.Stats.GetCounters()["list_page_window.sampled"])
@@ -112,4 +113,15 @@ func TestListPageWindowCLIRejectsOutOfRangeWindows(t *testing.T) {
 			require.ErrorContains(t, cmd.ExecuteContext(t.Context()), "list-page-window")
 		})
 	}
+}
+
+func TestListPageWindowCLIIsHidden(t *testing.T) {
+	getConnector := func(context.Context, *viper.Viper, cli.RunTimeOpts) (types.ConnectorServer, error) {
+		return &windowSmokeServer{}, nil
+	}
+	_, cmd, err := DefineConfigurationV2(t.Context(), "window-smoke", getConnector, field.NewConfiguration(nil))
+	require.NoError(t, err)
+	flag := cmd.PersistentFlags().Lookup("list-page-window")
+	require.NotNil(t, flag)
+	require.True(t, flag.Hidden)
 }

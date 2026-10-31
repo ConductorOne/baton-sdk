@@ -26,14 +26,16 @@ const (
 )
 
 type SyncRun struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	EndedAt       *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
-	SyncToken     string                 `protobuf:"bytes,4,opt,name=sync_token,json=syncToken,proto3" json:"sync_token,omitempty"`
-	SyncType      string                 `protobuf:"bytes,5,opt,name=sync_type,json=syncType,proto3" json:"sync_type,omitempty"`
-	ParentSyncId  string                 `protobuf:"bytes,6,opt,name=parent_sync_id,json=parentSyncId,proto3" json:"parent_sync_id,omitempty"`
-	Stats         *SyncStats             `protobuf:"bytes,7,opt,name=stats,proto3" json:"stats,omitempty"`
+	state        protoimpl.MessageState `protogen:"hybrid.v1"`
+	Id           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	StartedAt    *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	EndedAt      *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	SyncToken    string                 `protobuf:"bytes,4,opt,name=sync_token,json=syncToken,proto3" json:"sync_token,omitempty"`
+	SyncType     string                 `protobuf:"bytes,5,opt,name=sync_type,json=syncType,proto3" json:"sync_type,omitempty"`
+	ParentSyncId string                 `protobuf:"bytes,6,opt,name=parent_sync_id,json=parentSyncId,proto3" json:"parent_sync_id,omitempty"`
+	Stats        *SyncStats             `protobuf:"bytes,7,opt,name=stats,proto3" json:"stats,omitempty"`
+	// True when a list-page window sampled the run instead of collecting a snapshot.
+	Sampled       bool `protobuf:"varint,8,opt,name=sampled,proto3" json:"sampled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -112,6 +114,13 @@ func (x *SyncRun) GetStats() *SyncStats {
 	return nil
 }
 
+func (x *SyncRun) GetSampled() bool {
+	if x != nil {
+		return x.Sampled
+	}
+	return false
+}
+
 func (x *SyncRun) SetId(v string) {
 	x.Id = v
 }
@@ -138,6 +147,10 @@ func (x *SyncRun) SetParentSyncId(v string) {
 
 func (x *SyncRun) SetStats(v *SyncStats) {
 	x.Stats = v
+}
+
+func (x *SyncRun) SetSampled(v bool) {
+	x.Sampled = v
 }
 
 func (x *SyncRun) HasStartedAt() bool {
@@ -183,6 +196,8 @@ type SyncRun_builder struct {
 	SyncType     string
 	ParentSyncId string
 	Stats        *SyncStats
+	// True when a list-page window sampled the run instead of collecting a snapshot.
+	Sampled bool
 }
 
 func (b0 SyncRun_builder) Build() *SyncRun {
@@ -196,6 +211,7 @@ func (b0 SyncRun_builder) Build() *SyncRun {
 	x.SyncType = b.SyncType
 	x.ParentSyncId = b.ParentSyncId
 	x.Stats = b.Stats
+	x.Sampled = b.Sampled
 	return m0
 }
 
@@ -1017,7 +1033,7 @@ var File_c1_reader_v2_sync_proto protoreflect.FileDescriptor
 
 const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"\n" +
-	"\x17c1/reader/v2/sync.proto\x12\fc1.reader.v2\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\x9c\x02\n" +
+	"\x17c1/reader/v2/sync.proto\x12\fc1.reader.v2\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xb6\x02\n" +
 	"\aSyncRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
 	"\n" +
@@ -1027,7 +1043,8 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"sync_token\x18\x04 \x01(\tR\tsyncToken\x12\x1b\n" +
 	"\tsync_type\x18\x05 \x01(\tR\bsyncType\x12$\n" +
 	"\x0eparent_sync_id\x18\x06 \x01(\tR\fparentSyncId\x12-\n" +
-	"\x05stats\x18\a \x01(\v2\x17.c1.reader.v2.SyncStatsR\x05stats\"\xff\n" +
+	"\x05stats\x18\a \x01(\v2\x17.c1.reader.v2.SyncStatsR\x05stats\x12\x18\n" +
+	"\asampled\x18\b \x01(\bR\asampled\"\xff\n" +
 	"\n" +
 	"\tSyncStats\x12%\n" +
 	"\x0eresource_types\x18\x01 \x01(\x03R\rresourceTypes\x12\x1c\n" +

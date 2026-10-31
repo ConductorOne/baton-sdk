@@ -16,6 +16,8 @@ message SyncRun {
   string sync_type = 5;
   string parent_sync_id = 6;
   SyncStats stats = 7;
+  // True when a list-page window sampled the run instead of collecting a snapshot.
+  bool sampled = 8;
 }
 
 message SyncStats {

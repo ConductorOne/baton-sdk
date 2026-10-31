@@ -138,7 +138,7 @@ func (c *windowConnector) ListStaticEntitlements(
 }
 
 func TestListPageWindowSyncMatrix(t *testing.T) {
-	for _, mode := range []string{"serial", "parallel", "ledger"} {
+	for _, mode := range []string{"serial", "parallel"} {
 		for _, scenario := range []struct {
 			name   string
 			pages  int
@@ -158,19 +158,20 @@ func TestListPageWindowSyncMatrix(t *testing.T) {
 					defer mu.Unlock()
 					reports = append(reports, report)
 				})}
-				if mode == "ledger" {
-					opts = append(opts, WithConnectorStore(store))
-				} else {
-					opts = append(opts, WithConnectorStore(ledgerMetadataStore{Store: store}))
-					if mode == "parallel" {
-						opts = append(opts, WithWorkerCount(2))
-					}
+				opts = append(opts, WithConnectorStore(store))
+				if mode == "parallel" {
+					opts = append(opts, WithWorkerCount(2))
 				}
 				created, err := NewSyncer(ctx, c, opts...)
 				require.NoError(t, err)
+				workers := 1
+				if mode == "parallel" {
+					workers = 2
+				}
+				require.Equal(t, workers, created.(*syncer).cfg.workerCount)
 				t.Cleanup(func() { require.NoError(t, created.Close(context.Background())) })
-				require.Equal(t, mode == "ledger", created.(*syncer).ledgered)
 				require.NoError(t, created.Sync(ctx))
+				require.NotNil(t, created.(*syncer).ledger)
 				expectedPages := scenario.pages
 				if scenario.window > 0 {
 					expectedPages = min(expectedPages, int(scenario.window))
@@ -237,6 +238,8 @@ func TestListPageWindowSyncMatrix(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, sr)
 				require.NotNil(t, sr.Stats)
+				require.Equal(t, sampled, sr.Sampled)
+				require.Equal(t, !sampled, sr.UsableAsReplaySource())
 				wantSampled := int64(0)
 				if sampled {
 					wantSampled = int64(len(keys))
@@ -289,13 +292,15 @@ func TestListPageWindowActionCheckpointAndRewalk(t *testing.T) {
 	WithListPageWindow(2, func(r ListPageWindowReport) {
 		require.True(t, s.run.mu.TryLock())
 		s.run.mu.Unlock()
-		require.True(t, s.parallelTransitionMu.TryLock())
-		s.parallelTransitionMu.Unlock()
 		reports = append(reports, r)
 	})(s)
 	for range 2 {
 		action := s.run.pushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "resource"})
-		require.NoError(t, s.nextPageOrFinishAction(ctx, action, "page-2"))
+		page := &ledgerPage{row: c1zstore.LedgerRow{NextPageToken: "page-2"}}
+		s.stageListPageWindow(page, action)
+		s.run.mu.Lock()
+		s.run.actions[action.ID] = *action
+		s.run.mu.Unlock()
 		token, err := marshalToken(s.run, s.stats)
 		require.NoError(t, err)
 		parts, err := unmarshalToken(token)
@@ -303,10 +308,15 @@ func TestListPageWindowActionCheckpointAndRewalk(t *testing.T) {
 		s.run, s.stats = parts.run, parts.stats
 		action = s.run.current()
 		require.EqualValues(t, 1, action.WindowPages)
-		require.NoError(t, s.nextPageOrFinishAction(ctx, action, "page-3"))
+		page = &ledgerPage{row: c1zstore.LedgerRow{NextPageToken: "page-3"}}
+		s.stageListPageWindow(page, action)
+		require.Empty(t, page.row.NextPageToken)
+		require.EqualValues(t, 1, page.observations.Counters["list_page_window.sampled"])
+		for _, publish := range page.afterCommit {
+			publish()
+		}
 	}
 	require.Len(t, reports, 2)
-	require.EqualValues(t, 2, s.stats.counters["list_page_window.sampled"])
 }
 
 func TestListPageWindowDisabledTokenAndExcludedActions(t *testing.T) {
@@ -341,13 +351,23 @@ func TestListPageWindowDisabledTokenAndExcludedActions(t *testing.T) {
 }
 
 func TestListPageWindowFailedTransitionDoesNotReport(t *testing.T) {
-	s := &syncer{run: newRunState(), stats: newRunStats()}
+	ctx := t.Context()
+	s, f := newLedgerSchedulerFixture(t, 1)
+	roots := []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: SyncGrantsOp.String(), ResourceTypeID: "resource"}}}
+	require.NoError(t, f.ledger.BeginCollecting(ctx, pendingSeeds(roots), nil))
+	require.NoError(t, s.refreshPendingWindow(ctx))
 	WithListPageWindow(1, func(ListPageWindowReport) { t.Fatal("failed transition reported") })(s)
-	s.parallelActionTransitioner = func(context.Context, *Action, string, []Action) error { return errors.New("commit failed") }
-	a := Action{Op: SyncGrantsOp, ResourceTypeID: "resource"}
-	require.ErrorContains(t, s.nextPageOrFinishAction(t.Context(), &a, "next"), "commit failed")
-	require.Zero(t, a.WindowPages)
-	require.Empty(t, s.stats.counters)
+	action := s.run.current()
+	err := s.invokeActionPage(ctx, action, func(_ context.Context, page *ledgerPage, action *Action) error {
+		return page.stage(action, "next", nil)
+	}, false, 0, nil, func(context.Context, ledgerTransitionCommit, *Action, string, []Action) error {
+		return errors.New("commit failed")
+	})
+	require.ErrorContains(t, err, "commit failed")
+	require.Zero(t, action.WindowPages)
+	counters, err := f.ledger.LedgerCounters(ctx)
+	require.NoError(t, err)
+	require.Zero(t, counters.Counters["list_page_window.sampled"])
 }
 
 func TestListPageWindowZeroPreservesSyncTokenBytes(t *testing.T) {
@@ -359,7 +379,8 @@ func TestListPageWindowZeroPreservesSyncTokenBytes(t *testing.T) {
 		}
 		action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "resource"})
 		for _, next := range []string{"one", "two", ""} {
-			require.NoError(t, s.nextPageOrFinishAction(t.Context(), action, next))
+			page := &ledgerPage{row: c1zstore.LedgerRow{NextPageToken: next}}
+			s.stageListPageWindow(page, action)
 			token, err := marshalToken(s.run, s.stats)
 			require.NoError(t, err)
 			if explicitZero {
@@ -372,20 +393,66 @@ func TestListPageWindowZeroPreservesSyncTokenBytes(t *testing.T) {
 	}
 }
 
-func TestListPageWindowLedgerReconstructionStartsNewWindow(t *testing.T) {
-	action := Action{Op: SyncResourcesOp, ResourceTypeID: "resource", PageToken: "page-2", WindowPages: 1}
-	reconstructed := ledgerActionFromIdentity(ledgerIdentity(&action))
-	require.Equal(t, action.PageToken, reconstructed.PageToken)
-	require.Zero(t, reconstructed.WindowPages)
-	s := &syncer{}
-	WithListPageWindow(2, nil)(s)
-	next, report := s.applyListPageWindow(&reconstructed, "page-3")
-	require.Equal(t, "page-3", next)
-	require.Nil(t, report)
-	next, report = s.applyListPageWindow(&reconstructed, "page-4")
-	require.Empty(t, next)
-	require.NotNil(t, report)
-	require.False(t, report.VendorTerminated)
+func TestListPageWindowLedgerPreservesWindowAcrossReopen(t *testing.T) {
+	ctx := t.Context()
+	f := newLedgerFixture(t)
+	syncID := f.engine.CurrentSyncID()
+	roots := []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "resource"}}}
+	require.NoError(t, f.ledger.BeginCollecting(ctx, pendingSeeds(roots), nil))
+	connector := newWindowConnector(5)
+	var reports []ListPageWindowReport
+	newWalker := func(fixture *ledgerFixture, attempt string) *syncer {
+		runtime, err := newTestLedgerRuntime(ctx, fixture.ledger, attempt)
+		require.NoError(t, err)
+		s := &syncer{run: newRunState(), stats: newRunStats(), ledger: runtime, syncID: syncID}
+		s.setStore(fixture.store)
+		WithListPageWindow(3, func(report ListPageWindowReport) { reports = append(reports, report) })(s)
+		require.NoError(t, s.refreshPendingWindow(ctx))
+		return s
+	}
+	walkPage := func(s *syncer) error {
+		action := s.run.current()
+		require.NotNil(t, action)
+		return s.invokeActionPage(ctx, action, func(pageCtx context.Context, page *ledgerPage, action *Action) error {
+			response, err := connector.ListResources(pageCtx, v2.ResourcesServiceListResourcesRequest_builder{
+				ResourceTypeId: action.ResourceTypeID, PageToken: action.PageToken,
+			}.Build())
+			if err != nil {
+				return err
+			}
+			if err := page.PutResources(pageCtx, response.GetList()...); err != nil {
+				return err
+			}
+			return page.stage(action, response.GetNextPageToken(), nil)
+		}, false, 0, nil, nil)
+	}
+	s := newWalker(f, "before-reopen")
+	require.NoError(t, walkPage(s))
+	require.EqualValues(t, 1, s.run.current().WindowPages)
+	require.Empty(t, reports)
+	path := f.path
+	require.NoError(t, f.store.Close(ctx))
+	f = openLedgerFixtureAt(t, path, false)
+	require.NoError(t, f.store.SetCurrentSync(ctx, syncID))
+	s = newWalker(f, "after-reopen")
+	require.EqualValues(t, 1, s.run.current().WindowPages)
+	require.NoError(t, walkPage(s))
+	require.EqualValues(t, 2, s.run.current().WindowPages)
+	require.NoError(t, walkPage(s))
+	require.Nil(t, s.run.current())
+	require.Len(t, connector.calls["resources:resource"], 3)
+	require.Len(t, reports, 1)
+	require.EqualValues(t, 3, reports[0].PagesReturned)
+	require.False(t, reports[0].VendorTerminated)
+	counters, err := f.ledger.LedgerCounters(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, counters.Counters["list_page_window.sampled"])
+	require.NoError(t, s.ledger.prepareSeal(ctx, c1zstore.LedgerCounters{}))
+	require.NoError(t, s.ledger.seal(ctx))
+	run, err := f.store.SyncMeta().LatestFullSync(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	require.True(t, run.Sampled)
 }
 
 func TestListPageWindowLedgerFailedPageDoesNotReport(t *testing.T) {
@@ -395,18 +462,17 @@ func TestListPageWindowLedgerFailedPageDoesNotReport(t *testing.T) {
 	require.NoError(t, f.ledger.BeginCollecting(ctx, pendingSeeds(roots), nil))
 	runtime, err := newTestLedgerRuntime(ctx, f.ledger, "window-failed-page")
 	require.NoError(t, err)
-	s := &syncer{ledgered: true, ledger: runtime, run: newRunState(), stats: newRunStats(), syncID: f.engine.CurrentSyncID()}
-	s.store = f.store
-	s.caps = resolveStoreCaps(f.store)
+	s := &syncer{ledger: runtime, run: newRunState(), stats: newRunStats(), syncID: f.engine.CurrentSyncID()}
+	s.setStore(f.store)
 	WithListPageWindow(1, func(ListPageWindowReport) { t.Fatal("uncommitted page reported") })(s)
 	require.NoError(t, s.refreshPendingWindow(ctx))
 	action := s.run.current()
 	require.NotNil(t, action)
 	stopped := errors.New("failed after staging")
-	err = s.invokeActionPage(ctx, action, func(ctx context.Context, action *Action) error {
-		require.NoError(t, s.nextPageOrFinishAction(ctx, action, "next"))
+	err = s.invokeActionPage(ctx, action, func(_ context.Context, page *ledgerPage, action *Action) error {
+		require.NoError(t, page.stage(action, "next", nil))
 		return stopped
-	}, false)
+	}, false, 0, nil, nil)
 	require.ErrorIs(t, err, stopped)
 	require.Zero(t, action.WindowPages)
 	counters, err := f.ledger.LedgerCounters(ctx)

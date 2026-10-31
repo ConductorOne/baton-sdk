@@ -136,6 +136,7 @@ var (
 		WithDescription("Bound successful pages per list walk; 0 = unbounded"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
+		WithHidden(true),
 	)
 
 	syncResourceTypeIDs = StringSliceField("sync-resource-types",

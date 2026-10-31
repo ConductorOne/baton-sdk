@@ -13,6 +13,10 @@ const (
 	ListPageWindowCounterPrefix = "list_page_window."
 )
 
+func SampledFromCounters(counters map[string]uint64) bool {
+	return counters[ListPageWindowCounterPrefix+"sampled"] > 0
+}
+
 func LedgerSyncStats(facts map[string]string, counters LedgerCounters) SyncStats {
 	_, blocked := facts[LedgerFactIngestBlocked]
 	publishedCounters := maps.Clone(counters.Counters)

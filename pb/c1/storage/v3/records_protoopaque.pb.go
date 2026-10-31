@@ -1444,6 +1444,7 @@ type SyncRunRecord struct {
 	xxx_hidden_IngestInvariantGeneration string                 `protobuf:"bytes,10,opt,name=ingest_invariant_generation,json=ingestInvariantGeneration,proto3"`
 	xxx_hidden_IngestInvariantCoverage   []string               `protobuf:"bytes,11,rep,name=ingest_invariant_coverage,json=ingestInvariantCoverage,proto3"`
 	xxx_hidden_IngestInvariantMode       string                 `protobuf:"bytes,12,opt,name=ingest_invariant_mode,json=ingestInvariantMode,proto3"`
+	xxx_hidden_Sampled                   bool                   `protobuf:"varint,13,opt,name=sampled,proto3"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -1550,6 +1551,13 @@ func (x *SyncRunRecord) GetIngestInvariantMode() string {
 	return ""
 }
 
+func (x *SyncRunRecord) GetSampled() bool {
+	if x != nil {
+		return x.xxx_hidden_Sampled
+	}
+	return false
+}
+
 func (x *SyncRunRecord) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -1592,6 +1600,10 @@ func (x *SyncRunRecord) SetIngestInvariantCoverage(v []string) {
 
 func (x *SyncRunRecord) SetIngestInvariantMode(v string) {
 	x.xxx_hidden_IngestInvariantMode = v
+}
+
+func (x *SyncRunRecord) SetSampled(v bool) {
+	x.xxx_hidden_Sampled = v
 }
 
 func (x *SyncRunRecord) HasStartedAt() bool {
@@ -1638,8 +1650,8 @@ type SyncRunRecord_builder struct {
 	//
 	// "Can this sync be used as a source-cache replay source?" is the
 	// predicate c1zstore.SyncRun.UsableAsReplaySource: type == FULL and
-	// !compacted. The syncer enforces it — feeding a compacted or
-	// partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
+	// !compacted and !sampled. The syncer enforces it — feeding a compacted,
+	// sampled, or partial/derived sync to WithPreviousSyncC1ZPath degrades to a cold
 	// (full-fetch) sync. Orchestrators deciding which artifact to
 	// materialize as the previous sync should apply the same predicate
 	// instead of guessing from provenance.
@@ -1656,6 +1668,10 @@ type SyncRunRecord_builder struct {
 	// "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
 	// Empty when ingest_invariant_generation is empty.
 	IngestInvariantMode string
+	// Set when a list-page window cleared a nonempty continuation. The artifact
+	// is a sample, not a complete snapshot, and must not be used for replay,
+	// compaction, or production upload/uplift.
+	Sampled bool
 }
 
 func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
@@ -1673,6 +1689,7 @@ func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
 	x.xxx_hidden_IngestInvariantGeneration = b.IngestInvariantGeneration
 	x.xxx_hidden_IngestInvariantCoverage = b.IngestInvariantCoverage
 	x.xxx_hidden_IngestInvariantMode = b.IngestInvariantMode
+	x.xxx_hidden_Sampled = b.Sampled
 	return m0
 }
 
@@ -2709,6 +2726,7 @@ type LedgerRow struct {
 	xxx_hidden_WorkId               uint64                 `protobuf:"varint,24,opt,name=work_id,json=workId,proto3"`
 	xxx_hidden_WorkRevision         uint64                 `protobuf:"varint,25,opt,name=work_revision,json=workRevision,proto3"`
 	xxx_hidden_Restarted            bool                   `protobuf:"varint,26,opt,name=restarted,proto3"`
+	xxx_hidden_WindowPages          uint32                 `protobuf:"varint,27,opt,name=window_pages,json=windowPages,proto3"`
 	unknownFields                   protoimpl.UnknownFields
 	sizeCache                       protoimpl.SizeCache
 }
@@ -2922,6 +2940,13 @@ func (x *LedgerRow) GetRestarted() bool {
 	return false
 }
 
+func (x *LedgerRow) GetWindowPages() uint32 {
+	if x != nil {
+		return x.xxx_hidden_WindowPages
+	}
+	return 0
+}
+
 func (x *LedgerRow) SetIdentity(v *LedgerActionIdentity) {
 	x.xxx_hidden_Identity = v
 }
@@ -3029,6 +3054,10 @@ func (x *LedgerRow) SetRestarted(v bool) {
 	x.xxx_hidden_Restarted = v
 }
 
+func (x *LedgerRow) SetWindowPages(v uint32) {
+	x.xxx_hidden_WindowPages = v
+}
+
 func (x *LedgerRow) HasIdentity() bool {
 	if x == nil {
 		return false
@@ -3113,6 +3142,8 @@ type LedgerRow_builder struct {
 	// page wrote no records or children; the work item continues at
 	// next_page_token with revision + 1, not finished.
 	Restarted bool
+	// Successful list pages returned by this action, preserved across resume.
+	WindowPages uint32
 }
 
 func (b0 LedgerRow_builder) Build() *LedgerRow {
@@ -3145,6 +3176,7 @@ func (b0 LedgerRow_builder) Build() *LedgerRow {
 	x.xxx_hidden_WorkId = b.WorkId
 	x.xxx_hidden_WorkRevision = b.WorkRevision
 	x.xxx_hidden_Restarted = b.Restarted
+	x.xxx_hidden_WindowPages = b.WindowPages
 	return m0
 }
 
@@ -4236,7 +4268,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\x12?\n" +
 	"\rdiscovered_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:\"\x82\xf9+\x1e\n" +
-	"\x06assets\x12\async_id\x12\vexternal_id\"\xaf\x04\n" +
+	"\x06assets\x12\async_id\x12\vexternal_id\"\xc9\x04\n" +
 	"\rSyncRunRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x12$\n" +
@@ -4251,7 +4283,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bingest_invariant_generation\x18\n" +
 	" \x01(\tR\x19ingestInvariantGeneration\x12:\n" +
 	"\x19ingest_invariant_coverage\x18\v \x03(\tR\x17ingestInvariantCoverage\x122\n" +
-	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode:\x18\x82\xf9+\x14\n" +
+	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode\x12\x18\n" +
+	"\asampled\x18\r \x01(\bR\asampled:\x18\x82\xf9+\x14\n" +
 	"\tsync_runs\x12\async_idJ\x04\b\b\x10\tR\x0elinked_sync_id\"\xca\r\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
@@ -4337,7 +4370,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\vLedgerChild\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12\x18\n" +
 	"\aspawned\x18\x02 \x01(\bR\aspawned\x12\x17\n" +
-	"\awork_id\x18\x03 \x01(\x04R\x06workId\"\xda\b\n" +
+	"\awork_id\x18\x03 \x01(\x04R\x06workId\"\xfd\b\n" +
 	"\tLedgerRow\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12/\n" +
@@ -4367,7 +4400,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"collection\x12\x17\n" +
 	"\awork_id\x18\x18 \x01(\x04R\x06workId\x12#\n" +
 	"\rwork_revision\x18\x19 \x01(\x04R\fworkRevision\x12\x1c\n" +
-	"\trestarted\x18\x1a \x01(\bR\trestarted\"\xe8\x06\n" +
+	"\trestarted\x18\x1a \x01(\bR\trestarted\x12!\n" +
+	"\fwindow_pages\x18\x1b \x01(\rR\vwindowPages\"\xe8\x06\n" +
 	"\x15LedgerCollectionStats\x12%\n" +
 	"\x0elist_responses\x18\x01 \x01(\x04R\rlistResponses\x120\n" +
 	"\x14empty_list_responses\x18\x02 \x01(\x04R\x12emptyListResponses\x12R\n" +

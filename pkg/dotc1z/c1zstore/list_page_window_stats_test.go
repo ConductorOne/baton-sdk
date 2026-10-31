@@ -1,11 +1,13 @@
 package c1zstore
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,4 +49,47 @@ func TestLedgerSyncStatsPublishesOnlyListPageWindowCounters(t *testing.T) {
 		require.EqualValues(t, 17, input[LedgerCompletedActions])
 		require.EqualValues(t, 3, input["ingest.entitlements_dropped"])
 	}
+}
+
+func TestSampledFromCounters(t *testing.T) {
+	require.False(t, SampledFromCounters(nil))
+	require.False(t, SampledFromCounters(map[string]uint64{"list_page_window.sampled": 0}))
+	require.False(t, SampledFromCounters(map[string]uint64{"list_page_window.sampled:group": 1}))
+	require.True(t, SampledFromCounters(map[string]uint64{"list_page_window.sampled": 1}))
+}
+
+func TestSampledSyncIsNotAReplaySource(t *testing.T) {
+	for _, tc := range []struct {
+		kind                       connectorstore.SyncType
+		compacted, sampled, usable bool
+	}{
+		{connectorstore.SyncTypeFull, false, false, true},
+		{connectorstore.SyncTypeFull, true, false, false},
+		{connectorstore.SyncTypeFull, false, true, false},
+		{connectorstore.SyncTypeFull, true, true, false},
+		{connectorstore.SyncTypePartial, false, false, false},
+		{connectorstore.SyncTypePartial, false, true, false},
+		{connectorstore.SyncTypeResourcesOnly, false, false, false},
+		{connectorstore.SyncTypeResourcesOnly, false, true, false},
+	} {
+		run := SyncRun{Type: tc.kind, Compacted: tc.compacted, Sampled: tc.sampled}
+		require.Equal(t, tc.usable, run.UsableAsReplaySource(), "%+v", tc)
+	}
+}
+
+func TestPendingWorkWindowPagesJSONCompatibility(t *testing.T) {
+	var legacy LedgerWork
+	require.NoError(t, json.Unmarshal([]byte(`{"sync_id":"sync","id":1,"revision":0,"action":{}}`), &legacy))
+	require.Zero(t, legacy.WindowPages)
+	encoded, err := json.Marshal(legacy)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "window_pages")
+	var current LedgerWork
+	require.NoError(t, json.Unmarshal([]byte(`{"sync_id":"sync","id":1,"revision":0,"action":{},"window_pages":2}`), &current))
+	require.EqualValues(t, 2, current.WindowPages)
+	encoded, err = json.Marshal(current)
+	require.NoError(t, err)
+	var restored LedgerWork
+	require.NoError(t, json.Unmarshal(encoded, &restored))
+	require.Equal(t, current, restored)
 }

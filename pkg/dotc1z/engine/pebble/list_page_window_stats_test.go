@@ -25,19 +25,20 @@ func TestFinishedSyncMetadataIgnoresCorruptStatsSidecar(t *testing.T) {
 		name   string
 		lookup func(context.Context) (*c1zstore.SyncRun, error)
 	}{
-		{"full", e.SyncMeta().LatestFullSync},
-		{"any", e.SyncMeta().LatestFinishedSyncOfAnyType},
+		{"full", e.SyncRuns().SyncMeta().LatestFullSync},
+		{"any", e.SyncRuns().SyncMeta().LatestFinishedSyncOfAnyType},
 	}
 	for _, lookup := range lookups {
 		run, err := lookup.lookup(ctx)
 		require.NoError(t, err, lookup.name)
 		require.NotNil(t, run, lookup.name)
+		require.True(t, run.Sampled, lookup.name)
 		require.NotNil(t, run.Stats, lookup.name)
 		require.EqualValues(t, 1, run.Stats.GetCounters()["list_page_window.sampled"], lookup.name)
 	}
 
 	require.NoError(t, e.db.UnsafeForTesting().Set(encodeSyncStatsKey(), []byte{0xff}, nil))
-	_, err = e.readSyncStats(ctx, syncID)
+	_, err = e.SyncRuns().readSyncStats(ctx, syncID)
 	require.Error(t, err)
 	core, logs := observer.New(zap.WarnLevel)
 	ctx = ctxzap.ToContext(ctx, zap.New(core))
@@ -49,6 +50,7 @@ func TestFinishedSyncMetadataIgnoresCorruptStatsSidecar(t *testing.T) {
 		require.NotNil(t, run.EndedAt, lookup.name)
 		require.Equal(t, connectorstore.SyncTypeFull, run.Type, lookup.name)
 		require.Nil(t, run.Stats, lookup.name)
+		require.True(t, run.Sampled, "optional stats corruption must not erase the durable marker")
 	}
 	require.Equal(t, len(lookups), logs.FilterMessage("finished sync stats unavailable").Len())
 }

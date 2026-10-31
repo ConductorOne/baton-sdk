@@ -1391,6 +1391,13 @@ func TestVerificationReplayRejectsIneligibleFinishedSourceAllKinds(t *testing.T)
 			wantError: "compacted artifacts are not replay-eligible",
 		},
 		{
+			name: "sampled",
+			configure: func(run *v3.SyncRunRecord) {
+				run.SetSampled(true)
+			},
+			wantError: "sampled artifacts are not replay-eligible",
+		},
+		{
 			name: "partial",
 			configure: func(run *v3.SyncRunRecord) {
 				run.SetType(v3.SyncType_SYNC_TYPE_PARTIAL)
