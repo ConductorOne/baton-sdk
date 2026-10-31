@@ -237,6 +237,8 @@ func TestListPageWindowSyncMatrix(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, sr)
 				require.NotNil(t, sr.Stats)
+				require.Equal(t, sampled, sr.Sampled)
+				require.Equal(t, !sampled, sr.UsableAsReplaySource())
 				wantSampled := int64(0)
 				if sampled {
 					wantSampled = int64(len(keys))
@@ -372,20 +374,67 @@ func TestListPageWindowZeroPreservesSyncTokenBytes(t *testing.T) {
 	}
 }
 
-func TestListPageWindowLedgerReconstructionStartsNewWindow(t *testing.T) {
-	action := Action{Op: SyncResourcesOp, ResourceTypeID: "resource", PageToken: "page-2", WindowPages: 1}
-	reconstructed := ledgerActionFromIdentity(ledgerIdentity(&action))
-	require.Equal(t, action.PageToken, reconstructed.PageToken)
-	require.Zero(t, reconstructed.WindowPages)
-	s := &syncer{}
-	WithListPageWindow(2, nil)(s)
-	next, report := s.applyListPageWindow(&reconstructed, "page-3")
-	require.Equal(t, "page-3", next)
-	require.Nil(t, report)
-	next, report = s.applyListPageWindow(&reconstructed, "page-4")
-	require.Empty(t, next)
-	require.NotNil(t, report)
-	require.False(t, report.VendorTerminated)
+func TestListPageWindowLedgerPreservesWindowAcrossReopen(t *testing.T) {
+	ctx := t.Context()
+	f := newLedgerFixture(t)
+	syncID := f.engine.CurrentSyncID()
+	roots := []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "resource"}}}
+	require.NoError(t, f.ledger.BeginCollecting(ctx, pendingSeeds(roots), nil))
+	connector := newWindowConnector(5)
+	var reports []ListPageWindowReport
+	newWalker := func(fixture *ledgerFixture, attempt string) *syncer {
+		runtime, err := newTestLedgerRuntime(ctx, fixture.ledger, attempt)
+		require.NoError(t, err)
+		s := &syncer{run: newRunState(), stats: newRunStats(), ledger: runtime, syncID: syncID}
+		s.setStore(fixture.store)
+		WithListPageWindow(3, func(report ListPageWindowReport) { reports = append(reports, report) })(s)
+		require.NoError(t, s.refreshPendingWindow(ctx))
+		return s
+	}
+	walkPage := func(s *syncer) error {
+		action := s.run.current()
+		require.NotNil(t, action)
+		return s.invokeActionPage(ctx, action, func(pageCtx context.Context, action *Action) error {
+			response, err := connector.ListResources(pageCtx, v2.ResourcesServiceListResourcesRequest_builder{
+				ResourceTypeId: action.ResourceTypeID, PageToken: action.PageToken,
+			}.Build())
+			if err != nil {
+				return err
+			}
+			invocation := pageCtx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+			if err := invocation.page.writer.PutResources(pageCtx, response.GetList()...); err != nil {
+				return err
+			}
+			return s.nextPageOrFinishAction(pageCtx, action, response.GetNextPageToken())
+		}, false)
+	}
+	s := newWalker(f, "before-reopen")
+	require.NoError(t, walkPage(s))
+	require.EqualValues(t, 1, s.run.current().WindowPages)
+	require.Empty(t, reports)
+	path := f.path
+	require.NoError(t, f.store.Close(ctx))
+	f = openLedgerFixtureAt(t, path, false)
+	require.NoError(t, f.store.SetCurrentSync(ctx, syncID))
+	s = newWalker(f, "after-reopen")
+	require.EqualValues(t, 1, s.run.current().WindowPages)
+	require.NoError(t, walkPage(s))
+	require.EqualValues(t, 2, s.run.current().WindowPages)
+	require.NoError(t, walkPage(s))
+	require.Nil(t, s.run.current())
+	require.Len(t, connector.calls["resources:resource"], 3)
+	require.Len(t, reports, 1)
+	require.EqualValues(t, 3, reports[0].PagesReturned)
+	require.False(t, reports[0].VendorTerminated)
+	counters, err := f.ledger.LedgerCounters(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, counters.Counters["list_page_window.sampled"])
+	require.NoError(t, s.ledger.prepareSeal(ctx, c1zstore.LedgerCounters{}))
+	require.NoError(t, s.ledger.seal(ctx))
+	run, err := f.store.SyncMeta().LatestFullSync(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	require.True(t, run.Sampled)
 }
 
 func TestListPageWindowLedgerFailedPageDoesNotReport(t *testing.T) {

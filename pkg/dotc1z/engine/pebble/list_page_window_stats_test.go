@@ -32,6 +32,7 @@ func TestFinishedSyncMetadataIgnoresCorruptStatsSidecar(t *testing.T) {
 		run, err := lookup.lookup(ctx)
 		require.NoError(t, err, lookup.name)
 		require.NotNil(t, run, lookup.name)
+		require.True(t, run.Sampled, lookup.name)
 		require.NotNil(t, run.Stats, lookup.name)
 		require.EqualValues(t, 1, run.Stats.GetCounters()["list_page_window.sampled"], lookup.name)
 	}
@@ -49,6 +50,7 @@ func TestFinishedSyncMetadataIgnoresCorruptStatsSidecar(t *testing.T) {
 		require.NotNil(t, run.EndedAt, lookup.name)
 		require.Equal(t, connectorstore.SyncTypeFull, run.Type, lookup.name)
 		require.Nil(t, run.Stats, lookup.name)
+		require.True(t, run.Sampled, "optional stats corruption must not erase the durable marker")
 	}
 	require.Equal(t, len(lookups), logs.FilterMessage("finished sync stats unavailable").Len())
 }

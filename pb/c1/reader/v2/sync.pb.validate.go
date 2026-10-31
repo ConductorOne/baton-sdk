@@ -151,6 +151,8 @@ func (m *SyncRun) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for Sampled
+
 	if len(errors) > 0 {
 		return SyncRunMultiError(errors)
 	}

@@ -25,6 +25,7 @@ func (s *syncer) actionFromPending(work c1zstore.LedgerWork) (Action, error) {
 	action.WorkPageToken = work.Action.Identity.PageToken
 	action.Spawned = work.Action.Spawned
 	action.TypeScopedPlanned = work.TypeScopedPlanned
+	action.WindowPages = work.WindowPages
 	return action, nil
 }
 
@@ -32,7 +33,8 @@ func (s *syncer) pendingForAction(action *Action) c1zstore.LedgerWork {
 	identity := ledgerIdentity(action)
 	identity.PageToken = action.WorkPageToken
 	return c1zstore.LedgerWork{SyncID: s.syncID, ID: action.WorkID, Revision: action.WorkRevision,
-		Action: c1zstore.LedgerChild{Identity: identity, Spawned: action.Spawned}, TypeScopedPlanned: action.TypeScopedPlanned}
+		Action: c1zstore.LedgerChild{Identity: identity, Spawned: action.Spawned}, TypeScopedPlanned: action.TypeScopedPlanned,
+		WindowPages: action.WindowPages}
 }
 
 func (s *syncer) refreshPendingWindow(ctx context.Context) error {

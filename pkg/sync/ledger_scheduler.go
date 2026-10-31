@@ -77,6 +77,7 @@ func (i *ledgerInvocation) stage(action *Action, next string, children []Action)
 		}
 		rows = append(rows, c1zstore.LedgerChild{Identity: ledgerIdentity(child), Spawned: child.Spawned})
 	}
+	i.page.row.WindowPages = action.WindowPages
 	if err := i.page.transition(next, rows...); err != nil {
 		return err
 	}

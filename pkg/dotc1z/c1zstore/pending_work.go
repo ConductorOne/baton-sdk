@@ -13,6 +13,8 @@ type LedgerWork struct {
 	Action            LedgerChild `json:"action"`
 	SchedulingKey     string      `json:"scheduling_key,omitempty"`
 	TypeScopedPlanned bool        `json:"type_scoped_planned,omitempty"`
+	// Older SDKs drop this field and resume with their pre-window counting behavior.
+	WindowPages uint32 `json:"window_pages,omitempty"`
 	// Revisions at which the connector asked for this item to restart
 	// (PageWriter.SetRestart). Unknown to SDKs that predate it; their
 	// decoder drops the field.

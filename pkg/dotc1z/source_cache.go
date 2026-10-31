@@ -147,6 +147,9 @@ func validateReplaySourceEligible(ctx context.Context, previous *pebble.Engine) 
 	if run.GetCompacted() {
 		return errors.New("source cache replay: compacted artifacts are not replay-eligible")
 	}
+	if run.GetSampled() {
+		return errors.New("source cache replay: sampled artifacts are not replay-eligible")
+	}
 	return nil
 }
 

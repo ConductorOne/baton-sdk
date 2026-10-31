@@ -191,6 +191,9 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 	if err := dest.SetCurrentSync(ctx, destSyncID); err != nil {
 		return stats, fmt.Errorf("synccompactor/pebble.MergeInto: bind dest sync: %w", err)
 	}
+	if err := requireUnsampledSource(ctx, dest, destSyncID); err != nil {
+		return stats, err
+	}
 	// Folds write the dest keyspace through the raw DB handle; invalidate
 	// the engine's bare-id lookup state on the way out (even on error —
 	// earlier sources may already have been folded in).
@@ -202,6 +205,9 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 		s := sources[i]
 		if s.Engine == nil || s.SyncID == "" {
 			continue
+		}
+		if err := requireUnsampledSource(ctx, s.Engine, s.SyncID); err != nil {
+			return stats, err
 		}
 		srcStats, err := mergeOneSource(ctx, dest, s, destSyncID, opts.collectGrantEntitlementIDs)
 		stats.Add(srcStats)

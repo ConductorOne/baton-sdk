@@ -87,6 +87,9 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 	if syncID == "" {
 		return errors.New("synccompactor/pebble.Compact: syncID is required")
 	}
+	if err := requireUnsampledSource(ctx, source, syncID); err != nil {
+		return err
+	}
 
 	// This function writes the base keyspace through the engine's merge
 	// surface (a closed engine surfaces ErrEngineClosing from the
@@ -185,5 +188,20 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 		}
 	}
 
+	return nil
+}
+
+func requireUnsampledSource(ctx context.Context, source *enginepkg.Engine, syncID string) error {
+	run, err := source.GetSyncRunRecord(ctx, syncID)
+	if errors.Is(err, pebble.ErrNotFound) {
+		// The raw merge API also supports records without lifecycle metadata.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("synccompactor/pebble: read source sync: %w", err)
+	}
+	if run.GetSampled() {
+		return errors.New("synccompactor/pebble: sampled source is not compactable")
+	}
 	return nil
 }

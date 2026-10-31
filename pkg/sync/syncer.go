@@ -4075,11 +4075,10 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 // WithListPageWindow bounds successful resources, entitlements, and grants pages
 // per list walk. Zero leaves pagination unbounded. The handler may be nil; it runs
 // synchronously outside scheduler locks and must support concurrent workers.
-// Ledger restart reconstruction starts a new window, so a resumed ledger walk
-// may return one additional window of pages per restart.
 // Connector-signaled cursor restarts retain already-counted pages, so rewound
 // pages consume the remaining window and may reduce the sample of distinct rows.
-// Production diff/upload use requires the deferred follow-up: a sampled-run sync fact.
+// Sampled artifacts remain local-only until downstream upload/uplift gates consume
+// the durable marker. A separate sampled-run sync-fact follow-up is deferred.
 func WithListPageWindow(window uint32, handler func(ListPageWindowReport)) SyncOpt {
 	return func(s *syncer) {
 		s.cfg.listPageWindow = window

@@ -363,6 +363,7 @@ func (l *Ledger) stageWorkTransition(
 		current.Revision++
 		current.Action.Identity.PageToken = row.GetNextPageToken()
 		current.TypeScopedPlanned = row.GetTypeScopedPlanned()
+		current.WindowPages = row.GetWindowPages()
 		if err := stagePendingWork(batch, current); err != nil {
 			return err
 		}
