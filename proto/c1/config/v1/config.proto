@@ -4,6 +4,7 @@ package c1.config.v1;
 
 import "c1/config/v1/rules.proto";
 import "google/protobuf/any.proto";
+import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/config/v1";
 
@@ -58,6 +59,14 @@ message Field {
   // through ActionHandlerWithSecrets; it is omitted from the public response
   // and returned as EncryptedData.
   bool is_secret = 7;
+  // Content type for secret action return fields; absent means generic.
+  // Action registration rejects it on arguments and non-secret returns.
+  // It has no configuration-field semantics; syntax validation still applies.
+  optional string secret_content_type = 8 [(validate.rules).string = {
+    min_len: 1
+    max_len: 128
+    pattern: "^[a-z0-9]+([._-][a-z0-9]+)*$"
+  }];
 
   oneof field {
     StringField string_field = 100;
