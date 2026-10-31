@@ -42,3 +42,13 @@ No annotation transport, connector-side policy, production default change, or le
 - Publish only `list_page_window.` counter keys from the ledger, matching token-mode output; no sampling means an empty published counters map, including window zero. Keep internal ledger completion/ingestion accounting unchanged (W6).
 - A corrupt optional stats sidecar must not fail finished-sync identity lookup. Log the failure and return the run with nil Stats; a corrupt-sidecar regression covers both full-sync and any-type lookups (W6).
 - Add a filter-removal mutation check to the existing matrix. The production sampled-run sync fact remains deferred and is required before production diff/upload use of sampled artifacts.
+
+## Owner-feedback correction: durable sample identity and restart bounds
+
+- M1: add an orthogonal sampled boolean to storage and reader sync-run records and the exported SyncRun. Derive it from observed sampled counters at EndSync, never merely from configuring a window, and commit it atomically with ended_at in token and ledger modes.
+- M2: sampled runs are not replay sources and cannot be compactor inputs. Keep sync type and unrelated ingestion policy unchanged. Hide the sampling CLI flag until downstream marker checks are complete; external upload/uplift enforcement is a separate follow-up.
+- M3: persist each action's successful page count through ledger row and pending-work revisions, including connector-signaled restart preservation. A cold reopen resumes the same remaining window rather than granting another one.
+- M4: prove token/ledger positive and vendor-terminated-negative marker cases, storage/reader conversions, replay and compactor refusal, same-batch finish durability, pending-work serialization compatibility, and cold reopen after page one with exactly two pages remaining in a window of three.
+- M5: preserve all token golden bytes. Run affected suites, race regressions, additive Buf checks, generation freshness, and repository CI.
+
+These approved pre-release changes replace the earlier ledger-restart limitation and the deferred SDK sampled-run marker. A downstream upload/uplift gate remains outside this SDK change.
