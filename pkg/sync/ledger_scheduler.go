@@ -22,10 +22,9 @@ func (e ledgerPageWriteError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.cause.Error())
 }
 
-type ledgerWorkerKey struct{}
-
 type ledgerInvocation struct {
 	attempts              *ledgerAttempts
+	worker                int
 	action                *Action
 	page                  *ledgerPage
 	children              []Action
@@ -87,6 +86,8 @@ func (s *syncer) invokeActionPage(
 	action *Action,
 	handler func(context.Context, *ledgerInvocation, *Action) error,
 	allowWarning bool,
+	worker int,
+	attempts *ledgerAttempts,
 	transition func(context.Context, ledgerTransitionCommit, *Action, string, []Action) error,
 ) error {
 	if err := ctx.Err(); err != nil {
@@ -98,17 +99,15 @@ func (s *syncer) invokeActionPage(
 	if action.WorkID == 0 {
 		return errors.New("ledger action has no pending work ID")
 	}
-	worker, _ := ctx.Value(ledgerWorkerKey{}).(int)
 	if worker < 0 || worker >= int(c1zstore.TakeoverBucketWorker) {
 		return errors.New("invalid ledger worker index")
 	}
 	workerIndex := uint32(worker)
-	attempts, _ := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts)
 	if attempts == nil {
 		attempts = &ledgerAttempts{}
 	}
 	attempts.selectPage(ledgerIdentity(action))
-	invocation := &ledgerInvocation{action: action, attempts: attempts}
+	invocation := &ledgerInvocation{action: action, attempts: attempts, worker: worker}
 	var warning error
 	var handlerFailure error
 	_, err := s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {

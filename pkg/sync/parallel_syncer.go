@@ -124,12 +124,16 @@ func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context 
 	s.rlWallCoveredUntil = time.Now()
 	s.rlWallCarry = 0
 	s.rlWallMu.Unlock()
+	return s.withLedgerAttempts(ctx, nil)
+}
+
+func (s *syncer) withLedgerAttempts(ctx context.Context, attempts *ledgerAttempts) context.Context {
 	return ratelimit.WithWaitObserver(ctx, func(ctx context.Context, ev ratelimit.WaitEvent) {
 		if !s.recordStats {
 			return
 		}
 		s.recordRetryWait(ctx, ev.Duration, !ev.Retry)
-		if attempts, ok := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts); ok {
+		if attempts != nil {
 			attempts.recordWait(ev)
 		}
 	})
@@ -142,7 +146,8 @@ func (s *syncer) parallelSync(
 ) ([]error, error) {
 	l := ctxzap.Extract(ctx)
 	workerCtx, cancelWorkers := context.WithCancelCause(ctx)
-	workerCtx = withLedgerAttempts(workerCtx)
+	coordinatorAttempts := &ledgerAttempts{}
+	workerCtx = s.withLedgerAttempts(workerCtx, coordinatorAttempts)
 	stopWorkers := context.AfterFunc(runCtx, func() {
 		cancelWorkers(context.Cause(runCtx))
 	})
@@ -216,7 +221,7 @@ func (s *syncer) parallelSync(
 		case InitOp:
 			err = s.invokeActionPage(ctx, stateAction, func(pageCtx context.Context, inv *ledgerInvocation, action *Action) error {
 				return s.initializeAction(pageCtx, inv, action, targetedResources)
-			}, false, nil)
+			}, false, 0, nil, nil)
 			if err != nil {
 				return warnings, err
 			}
@@ -224,7 +229,7 @@ func (s *syncer) parallelSync(
 
 		case SyncResourceTypesOp:
 			err = s.timedStep(SyncResourceTypesOp, func() error {
-				return s.invokeActionPage(workerCtx, stateAction, s.SyncResourceTypes, false, nil)
+				return s.invokeActionPage(workerCtx, stateAction, s.SyncResourceTypes, false, 0, coordinatorAttempts, nil)
 			})
 			if !s.timedShouldWaitAndRetry(workerCtx, SyncResourceTypesOp, stateAction.ResourceTypeID, retryer, err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)
@@ -234,7 +239,7 @@ func (s *syncer) parallelSync(
 		case SyncResourcesOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncResourcesOp, func() error {
-					return s.invokeActionPage(workerCtx, stateAction, s.SyncResources, false, nil)
+					return s.invokeActionPage(workerCtx, stateAction, s.SyncResources, false, 0, coordinatorAttempts, nil)
 				})
 				if !s.timedShouldWaitAndRetry(workerCtx, SyncResourcesOp, stateAction.ResourceTypeID, retryer, err) {
 					return s.handleOperationError(ctx, runCtx, warnings, err)
@@ -266,7 +271,7 @@ func (s *syncer) parallelSync(
 
 		case MaterializeStaticEntitlementsOp:
 			err = s.timedStep(MaterializeStaticEntitlementsOp, func() error {
-				return s.invokeActionPage(workerCtx, stateAction, s.materializeLedgerStaticEntitlements, false, nil)
+				return s.invokeActionPage(workerCtx, stateAction, s.materializeLedgerStaticEntitlements, false, 0, coordinatorAttempts, nil)
 			})
 			if !s.timedShouldWaitAndRetry(workerCtx, MaterializeStaticEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)
@@ -275,7 +280,7 @@ func (s *syncer) parallelSync(
 
 		case SyncStaticEntitlementsOp:
 			err = s.timedStep(SyncStaticEntitlementsOp, func() error {
-				return s.invokeActionPage(workerCtx, stateAction, s.SyncStaticEntitlements, true, nil)
+				return s.invokeActionPage(workerCtx, stateAction, s.SyncStaticEntitlements, true, 0, coordinatorAttempts, nil)
 			})
 			if isWarning(ctx, err) {
 				l.Warn("skipping sync static entitlements action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -290,7 +295,7 @@ func (s *syncer) parallelSync(
 		case SyncEntitlementsOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncEntitlementsOp, func() error {
-					return s.invokeActionPage(workerCtx, stateAction, s.SyncEntitlements, true, nil)
+					return s.invokeActionPage(workerCtx, stateAction, s.SyncEntitlements, true, 0, coordinatorAttempts, nil)
 				})
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -317,7 +322,7 @@ func (s *syncer) parallelSync(
 		case SyncGrantsOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncGrantsOp, func() error {
-					return s.invokeActionPage(workerCtx, stateAction, s.SyncGrants, true, nil)
+					return s.invokeActionPage(workerCtx, stateAction, s.SyncGrants, true, 0, coordinatorAttempts, nil)
 				})
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -352,7 +357,7 @@ func (s *syncer) parallelSync(
 			continue
 		case SyncAssetsOp:
 			err = s.timedStep(SyncAssetsOp, func() error {
-				return s.invokeActionPage(workerCtx, stateAction, s.SyncAssets, false, nil)
+				return s.invokeActionPage(workerCtx, stateAction, s.SyncAssets, false, 0, coordinatorAttempts, nil)
 			})
 			if !s.timedShouldWaitAndRetry(workerCtx, SyncAssetsOp, stateAction.ResourceTypeID, retryer, err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)
@@ -783,13 +788,14 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	var wg native_sync.WaitGroup
 	for i := 0; i < s.cfg.workerCount; i++ {
 		wg.Go(func() {
-			workerCtx := withLedgerAttempts(context.WithValue(ctx, ledgerWorkerKey{}, i))
+			attempts := &ledgerAttempts{}
+			workerCtx := s.withLedgerAttempts(ctx, attempts)
 			for {
 				action, ok := queue.next()
 				if !ok {
 					return
 				}
-				r := s.syncOneAction(workerCtx, l, retryer, action, f, transition)
+				r := s.syncOneAction(workerCtx, l, retryer, action, f, i, attempts, transition)
 				resultsMu.Lock()
 				if r.warning != nil {
 					warnings = append(warnings, r.warning)
@@ -841,10 +847,12 @@ func (s *syncer) syncOneAction(
 	retryer *retry.Retryer,
 	action *Action,
 	f func(ctx context.Context, inv *ledgerInvocation, action *Action) error,
+	worker int,
+	attempts *ledgerAttempts,
 	transition func(context.Context, ledgerTransitionCommit, *Action, string, []Action) error,
 ) workerResult {
 	for {
-		err := s.invokeActionPage(ctx, action, f, true, transition)
+		err := s.invokeActionPage(ctx, action, f, true, worker, attempts, transition)
 		if isWarning(ctx, err) {
 			l.Warn("skipping sync action", zap.Any("action", action), zap.Error(err))
 			s.finishActionWithWarning(ctx, action)

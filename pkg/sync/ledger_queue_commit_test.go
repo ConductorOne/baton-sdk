@@ -105,7 +105,7 @@ func TestLedgerCommitWakesWorkerWaitingForChildren(t *testing.T) {
 		workers := map[string]int{}
 		s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
 			seenMu.Lock()
-			workers[action.ResourceID] = ctx.Value(ledgerWorkerKey{}).(int)
+			workers[action.ResourceID] = inv.worker
 			seenMu.Unlock()
 			if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 				return err

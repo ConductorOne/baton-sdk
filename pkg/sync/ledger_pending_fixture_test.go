@@ -68,7 +68,7 @@ func seedLedgerTestRun(t *testing.T, s *syncer, selected *Action) {
 func invokeLedgerTestPage(t *testing.T, s *syncer, ctx context.Context, action *Action, handler func(context.Context, *ledgerInvocation, *Action) error, warning bool) error {
 	t.Helper()
 	seedLedgerTestRun(t, s, action)
-	err := s.invokeActionPage(ctx, action, handler, warning, nil)
+	err := s.invokeActionPage(ctx, action, handler, warning, 0, nil, nil)
 	if err == nil {
 		return s.refreshPendingWindow(ctx)
 	}

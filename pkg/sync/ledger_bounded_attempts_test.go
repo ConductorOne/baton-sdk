@@ -30,7 +30,7 @@ func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 		prepareLedgerForTest(t, s, fmt.Sprintf("attempt-%d", i), false)
 		require.NoError(t, s.putLedgerReportOptions(t.Context()))
 		f.audit.enter(ledgerHandler)
-		require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), nil, false, nil))
+		require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), nil, false, 0, nil, nil))
 		f.audit.enter(ledgerLifecycle)
 		facts, err := f.ledger.LedgerFacts(t.Context())
 		require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestLedgerOptionsSnapshotBeforeAnyPage(t *testing.T) {
 	f.audit.enter(ledgerHandler)
 	require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), func(ctx context.Context, inv *ledgerInvocation, action *Action) error {
 		return s.initializeAction(ctx, inv, action, nil)
-	}, false, nil))
+	}, false, 0, nil, nil))
 	f.audit.enter(ledgerLifecycle)
 	facts, err = f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)

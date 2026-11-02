@@ -150,9 +150,6 @@ func TestLedgerCancelledRetryDoesNotSurviveNewWorker(t *testing.T) {
 	})
 }
 
-// Ownership, not synchronization: each worker's context carries its own
-// accumulator, distinct from every other worker's and from the coordinator's,
-// and waits observed on the worker's goroutine land in that worker's row.
 func TestLedgerWaitObservationsStayWithWorker(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 2)
 	s.recordStats = true
@@ -166,9 +163,8 @@ func TestLedgerWaitObservationsStayWithWorker(t *testing.T) {
 	var seenMu native_sync.Mutex
 	seen := map[*ledgerAttempts]int{}
 	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
-		attempts := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts)
 		seenMu.Lock()
-		seen[attempts] = ctx.Value(ledgerWorkerKey{}).(int)
+		seen[inv.attempts] = inv.worker
 		seenMu.Unlock()
 		s.recordLedgerConnectorResponse(ctx, inv, "list-resources", time.Millisecond, nil)
 		barrier.Done()
@@ -178,8 +174,8 @@ func TestLedgerWaitObservationsStayWithWorker(t *testing.T) {
 		}
 		return inv.stage(action, "", nil)
 	}
-	ctx := withLedgerAttempts(s.withRateLimitWaitObserver(t.Context()))
-	coordinator := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts)
+	coordinator := &ledgerAttempts{}
+	ctx := s.withLedgerAttempts(s.withRateLimitWaitObserver(t.Context()), coordinator)
 	r := retry.NewRetryer(ctx, retry.RetryConfig{MaxAttempts: 1})
 	seedLedgerTestRun(t, s, nil)
 	_, err := s.syncParallel(ctx, r, s.run.peekMatchingActions(ctx, SyncResourcesOp), s.SyncResources)
