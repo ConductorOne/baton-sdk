@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
@@ -11,10 +12,11 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	pbtransport "github.com/conductorone/baton-sdk/pb/c1/transport/v1"
-	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
 const annotationsFieldName = "annotations"
@@ -44,6 +46,10 @@ impact is negligible.
 func unmarshalTransportJSON(b []byte, msg proto.Message) (bool, error) {
 	if ok, err := decodeWireFrame(b, msg); ok {
 		return true, err
+	}
+
+	if err := rejectLegacyFieldJSON(b, msg.ProtoReflect().Descriptor()); err != nil {
+		return false, err
 	}
 
 	unmarshalOptions := protojson.UnmarshalOptions{
@@ -352,4 +358,62 @@ func (f *Response) Headers() metadata.MD {
 
 func (f *Response) Trailers() metadata.MD {
 	return UnmarshalMetadata(f.msg.GetTrailers())
+}
+
+func rejectLegacyFieldJSON(raw json.RawMessage, descriptor protoreflect.MessageDescriptor) error {
+	var obj map[string]json.RawMessage
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return err
+	}
+	if descriptor.FullName() == "google.protobuf.Any" {
+		var typeURL string
+		if json.Unmarshal(obj["@type"], &typeURL) == nil {
+			if typ, err := protoregistry.GlobalTypes.FindMessageByURL(typeURL); err == nil {
+				if typ.Descriptor().FullName() == descriptor.FullName() {
+					return rejectLegacyFieldJSON(obj["value"], descriptor)
+				}
+				return rejectLegacyFieldJSON(raw, typ.Descriptor())
+			}
+		}
+		return nil
+	}
+	if descriptor.FullName() == "c1.config.v1.Field" {
+		if _, ok := obj["secret_content_type"]; ok {
+			return fmt.Errorf("incompatible legacy Field secret_content_type")
+		}
+		if _, ok := obj["secretContentType"]; ok {
+			return fmt.Errorf("incompatible legacy Field secret_content_type")
+		}
+	}
+	fields := descriptor.Fields()
+	for i := 0; i < fields.Len(); i++ {
+		f := fields.Get(i)
+		if f.Message() == nil || f.IsMap() {
+			continue
+		}
+		v, ok := obj[f.JSONName()]
+		if !ok {
+			v, ok = obj[string(f.Name())]
+		}
+		if !ok {
+			continue
+		}
+		if f.IsList() {
+			var values []json.RawMessage
+			if json.Unmarshal(v, &values) == nil {
+				for _, item := range values {
+					if err := rejectLegacyFieldJSON(item, f.Message()); err != nil {
+						return err
+					}
+				}
+			}
+		} else if err := rejectLegacyFieldJSON(v, f.Message()); err != nil {
+			return err
+		}
+	}
+	return nil
 }

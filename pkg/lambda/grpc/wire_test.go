@@ -260,3 +260,21 @@ func TestDecodeWireFrame_UnsupportedVersion(t *testing.T) {
 	err := rt.UnmarshalJSON([]byte(`{"v": 3, "frame": "AA=="}`))
 	require.ErrorContains(t, err, "unsupported wire frame version 3")
 }
+
+func TestLegacyFieldJSONIsRefused(t *testing.T) {
+	for _, name := range []string{"secret_content_type", "secretContentType"} {
+		payload := []byte(`{"schema":{"name":"a","returnTypes":[{"name":"secret","` + name + `":"generic"}]}}`)
+		var msg v2.GetActionSchemaResponse
+		_, err := unmarshalTransportJSON(payload, &msg)
+		require.ErrorContains(t, err, "incompatible legacy Field")
+	}
+}
+
+func TestLegacyFieldJSONAnyGuard(t *testing.T) {
+	var message anypb.Any
+	require.NoError(t, rejectLegacyFieldJSON([]byte(`{"@type":"type.googleapis.com/google.protobuf.Any"}`), message.ProtoReflect().Descriptor()))
+	nested := []byte(`{"@type":"type.googleapis.com/google.protobuf.Any","value":{"@type":"type.googleapis.com/c1.config.v1.Field","secretContentType":"generic"}}`)
+	require.ErrorContains(t, rejectLegacyFieldJSON(nested, message.ProtoReflect().Descriptor()), "incompatible legacy Field")
+	field := []byte(`{"@type":"type.googleapis.com/c1.config.v1.Field","secretContentType":"generic"}`)
+	require.ErrorContains(t, rejectLegacyFieldJSON(field, message.ProtoReflect().Descriptor()), "incompatible legacy Field")
+}
