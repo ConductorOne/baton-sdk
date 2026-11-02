@@ -38,5 +38,29 @@
       ],
       "slug": "member"
     }
+  ],
+  "grants": [],
+  "resource_types": [
+    {
+      "id": "first"
+    }
+  ],
+  "resources": [
+    {
+      "id": {
+        "resourceType": "first",
+        "resource": "one"
+      },
+      "displayName": "one",
+      "description": "description one"
+    },
+    {
+      "id": {
+        "resourceType": "first",
+        "resource": "two"
+      },
+      "displayName": "two",
+      "description": "description two"
+    }
   ]
 }
