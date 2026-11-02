@@ -9,6 +9,7 @@
 package v1
 
 import (
+	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -564,6 +565,9 @@ type Field struct {
 	// through ActionHandlerWithSecrets; it is omitted from the public response
 	// and returned as EncryptedData.
 	IsSecret bool `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
+	// Optional: the content type of the field. Only valid for StringField, StringSliceField, & StringMapField.
+	ContentType string   `protobuf:"bytes,8,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
+	Tags        []string `protobuf:"bytes,9,rep,name=tags,proto3" json:"tags,omitempty"`
 	// Types that are valid to be assigned to Field:
 	//
 	//	*Field_StringField
@@ -654,6 +658,20 @@ func (x *Field) GetIsSecret() bool {
 		return x.IsSecret
 	}
 	return false
+}
+
+func (x *Field) GetContentType() string {
+	if x != nil {
+		return x.ContentType
+	}
+	return ""
+}
+
+func (x *Field) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
 }
 
 func (x *Field) GetField() isField_Field {
@@ -788,6 +806,14 @@ func (x *Field) SetIsOps(v bool) {
 
 func (x *Field) SetIsSecret(v bool) {
 	x.IsSecret = v
+}
+
+func (x *Field) SetContentType(v string) {
+	x.ContentType = v
+}
+
+func (x *Field) SetTags(v []string) {
+	x.Tags = v
 }
 
 func (x *Field) SetStringField(v *StringField) {
@@ -1102,6 +1128,9 @@ type Field_builder struct {
 	// through ActionHandlerWithSecrets; it is omitted from the public response
 	// and returned as EncryptedData.
 	IsSecret bool
+	// Optional: the content type of the field. Only valid for StringField, StringSliceField, & StringMapField.
+	ContentType string
+	Tags        []string
 	// Fields of oneof Field:
 	StringField          *StringField
 	IntField             *IntField
@@ -1129,6 +1158,8 @@ func (b0 Field_builder) Build() *Field {
 	x.IsRequired = b.IsRequired
 	x.IsOps = b.IsOps
 	x.IsSecret = b.IsSecret
+	x.ContentType = b.ContentType
+	x.Tags = b.Tags
 	if b.StringField != nil {
 		x.Field = &Field_StringField{b.StringField}
 	}
@@ -2805,7 +2836,7 @@ var File_c1_config_v1_config_proto protoreflect.FileDescriptor
 
 const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x19c1/config/v1/config.proto\x12\fc1.config.v1\x1a\x18c1/config/v1/rules.proto\x1a\x19google/protobuf/any.proto\"\xd0\x03\n" +
+	"\x19c1/config/v1/config.proto\x12\fc1.config.v1\x1a\x18c1/config/v1/rules.proto\x1a\x19google/protobuf/any.proto\x1a\x17validate/validate.proto\"\xd0\x03\n" +
 	"\rConfiguration\x12+\n" +
 	"\x06fields\x18\x01 \x03(\v2\x13.c1.config.v1.FieldR\x06fields\x12:\n" +
 	"\vconstraints\x18\x02 \x03(\v2\x18.c1.config.v1.ConstraintR\vconstraints\x12!\n" +
@@ -2834,7 +2865,7 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1b\n" +
 	"\thelp_text\x18\x03 \x01(\tR\bhelpText\x12\x16\n" +
 	"\x06fields\x18\x04 \x03(\tR\x06fields\x12\x18\n" +
-	"\adefault\x18\x05 \x01(\bR\adefault\"\x9d\b\n" +
+	"\adefault\x18\x05 \x01(\bR\adefault\"\x9a\t\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12 \n" +
@@ -2843,7 +2874,9 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\vis_required\x18\x05 \x01(\bR\n" +
 	"isRequired\x12\x15\n" +
 	"\x06is_ops\x18\x06 \x01(\bR\x05isOps\x12\x1b\n" +
-	"\tis_secret\x18\a \x01(\bR\bisSecret\x12>\n" +
+	"\tis_secret\x18\a \x01(\bR\bisSecret\x12?\n" +
+	"\fcontent_type\x18\b \x01(\tB\x1c\xfaB\x19r\x17\x10\x01\x18\x80\x012\r^[^/]+/[^/]+$\xd0\x01\x01R\vcontentType\x12:\n" +
+	"\x04tags\x18\t \x03(\tB&\xfaB#\x92\x01 \x10\x10\x18\x01\"\x1ar\x18\x10\x01\x18\x80\x012\x11^[a-zA-Z0-9_.-]+$R\x04tags\x12>\n" +
 	"\fstring_field\x18d \x01(\v2\x19.c1.config.v1.StringFieldH\x00R\vstringField\x125\n" +
 	"\tint_field\x18e \x01(\v2\x16.c1.config.v1.IntFieldH\x00R\bintField\x128\n" +
 	"\n" +
