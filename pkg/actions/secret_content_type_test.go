@@ -17,13 +17,18 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+func setLogicalType(field *config.Field, value string) {
+	field.SetTags([]string{"multipass-type-" + value})
+}
+
 func typedSecretSchema(contentType string) *v2.BatonActionSchema {
 	schema := secretActionSchema("issue_structured")
-	schema.GetReturnTypes()[1].SetSecretContentType(contentType)
+	setLogicalType(schema.GetReturnTypes()[1], contentType)
 	return schema
 }
 
@@ -67,7 +72,7 @@ func TestSecretContentTypeSchemaRoundTrip(t *testing.T) {
 	for _, present := range []bool{false, true} {
 		schema := secretActionSchema("schema")
 		if present {
-			schema.GetReturnTypes()[1].SetSecretContentType("password_v2")
+			setLogicalType(schema.GetReturnTypes()[1], "password_v2")
 		}
 		for _, encoding := range []string{"binary", "JSON"} {
 			t.Run(fmt.Sprintf("present=%t/%s", present, encoding), func(t *testing.T) {
@@ -87,13 +92,13 @@ func TestSecretContentTypeSchemaRoundTrip(t *testing.T) {
 				}
 				require.NoError(t, err)
 				require.True(t, proto.Equal(schema, &decoded))
-				require.Equal(t, present, decoded.GetReturnTypes()[1].HasSecretContentType())
+				require.Equal(t, present, len(decoded.GetReturnTypes()[1].GetTags()) > 0)
 			})
 		}
 	}
 	field := typedSecretSchema("").GetReturnTypes()[1]
-	require.True(t, field.HasSecretContentType())
-	require.Error(t, field.ValidateAll())
+	require.True(t, len(field.GetTags()) > 0)
+	require.Error(t, validateActionSecretContentTypes(typedSecretSchema("")))
 }
 
 func TestSecretContentTypeRegistrationRejectsInvalidDeclarations(t *testing.T) {
@@ -102,13 +107,13 @@ func TestSecretContentTypeRegistrationRejectsInvalidDeclarations(t *testing.T) {
 			name   string
 			mutate func(*v2.BatonActionSchema)
 		}{
-			{"empty", func(s *v2.BatonActionSchema) { s.GetReturnTypes()[1].SetSecretContentType("") }},
-			{"uppercase", func(s *v2.BatonActionSchema) { s.GetReturnTypes()[1].SetSecretContentType("Password_V2") }},
-			{"whitespace", func(s *v2.BatonActionSchema) { s.GetReturnTypes()[1].SetSecretContentType(" password_v2") }},
-			{"overlong", func(s *v2.BatonActionSchema) { s.GetReturnTypes()[1].SetSecretContentType(strings.Repeat("a", 129)) }},
-			{"public return", func(s *v2.BatonActionSchema) { s.GetReturnTypes()[0].SetSecretContentType("password_v2") }},
+			{"empty", func(s *v2.BatonActionSchema) { setLogicalType(s.GetReturnTypes()[1], "") }},
+			{"uppercase", func(s *v2.BatonActionSchema) { setLogicalType(s.GetReturnTypes()[1], "Password_V2") }},
+			{"whitespace", func(s *v2.BatonActionSchema) { setLogicalType(s.GetReturnTypes()[1], " password_v2") }},
+			{"overlong", func(s *v2.BatonActionSchema) { setLogicalType(s.GetReturnTypes()[1], strings.Repeat("a", 129)) }},
+			{"public return", func(s *v2.BatonActionSchema) { setLogicalType(s.GetReturnTypes()[0], "password_v2") }},
 			{"input", func(s *v2.BatonActionSchema) {
-				s.SetArguments([]*config.Field{config.Field_builder{Name: "input", IsSecret: true, SecretContentType: proto.String("password_v2")}.Build()})
+				s.SetArguments([]*config.Field{config.Field_builder{Name: "input", IsSecret: true, Tags: []string{"multipass-type-password_v2"}}.Build()})
 			}},
 		} {
 			t.Run(resource+"/"+tc.name, func(t *testing.T) {
@@ -134,7 +139,7 @@ func TestSecretContentTypeRegistrationRejectsInvalidDeclarations(t *testing.T) {
 				manager := NewActionManager(t.Context())
 				schema := secretActionSchema("public")
 				schema.SetReturnTypes(schema.GetReturnTypes()[:1])
-				schema.GetReturnTypes()[0].SetSecretContentType("password_v2")
+				setLogicalType(schema.GetReturnTypes()[0], "password_v2")
 				handler := func(context.Context, *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 					return nil, nil, nil
 				}
@@ -161,16 +166,16 @@ func TestSecretOutputRegistrationCardinality(t *testing.T) {
 		}{
 			{"typed singleton with public return", "password_v2", nil, false},
 			{"typed plus generic secret", "password_v2", config.Field_builder{Name: "other", IsSecret: true}.Build(), true},
-			{"typed plus typed secret", "password_v2", config.Field_builder{Name: "other", IsSecret: true, SecretContentType: proto.String("api_key_v2")}.Build(), true},
+			{"typed plus typed secret", "password_v2", config.Field_builder{Name: "other", IsSecret: true, Tags: []string{"multipass-type-api_key_v2"}}.Build(), true},
 			{"generic multiple secrets", "generic", config.Field_builder{Name: "other", IsSecret: true}.Build(), false},
 			{"legacy multiple secrets", "generic", config.Field_builder{Name: "other", IsSecret: true}.Build(), false},
-			{"generic plus typed secret", "generic", config.Field_builder{Name: "other", IsSecret: true, SecretContentType: proto.String("api_key_v2")}.Build(), true},
+			{"generic plus typed secret", "generic", config.Field_builder{Name: "other", IsSecret: true, Tags: []string{"multipass-type-api_key_v2"}}.Build(), true},
 		} {
 			t.Run(resource+"/"+tc.name, func(t *testing.T) {
 				manager := NewActionManager(t.Context())
 				schema := typedSecretSchema(tc.contentType)
 				if tc.name == "legacy multiple secrets" {
-					schema.GetReturnTypes()[1].ClearSecretContentType()
+					schema.GetReturnTypes()[1].SetTags(nil)
 				}
 				if tc.extra != nil {
 					schema.SetReturnTypes(append(schema.GetReturnTypes(), tc.extra))
@@ -261,7 +266,7 @@ func TestTypedSecretOutputEncryptsExactHelperBytesWithFrozenDeclaration(t *testi
 			var calls atomic.Int32
 			schema := typedSecretSchema("password_v2")
 			registerTypedHandler(t, manager, resource, schema, &calls)
-			schema.GetReturnTypes()[1].SetSecretContentType("api_key_v2")
+			setLogicalType(schema.GetReturnTypes()[1], "api_key_v2")
 			config, private := typedRecipient(t, "recipient", typedContext("password_v2"))
 			id, result, public, encrypted, _, err := manager.InvokeActionWithWaitAndEncryption(t.Context(), "issue_structured", resource, nil, time.Second, []*v2.EncryptionConfig{config})
 			require.NoError(t, err)
@@ -296,7 +301,7 @@ func TestGenericSecretOutputKeepsOpaqueContexts(t *testing.T) {
 		var calls atomic.Int32
 		schema := secretActionSchema("issue_structured")
 		if explicit {
-			schema.GetReturnTypes()[1].SetSecretContentType("generic")
+			setLogicalType(schema.GetReturnTypes()[1], "generic")
 		}
 		registerTypedHandler(t, manager, "", schema, &calls)
 		config, _ := typedRecipient(t, "recipient", []byte("opaque legacy context"))
@@ -319,14 +324,14 @@ func TestSecretOutputAdvertisedSchemaIsAnImmutableSnapshot(t *testing.T) {
 				var calls atomic.Int32
 				schema := secretActionSchema("issue_structured")
 				if declared != nil {
-					schema.GetReturnTypes()[1].SetSecretContentType(*declared)
+					setLogicalType(schema.GetReturnTypes()[1], *declared)
 				}
 				registerTypedHandler(t, manager, resource, schema, &calls)
-				schema.GetReturnTypes()[1].SetSecretContentType("api_key_v2")
+				setLogicalType(schema.GetReturnTypes()[1], "api_key_v2")
 				assertDeclaration := func(field *config.Field) {
-					require.Equal(t, declared != nil, field.HasSecretContentType())
+					require.Equal(t, declared != nil, len(field.GetTags()) > 0)
 					if declared != nil {
-						require.Equal(t, *declared, field.GetSecretContentType())
+						require.Equal(t, *declared, strings.TrimPrefix(field.GetTags()[0], "multipass-type-"))
 					}
 				}
 				for _, filter := range []string{"", resource} {
@@ -334,13 +339,13 @@ func TestSecretOutputAdvertisedSchemaIsAnImmutableSnapshot(t *testing.T) {
 					require.NoError(t, err)
 					require.Len(t, listed, 1)
 					assertDeclaration(listed[0].GetReturnTypes()[1])
-					listed[0].GetReturnTypes()[1].SetSecretContentType("api_key_v2")
+					setLogicalType(listed[0].GetReturnTypes()[1], "api_key_v2")
 				}
 				if resource == "" {
 					got, _, err := manager.GetActionSchema(t.Context(), "issue_structured")
 					require.NoError(t, err)
 					assertDeclaration(got.GetReturnTypes()[1])
-					got.GetReturnTypes()[1].SetSecretContentType("api_key_v2")
+					setLogicalType(got.GetReturnTypes()[1], "api_key_v2")
 					got, _, err = manager.GetActionSchema(t.Context(), "issue_structured")
 					require.NoError(t, err)
 					assertDeclaration(got.GetReturnTypes()[1])
@@ -356,5 +361,25 @@ func TestSecretOutputAdvertisedSchemaIsAnImmutableSnapshot(t *testing.T) {
 				require.Equal(t, int32(1), calls.Load())
 			})
 		}
+	}
+}
+
+func TestLegacyBinaryFieldEightRejectedAtRegistration(t *testing.T) {
+	for _, value := range []string{"generic", "password_v2"} {
+		schema := secretActionSchema("legacy")
+		field := schema.GetReturnTypes()[1]
+		// Field 8 was a length-delimited string in the prototype.
+		var decoded config.Field
+		encoded := protowire.AppendString(protowire.AppendTag(nil, 8, protowire.BytesType), value)
+		require.NoError(t, proto.Unmarshal(encoded, &decoded))
+		field.SetContentType(decoded.GetContentType())
+		manager := NewActionManager(t.Context())
+		var calls atomic.Int32
+		err := manager.RegisterWithSecrets(t.Context(), schema, func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+			calls.Add(1)
+			return nil, nil, nil, nil
+		})
+		require.ErrorContains(t, err, "incompatible")
+		require.Zero(t, calls.Load())
 	}
 }
