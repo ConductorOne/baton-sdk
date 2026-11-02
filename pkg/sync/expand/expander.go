@@ -28,10 +28,12 @@ var immutableAnnotationAny = func() *anypb.Any {
 // Deprecated: no expansion path returns this; kept so importers compile.
 var ErrMaxDepthExceeded = errors.New("max depth exceeded")
 
-// ExpanderStore defines the minimal store interface needed for grant expansion.
-// Implementations:
-//   - *dotc1z.C1File (via c1zstore.Store) for production syncs
-//   - mocks for unit tests
+// ExpanderStore is implemented by expanderStoreAdapter, the Pebble store
+// adapter in pkg/sync. Tests use mocks.
+//
+// ListGrantsForEntitlement must return an entitlement's grants in
+// non-decreasing principal (resource type, resource id) order across pages.
+// buildProjectionDB fails with "projection SST keys out of order" otherwise.
 //
 // StoreExpandedGrants writes a batch of expanded grants back to storage,
 // preserving existing expansion metadata columns on the underlying rows.
