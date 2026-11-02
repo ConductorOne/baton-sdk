@@ -45,12 +45,6 @@ type storeCaps struct {
 	// external-principal delete path falls through to the per-grant loop,
 	// which commits once per grant.
 	grantBatchDeleter grantsByRefsBatchDeleter
-	// grantPrincipalKeys and principalSortedGrants are the store-level
-	// expansion fast paths. When nil the expander adapter lists whole
-	// grants and extracts principal keys itself, and reports grants as
-	// unsorted so the topological merge buffers and sorts per entitlement.
-	grantPrincipalKeys    grantPrincipalKeyLister
-	principalSortedGrants principalSortedGrantLister
 	// newExpandedGrants and newExpandedContributions are the Grants
 	// sub-store's write fast paths for expansion output. When nil the
 	// adapter falls back to StoreExpandedGrants, materializing grants and
@@ -110,8 +104,6 @@ func resolveStoreCaps(store c1zstore.Store) storeCaps {
 	caps.entitlementDeleter, _ = store.(entitlementRecordDeleter)
 	caps.grantRefsDeleter, _ = store.(grantByRefsDeleter)
 	caps.grantBatchDeleter, _ = store.(grantsByRefsBatchDeleter)
-	caps.grantPrincipalKeys, _ = store.(grantPrincipalKeyLister)
-	caps.principalSortedGrants, _ = store.(principalSortedGrantLister)
 	if meta := store.SyncMeta(); meta != nil {
 		caps.ingestVerification, _ = meta.(c1zstore.IngestInvariantVerificationWriter)
 	}

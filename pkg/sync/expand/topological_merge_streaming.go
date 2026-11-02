@@ -3,30 +3,10 @@ package expand
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 )
-
-// RunTopologicalMergeStreaming is the memory-bounded pull evaluator. It keeps
-// only one principal group per active input stream, instead of materializing all
-// source entitlement grant groups into maps for each destination.
-func (e *Expander) RunTopologicalMergeStreaming(ctx context.Context) error {
-	entitlements, layers, err := e.prepareTopological(ctx)
-	if err != nil {
-		return err
-	}
-	if err := e.driveTopological(ctx, entitlements, layers, topologicalRun{
-		reduce: func(ctx context.Context, dest *v2.Entitlement, incoming []topoIncomingEdge, ents map[string]*v2.Entitlement, sink *destinationSink) error {
-			return e.mergeDestinationStreams(ctx, dest, incoming, ents, nil, nil, sink)
-		},
-	}); err != nil {
-		return err
-	}
-	e.markExpansionComplete()
-	return nil
-}
 
 type principalGrantGroup struct {
 	key    topoPrincipalKey
@@ -40,16 +20,8 @@ type principalGroupStream interface {
 	next(context.Context) (principalGrantGroup, bool, error)
 }
 
-// newPrincipalGroupStream picks the cheapest correct grouping strategy for the
-// store. When the store guarantees principal-sorted rows (Pebble) we stream
-// page-by-page, holding only the current principal group. Otherwise we fall
-// back to buffering the full entitlement and sorting it in memory so the k-way
-// merge's sorted-input invariant holds for SQLite and test doubles.
 func newPrincipalGroupStream(store ExpanderStore, entitlement *v2.Entitlement) principalGroupStream {
-	if store.GrantsForEntitlementPrincipalSorted() {
-		return &streamingPrincipalGroupStream{store: store, entitlement: entitlement}
-	}
-	return &sortingPrincipalGroupStream{store: store, entitlement: entitlement}
+	return &streamingPrincipalGroupStream{store: store, entitlement: entitlement}
 }
 
 // streamingPrincipalGroupStream yields an entitlement's grants grouped by
@@ -141,84 +113,6 @@ func (s *streamingPrincipalGroupStream) next(ctx context.Context) (principalGran
 	s.lastKey = group.key
 	s.haveLast = true
 	return group, true, nil
-}
-
-// sortingPrincipalGroupStream materializes an entitlement's grants via
-// ListGrantsForEntitlement and yields them grouped by principal.
-//
-// It buffers the full entitlement and sorts by principal key before grouping
-// rather than assuming the store returns principal-sorted rows. Used for the
-// SQLite reader and in-memory test doubles, which do not guarantee
-// principal-sorted output. Memory is O(grants on the entitlement); the Pebble
-// path uses the streaming variant instead and stays page-bounded.
-type sortingPrincipalGroupStream struct {
-	store       ExpanderStore
-	entitlement *v2.Entitlement
-	grants      []*v2.Grant
-	loaded      bool
-	pos         int
-}
-
-func (s *sortingPrincipalGroupStream) load(ctx context.Context) error {
-	pageToken := ""
-	for {
-		resp, err := s.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			Entitlement: s.entitlement,
-			PageToken:   pageToken,
-		}.Build())
-		if err != nil {
-			return err
-		}
-		s.grants = append(s.grants, resp.GetList()...)
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
-		}
-	}
-	sort.SliceStable(s.grants, func(i, j int) bool {
-		ki, okI := principalKeyFromResource(s.grants[i].GetPrincipal())
-		kj, okJ := principalKeyFromResource(s.grants[j].GetPrincipal())
-		if okI != okJ {
-			return okI
-		}
-		if okI && ki != kj {
-			return principalKeyLess(ki, kj)
-		}
-		return s.grants[i].GetId() < s.grants[j].GetId()
-	})
-	s.loaded = true
-	return nil
-}
-
-func (s *sortingPrincipalGroupStream) next(ctx context.Context) (principalGrantGroup, bool, error) {
-	if !s.loaded {
-		if err := s.load(ctx); err != nil {
-			return principalGrantGroup{}, false, err
-		}
-	}
-	for s.pos < len(s.grants) {
-		key, ok := principalKeyFromResource(s.grants[s.pos].GetPrincipal())
-		if !ok {
-			s.pos++
-			continue
-		}
-		group := principalGrantGroup{key: key}
-		for s.pos < len(s.grants) {
-			g := s.grants[s.pos]
-			gk, gok := principalKeyFromResource(g.GetPrincipal())
-			if !gok {
-				s.pos++
-				continue
-			}
-			if gk != key {
-				break
-			}
-			group.grants = append(group.grants, g)
-			s.pos++
-		}
-		return group, true, nil
-	}
-	return principalGrantGroup{}, false, nil
 }
 
 type contributionGroup struct {

@@ -165,10 +165,6 @@ func (s interruptAfterNStore) StoreExpandedGrants(ctx context.Context, grants ..
 	return s.inner.StoreExpandedGrants(ctx, grants...)
 }
 
-func (s interruptAfterNStore) GrantsForEntitlementPrincipalSorted() bool {
-	return s.inner.GrantsForEntitlementPrincipalSorted()
-}
-
 // TestTopologicalMergePartialInterruptResume proves that interrupting an
 // expansion after only some destinations have been written, then resuming to
 // completion, yields exactly the same grant set as a clean uninterrupted run.

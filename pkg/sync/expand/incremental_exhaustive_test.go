@@ -54,7 +54,7 @@ func TestIncrementalExhaustiveFourNodeGraphs(t *testing.T) {
 					}},
 				}
 				incStore, incGraph := mockStoreFromCase(t, ctx, base)
-				require.NoErrorf(t, NewExpander(incStore, incGraph).Run(ctx),
+				require.NoErrorf(t, withMemProjectionScratch(NewExpander(incStore, incGraph)).Run(ctx),
 					"n=%d mask=%d seed=%d base expansion", nodeCount, edgeMask, seedIndex)
 				incGraph.Loaded = true
 				if incGraph.HasCollapsedCycles() {
@@ -77,7 +77,7 @@ func TestIncrementalExhaustiveFourNodeGraphs(t *testing.T) {
 				require.NoErrorf(t, err, "n=%d mask=%d seed=%d incremental", nodeCount, edgeMask, seedIndex)
 
 				fullStore, fullGraph := mockStoreFromCase(t, ctx, current)
-				require.NoErrorf(t, NewExpander(fullStore, fullGraph).Run(ctx),
+				require.NoErrorf(t, withMemProjectionScratch(NewExpander(fullStore, fullGraph)).Run(ctx),
 					"n=%d mask=%d seed=%d full oracle", nodeCount, edgeMask, seedIndex)
 				require.Equalf(t, snapshotStoreGrants(fullStore), snapshotStoreGrants(incStore),
 					"full mismatch n=%d mask=%d seed=%d", nodeCount, edgeMask, seedIndex)

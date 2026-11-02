@@ -65,10 +65,6 @@ type grantPrincipalKeyLister interface {
 	ListGrantPrincipalKeysForEntitlement(context.Context, *v2.Entitlement, string, uint32) ([]string, string, error)
 }
 
-type principalSortedGrantLister interface {
-	GrantsForEntitlementPrincipalSorted() bool
-}
-
 type pebbleEngineAccessor interface {
 	PebbleEngine() *pebble.Engine
 }
@@ -111,7 +107,6 @@ var _ deleteEntitlementGraphBlob = (*pebbleStore)(nil)
 var _ resourceRecordDeleter = (*pebbleStore)(nil)
 var _ entitlementRecordDeleter = (*pebbleStore)(nil)
 var _ grantPrincipalKeyLister = (*pebbleStore)(nil)
-var _ principalSortedGrantLister = (*pebbleStore)(nil)
 var _ pebbleEngineAccessor = (*pebbleStore)(nil)
 var _ engineOnlyCloser = (*pebbleStore)(nil)
 var _ fixtureNormalizer = (*pebbleStore)(nil)

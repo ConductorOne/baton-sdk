@@ -25,8 +25,8 @@ import (
 // ----------------------------------------------------------------------------
 
 // TestTopologicalMergeDifferentialRandom generates pseudo-random acyclic
-// entitlement graphs and asserts every new topological algorithm reproduces the
-// current source-batched expander's grant set exactly. Each seed varies the
+// entitlement graphs and asserts the streaming evaluator reproduces
+// projection's grant set. Expander.Run is projection. Each seed varies the
 // node count, edge density, shallow flags, resource-type filters, principal
 // pool, multi-grant principals, and pre-existing (indirect) source provenance.
 //
@@ -34,9 +34,8 @@ import (
 // topological_merge_test.go: the explicit cases pin known-interesting shapes,
 // while this fuzz harness sweeps the combinatorial long tail (overlapping
 // fan-in/fan-out, mixed filters across reconverging paths) that point cases
-// miss. The current expander is a valid oracle here because every generated
-// graph is acyclic — edges only ever point from a lower entitlement index to a
-// higher one — so the current expander's cycle nondeterminism never applies.
+// miss. Every generated graph is acyclic — edges only ever point from a lower
+// entitlement index to a higher one.
 //
 // This variant runs entirely against the in-memory MockExpanderStore, so it is
 // orders of magnitude faster than the real-store sweep and can afford a wide
@@ -544,10 +543,6 @@ func (s *recordingExpanderStore) ListGrantsForEntitlement(
 func (s *recordingExpanderStore) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	s.stored = append(s.stored, grants...)
 	return s.inner.StoreExpandedGrants(ctx, grants...)
-}
-
-func (s *recordingExpanderStore) GrantsForEntitlementPrincipalSorted() bool {
-	return s.inner.GrantsForEntitlementPrincipalSorted()
 }
 
 func (s *recordingExpanderStore) storedIDs() []string {

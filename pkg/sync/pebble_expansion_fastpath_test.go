@@ -192,9 +192,4 @@ func TestPebbleSyncerExpanderStoreCarriesLayerCapability(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, opened, "the syncer's own expansion adapter must serve a Pebble layer session")
 	require.NoError(t, layered.AbortExpandedGrantLayer(ctx))
-
-	// And the cheaper fast paths ride along on the same caps: the syncer's
-	// adapter must answer the principal-sort question the way Pebble does.
-	require.True(t, s.expanderStore().GrantsForEntitlementPrincipalSorted(),
-		"the syncer's expansion adapter must carry Pebble's principal-sort capability")
 }
