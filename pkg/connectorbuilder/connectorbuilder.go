@@ -555,7 +555,14 @@ func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredent
 		if err := validateCredentialIssueDescriptorShape(descriptor); err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid credential issue option %s: %v", descriptor.GetOption(), err)
 		}
-		if err := ValidateCredentialIssueRequestSchema(descriptor.GetRequestSchema()); err != nil {
+		schema, err := CredentialIssueFields(descriptor)
+		if err == nil {
+			err = ValidateCredentialIssueRequestSchema(schema)
+		}
+		if err == nil {
+			_, err = CredentialIssueOutputField(descriptor)
+		}
+		if err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid credential issue option %s request schema: %v", descriptor.GetOption(), err)
 		}
 		for _, profile := range descriptor.GetKeyProfiles() {
@@ -619,8 +626,8 @@ func validateCredentialIssuePreference(
 }
 
 func validateCredentialIssueDescriptorShape(descriptor *v2.CredentialIssueOptionDescriptor) error {
-	if descriptor.HasSecretContentType() && !crypto.ValidSecretContentType(descriptor.GetSecretContentType()) {
-		return fmt.Errorf("invalid secret content type")
+	if _, err := CredentialIssueOutputField(descriptor); err != nil {
+		return err
 	}
 	hasScopes := len(descriptor.GetScopes()) != 0 || descriptor.GetCustomScopesAllowed()
 	hasAudiences := len(descriptor.GetAudiences()) != 0 || descriptor.GetCustomAudiencesAllowed()

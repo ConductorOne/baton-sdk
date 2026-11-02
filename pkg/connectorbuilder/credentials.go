@@ -235,10 +235,21 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
 	}
 
-	if descriptor.HasSecretContentType() && descriptor.GetSecretContentType() != "generic" {
+	outputField, err := CredentialIssueOutputField(descriptor)
+	if err != nil {
+		err = status.Errorf(codes.Internal, "invalid credential output declaration: %v", err)
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+	if outputField.Name != "" && len(request.GetEncryptionConfigs()) != 1 {
+		err = status.Error(codes.InvalidArgument, "declared credential output requires exactly one recipient")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+	if outputField.LogicalType != "generic" {
 		configs := request.GetEncryptionConfigs()
 		if len(configs) != 1 || strings.ToLower(strings.TrimSpace(configs[0].GetProvider())) != jwe.EncryptionProvider ||
-			!crypto.TypedOutputContextMatches(configs[0].GetJwkPublicKeyConfig().GetAdditionalAuthenticatedData(), descriptor.GetSecretContentType()) {
+			!crypto.TypedOutputContextMatches(configs[0].GetJwkPublicKeyConfig().GetAdditionalAuthenticatedData(), outputField.LogicalType) {
 			err = status.Error(codes.InvalidArgument, "typed credential requires a matching JWE recipient context")
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 			return nil, err
@@ -258,6 +269,11 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 			return nil, err
 		}
 	}
+	if outputField.Name != "" && (output == nil || len(output.PlaintextData) != 1 || output.PlaintextData[0] == nil || output.PlaintextData[0].GetName() != outputField.Name) {
+		err = status.Error(codes.Internal, "credential output does not match declared field")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
 	err = validateCredentialIssueOutput(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
@@ -273,6 +289,12 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 			return nil, err
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
+	}
+
+	if outputField.Name != "" && (len(encryptedDatas) != 1 || encryptedDatas[0] == nil || encryptedDatas[0].GetName() != outputField.Name) {
+		err = status.Error(codes.Internal, "encrypted credential output does not match declared field")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))

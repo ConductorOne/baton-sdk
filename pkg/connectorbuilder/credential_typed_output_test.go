@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"filippo.io/hpke"
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe"
@@ -23,6 +24,10 @@ type typedIssuer struct {
 	*scriptedCredentialIssuer
 	contentType string
 	emptyValue  bool
+	canonical   bool
+	outputName  string
+	oldMIME     string
+	outputMode  string
 	input       *CredentialIssueInput
 	bytes       []byte
 }
@@ -34,6 +39,19 @@ func (i *typedIssuer) IssueCapabilityDetails(context.Context) (*v2.CredentialDet
 		SecretResourceTypeId: "secret", SecretContentType: proto.String(i.contentType),
 		Scopes: []string{"read"}, RequestSchema: testCredentialIssueRequestSchema(),
 	}.Build()
+	if i.canonical {
+		d.ClearSecretContentType()
+		d.SetArguments(d.GetRequestSchema().GetFields())
+		d.SetConstraints(d.GetRequestSchema().GetConstraints())
+		d.SetReturnTypes([]*config.Field{config.Field_builder{
+			Name: "credential", IsSecret: true, IsRequired: true,
+			StringField: config.StringField_builder{}.Build(), ContentType: "application/json",
+			Tags: []string{"multipass-type-" + i.contentType},
+		}.Build()})
+		if i.oldMIME != "" {
+			d.GetReturnTypes()[0].SetContentType(i.oldMIME)
+		}
+	}
 	return v2.CredentialDetailsCredentialIssue_builder{
 		Options:         []*v2.CredentialIssueOptionDescriptor{d},
 		PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
@@ -64,14 +82,27 @@ func (i *typedIssuer) Issue(ctx context.Context, input *CredentialIssueInput) (*
 		return nil, err
 	}
 	i.bytes = payload.Bytes
-	i.plaintexts = []*v2.PlaintextData{v2.PlaintextData_builder{Name: "credential", Bytes: payload.Bytes, Schema: "independent description"}.Build()}
+	name := "credential"
+	if i.outputName != "" {
+		name = i.outputName
+	}
+	i.plaintexts = []*v2.PlaintextData{v2.PlaintextData_builder{Name: name, Bytes: payload.Bytes, Schema: "independent description"}.Build()}
+	switch i.outputMode {
+	case "missing":
+		i.plaintexts = nil
+	case "extra":
+		i.plaintexts = append(i.plaintexts, v2.PlaintextData_builder{Name: "other", Bytes: []byte("extra")}.Build())
+	case "duplicate":
+		i.plaintexts = append(i.plaintexts, proto.Clone(i.plaintexts[0]).(*v2.PlaintextData))
+	}
+
 	return i.scriptedCredentialIssuer.Issue(ctx, input)
 }
 func TestNativeTypedProducerAndContext(t *testing.T) {
 	for _, typ := range []string{"password_v2", "api_key_v2", "generic"} {
 		t.Run(typ, func(t *testing.T) {
 			ctx := context.Background()
-			issuer := &typedIssuer{scriptedCredentialIssuer: newScriptedCredentialIssuer("service_account"), contentType: typ}
+			issuer := &typedIssuer{scriptedCredentialIssuer: newScriptedCredentialIssuer("service_account"), contentType: typ, canonical: true}
 			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
 			require.NoError(t, err)
 			key, err := hpke.MLKEM768X25519().GenerateKey()
@@ -100,6 +131,7 @@ func TestNativeTypedProducerAndContext(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, issuer.bytes, opened)
 			require.Equal(t, "independent description", response.GetEncryptedData()[0].GetSchema())
+			require.Equal(t, "credential", response.GetEncryptedData()[0].GetName())
 		})
 	}
 }
@@ -129,7 +161,7 @@ func TestNativeTypedRejectsContextBeforeIssue(t *testing.T) {
 }
 func TestNativeRequestRejectsOutputTypeMarker(t *testing.T) {
 	schema := testCredentialIssueRequestSchema()
-	schema.GetFields()[0].SetSecretContentType("password_v2")
+	schema.GetFields()[0].SetTags([]string{"multipass-type-password_v2"})
 	require.Error(t, ValidateCredentialIssueRequestSchema(schema))
 }
 
@@ -186,5 +218,57 @@ func TestNativeTypedRejectsOtherRecipientsBeforeIssue(t *testing.T) {
 			}
 			require.Zero(t, issuer.calls)
 		})
+	}
+}
+
+func TestDeclaredCredentialOutputRefusals(t *testing.T) {
+	for _, scenario := range []string{"generic context", "multiple recipients", "wrong name", "missing", "extra", "duplicate"} {
+		t.Run(scenario, func(t *testing.T) {
+			issuer := &typedIssuer{scriptedCredentialIssuer: newScriptedCredentialIssuer("service_account"), contentType: "password_v2", canonical: true}
+			if scenario == "wrong name" {
+				issuer.outputName = "other"
+			}
+			if scenario == "missing" || scenario == "extra" || scenario == "duplicate" {
+				issuer.outputMode = scenario
+			}
+			connector, err := NewConnector(t.Context(), newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+			require.NoError(t, err)
+			cfg := validJWEConfig(t)
+			typ := "password_v2"
+			if scenario == "generic context" {
+				typ = "generic"
+			}
+			cfg.GetJwkPublicKeyConfig().SetAdditionalAuthenticatedData([]byte(`{"purpose":"c1/fk-credential-delivery","version":1,"content_type":"` + typ + `"}`))
+			configs := []*v2.EncryptionConfig{cfg}
+			if scenario == "multiple recipients" {
+				configs = append(configs, cfg)
+			}
+			request := issueRequest(configs...)
+			data, err := structpb.NewStruct(map[string]any{"scopes": []any{"keys:read"}})
+			require.NoError(t, err)
+			request.SetRequestData(data)
+			_, err = connector.IssueCredential(t.Context(), request)
+			require.Error(t, err)
+			if scenario == "wrong name" || scenario == "missing" || scenario == "extra" || scenario == "duplicate" {
+				require.Equal(t, 1, issuer.calls)
+			} else {
+				require.Zero(t, issuer.calls)
+			}
+		})
+	}
+}
+
+func TestLegacyFieldEightRefusedBeforeNativeIssuer(t *testing.T) {
+	for _, old := range []string{"generic", "password_v2"} {
+		issuer := &typedIssuer{scriptedCredentialIssuer: newScriptedCredentialIssuer("service_account"), contentType: "password_v2", canonical: true, oldMIME: old}
+		connector, err := NewConnector(t.Context(), newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+		require.NoError(t, err)
+		req := issueRequest(validJWEConfig(t))
+		data, err := structpb.NewStruct(map[string]any{"scopes": []any{"keys:read"}})
+		require.NoError(t, err)
+		req.SetRequestData(data)
+		_, err = connector.IssueCredential(t.Context(), req)
+		require.ErrorContains(t, err, "incompatible")
+		require.Zero(t, issuer.calls)
 	}
 }

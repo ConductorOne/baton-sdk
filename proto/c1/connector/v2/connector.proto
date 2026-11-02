@@ -149,13 +149,16 @@ message CredentialIssueOptionDescriptor {
   // Connector-owned schema for additional values required to issue this
   // credential kind. Hosts may narrow this schema in an offering, but must not
   // add connector-specific fields to their own credential models.
-  CredentialIssueRequestSchema request_schema = 11;
+  CredentialIssueRequestSchema request_schema = 11 [deprecated = true];
   // Declared payload type; absent means legacy generic.
-  optional string secret_content_type = 12 [(validate.rules).string = {
+  optional string secret_content_type = 12 [deprecated = true, (validate.rules).string = {
     min_len: 1
     max_len: 128
     pattern: "^[a-z0-9]+([._-][a-z0-9]+)*$"
   }];
+  repeated c1.config.v1.Field arguments = 13;
+  repeated c1.config.v1.Constraint constraints = 14;
+  repeated c1.config.v1.Field return_types = 15;
 }
 
 message CredentialIssueRequestSchema {

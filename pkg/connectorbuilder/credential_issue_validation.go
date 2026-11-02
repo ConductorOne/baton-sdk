@@ -115,13 +115,17 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	if err != nil {
 		return nil, err
 	}
-	if descriptor.HasSecretContentType() && !crypto.ValidSecretContentType(descriptor.GetSecretContentType()) {
-		return nil, fmt.Errorf("invalid secret content type")
-	}
 	if descriptor.GetResourceMode() == v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED {
 		return nil, fmt.Errorf("credential resource mode must be advertised")
 	}
-	if err := ValidateCredentialIssueRequestData(descriptor.GetRequestSchema(), input.RequestData); err != nil {
+	schema, err := CredentialIssueFields(descriptor)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCredentialIssueRequestSchema, err)
+	}
+	if _, err := CredentialIssueOutputField(descriptor); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCredentialIssueRequestSchema, err)
+	}
+	if err := ValidateCredentialIssueRequestData(schema, input.RequestData); err != nil {
 		return nil, err
 	}
 	if keypair := input.CredentialOptions.GetKeypair(); keypair != nil {
@@ -193,8 +197,12 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 			return fmt.Errorf("request schema field name is required")
 		}
 		name := schemaField.GetName()
-		if schemaField.HasSecretContentType() {
-			return fmt.Errorf("%w: secret content type is output-only", ErrInvalidCredentialIssueRequestSchema)
+		meta, err := crypto.ResolveFieldOutput(schemaField)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidCredentialIssueRequestSchema, err)
+		}
+		if meta.HasType {
+			return fmt.Errorf("%w: logical type is output-only", ErrInvalidCredentialIssueRequestSchema)
 		}
 		if schemaField.GetIsSecret() {
 			return fmt.Errorf("request schema field %q must not be secret", name)
