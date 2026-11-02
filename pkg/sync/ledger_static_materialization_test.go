@@ -110,7 +110,15 @@ func entitlementsSortedByID(list []*v2.Entitlement) []*v2.Entitlement {
 }
 
 func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
-	var uninterrupted []*v2.Entitlement
+	baseline, baseStore, _ := staticPageFixture(t)
+	baseline.connector = &staticOrderConnector{mockConnector: newMockConnector()}
+	baseline.store = staticResourcePageStore{Store: baseStore.store}
+	baseline.ledger.store = &staticBoundStore{PageLedgerStore: baseStore.ledger}
+	_, err := runLedgerTestSync(t, baseline, t.Context(), t.Context(), nil)
+	require.NoError(t, err)
+	expected, err := baseStore.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
+	require.NoError(t, err)
+	uninterrupted := entitlementsSortedByID(expected.GetList())
 	for _, interrupted := range []bool{false, true} {
 		t.Run(map[bool]string{false: "uninterrupted", true: "cold-resume"}[interrupted], func(t *testing.T) {
 			s, f, _ := staticPageFixture(t)
@@ -171,12 +179,8 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 			for _, ent := range response.GetList() {
 				require.Equal(t, "last", ent.GetDisplayName())
 			}
-			got := entitlementsSortedByID(response.GetList())
 			if interrupted {
-				require.NotNil(t, uninterrupted)
-				equalProtoLists(t, uninterrupted, got)
-			} else {
-				uninterrupted = got
+				equalProtoLists(t, uninterrupted, entitlementsSortedByID(response.GetList()))
 			}
 			first, found, err := f.ledger.GetLedgerRow(t.Context(), root)
 			require.NoError(t, err)
