@@ -58,8 +58,7 @@ const (
 	harnessGroups        = 150
 	harnessUsersPerGroup = 20
 	// Stretches every paginated connector call so sessions are
-	// interruptible mid-action and the sequential cells outlive
-	// minCheckpointInterval, exercising the production checkpoint cadence.
+	// interruptible mid-action.
 	harnessPageDelayMs = 25
 
 	wantResources = harnessUsers + harnessGroups
