@@ -218,7 +218,7 @@ func (s *pebbleStore) PutSourceCacheEntry(ctx context.Context, kind sourcecache.
 		return err
 	}
 	defer done()
-	return s.Engine.PutSourceCacheEntry(ctx, string(kind), scopeKey, cacheValidator)
+	return s.engine.PutSourceCacheEntry(ctx, string(kind), scopeKey, cacheValidator)
 }
 
 func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore.Reader, kind sourcecache.RowKind, scopeKey string) (SourceCacheReplayResult, error) {
@@ -238,7 +238,7 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	if !ok {
 		return SourceCacheReplayResult{}, errors.New("source cache replay: previous sync store is not a pebble store")
 	}
-	if prevEngine == s.Engine {
+	if prevEngine == s.engine {
 		return SourceCacheReplayResult{}, errors.New("source cache replay: previous and current stores are the same")
 	}
 	if err := validateReplaySourceEligible(ctx, prevEngine); err != nil {

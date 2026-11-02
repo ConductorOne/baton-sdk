@@ -36,7 +36,7 @@ func TestBulkImportAbortAfterEngineClose(t *testing.T) {
 	store, b := startBulkImport(t, ctx)
 	require.NoError(t, b.AddResourceTypes(ctx, v2.ResourceType_builder{Id: "app"}.Build()))
 
-	require.NoError(t, store.PebbleEngine().Close())
+	require.NoError(t, store.Expansion().PebbleEngine().Close())
 	require.NotPanics(t, b.Abort, "Abort after engine Close must tear down staging dirs, not panic")
 
 	// And the other retained-handle shape: Finish after Abort/Close is
@@ -79,7 +79,7 @@ func TestBulkImportEntitlementIdentityOrderDivergesFromExternalID(t *testing.T) 
 	shard.Close()
 	require.NoError(t, b.Finish(ctx), "Finish")
 
-	resp, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 100}.Build())
+	resp, err := store.Records().ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 100}.Build())
 	require.NoError(t, err)
 	got := make([]string, 0, len(resp.GetList()))
 	for _, ent := range resp.GetList() {
@@ -127,7 +127,7 @@ func TestBulkImportAcceptsResourcesOutOfKeyOrder(t *testing.T) {
 	shard.Close()
 	require.NoError(t, b.Finish(ctx), "Finish")
 
-	resp, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageSize: 100}.Build())
+	resp, err := store.Records().ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageSize: 100}.Build())
 	require.NoError(t, err)
 	got := make([]string, 0, len(resp.GetList()))
 	for _, r := range resp.GetList() {
@@ -140,7 +140,7 @@ func TestBulkImportAcceptsResourcesOutOfKeyOrder(t *testing.T) {
 
 	// The by_parent index is spilled from the same unsorted stream and has
 	// to agree with the primary.
-	children, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+	children, err := store.Records().ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ParentResourceId: appDev,
 		PageSize:         100,
 	}.Build())
@@ -199,7 +199,7 @@ func TestBulkImportMergesDuplicateIdentityGrants(t *testing.T) {
 	shard.Close()
 	require.NoError(t, b.Finish(ctx), "Finish must merge duplicate identities, not abort")
 
-	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 100}.Build())
+	resp, err := store.Records().ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 100}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1, "duplicate-identity rows must fold to one grant")
 	merged := resp.GetList()[0]
@@ -209,7 +209,7 @@ func TestBulkImportMergesDuplicateIdentityGrants(t *testing.T) {
 
 	// The by_principal index must resolve to the merged primary (one row,
 	// no dangling second entry).
-	byPrincipal, err := store.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+	byPrincipal, err := store.records.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 		PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
 		PageSize:    100,
 	}.Build())
@@ -245,7 +245,7 @@ func TestBulkImportPreservesDistinctRawEntitlementIDs(t *testing.T) {
 	shard.Close()
 	require.NoError(t, b.Finish(ctx), "Finish")
 
-	resp, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 100}.Build())
+	resp, err := store.Records().ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 100}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 2, "distinct raw ids must stay distinct")
 	got := []string{resp.GetList()[0].GetId(), resp.GetList()[1].GetId()}

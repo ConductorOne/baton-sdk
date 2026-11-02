@@ -62,33 +62,33 @@ type IngestInvariantStore interface {
 var _ IngestInvariantStore = (*pebbleStore)(nil)
 
 func (s *pebbleStore) ForEachDistinctGrantEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error {
-	return s.Engine.ForEachDistinctGrantEntitlementResource(ctx, visit)
+	return s.engine.ForEachDistinctGrantEntitlementResource(ctx, visit)
 }
 
 func (s *pebbleStore) GrantsForEntResourceCarryInsertFact(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
-	return s.Engine.GrantsForEntResourceCarryInsertFact(ctx, resourceTypeID, resourceID)
+	return s.engine.GrantsForEntResourceCarryInsertFact(ctx, resourceTypeID, resourceID)
 }
 
 func (s *pebbleStore) GrantsForEntitlementAllCarryInsertFact(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (bool, error) {
-	return s.Engine.GrantsForEntitlementAllCarryInsertFact(ctx, entitlementID, entResourceTypeID, entResourceID)
+	return s.engine.GrantsForEntitlementAllCarryInsertFact(ctx, entitlementID, entResourceTypeID, entResourceID)
 }
 
 func (s *pebbleStore) HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
-	return s.Engine.HasResourceRecord(ctx, resourceTypeID, resourceID)
+	return s.engine.HasResourceRecord(ctx, resourceTypeID, resourceID)
 }
 
 func (s *pebbleStore) ForEachDistinctEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error {
-	return s.Engine.ForEachDistinctEntitlementResource(ctx, visit)
+	return s.engine.ForEachDistinctEntitlementResource(ctx, visit)
 }
 
 func (s *pebbleStore) ForEachDanglingGrantEntitlement(ctx context.Context, visit func(entitlementID, resourceTypeID, resourceID string) error) error {
-	return s.Engine.ForEachDanglingGrantEntitlement(ctx, visit)
+	return s.engine.ForEachDanglingGrantEntitlement(ctx, visit)
 }
 
 func (s *pebbleStore) EnsureGrantIndexes(ctx context.Context) error {
-	return s.Engine.EnsureGrantIndexes(ctx)
+	return s.engine.EnsureGrantIndexes(ctx)
 }
 
 func (s *pebbleStore) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error {
-	return s.Engine.ForEachDanglingGrantPrincipal(ctx, visit)
+	return s.engine.ForEachDanglingGrantPrincipal(ctx, visit)
 }

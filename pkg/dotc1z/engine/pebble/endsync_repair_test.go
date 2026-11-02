@@ -81,10 +81,10 @@ func TestEndSyncSecondCallTakesTargetedRepairPath(t *testing.T) {
 		id := ksuid.New().String()
 		grantsA = append(grantsA, makeGrant("", id, "ent-A", id))
 	}
-	if err := e.PutGrantRecords(ctx, grantsA...); err != nil {
+	if err := e.records.PutGrantRecords(ctx, grantsA...); err != nil {
 		t.Fatalf("PutGrantRecords(ent-A): %v", err)
 	}
-	if err := e.PutGrantRecords(ctx, makeGrant("", "gb1", "ent-B", "bob")); err != nil {
+	if err := e.records.PutGrantRecords(ctx, makeGrant("", "gb1", "ent-B", "bob")); err != nil {
 		t.Fatalf("PutGrantRecords(ent-B): %v", err)
 	}
 
@@ -106,7 +106,7 @@ func TestEndSyncSecondCallTakesTargetedRepairPath(t *testing.T) {
 	if err := a.SetCurrentSync(ctx, syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
-	if err := e.PutGrantRecord(ctx, makeGrant("", "ga-extra", "ent-A", "extra-user")); err != nil {
+	if err := e.records.PutGrantRecord(ctx, makeGrant("", "ga-extra", "ent-A", "extra-user")); err != nil {
 		t.Fatalf("PutGrantRecord (post-seal): %v", err)
 	}
 

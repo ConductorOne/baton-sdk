@@ -43,8 +43,8 @@ type RollbackExpansionResult struct {
 // Sealing, or any pending pass on a finished sync, is dropped so a replay
 // starts a fresh pass. The caller seals: grant indexes, digests, and stats are
 // stale until the next EndSync.
-func (e *Engine) RollbackExpansion(ctx context.Context, syncID string, dryRun, preserveSuspect bool) (*RollbackExpansionResult, error) {
-	record, err := e.syncRuns.GetSyncRunRecord(ctx, syncID)
+func (x *Expansion) RollbackExpansion(ctx context.Context, syncID string, dryRun, preserveSuspect bool) (*RollbackExpansionResult, error) {
+	record, err := x.e.syncRuns.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return nil, fmt.Errorf("pebble: rollback could not load sync %q: %w", syncID, err)
 	}
@@ -52,7 +52,7 @@ func (e *Engine) RollbackExpansion(ctx context.Context, syncID string, dryRun, p
 	if !finished && record.GetSyncToken() != "" {
 		return nil, fmt.Errorf("%w: sync %q holds a legacy checkpoint", ErrRollbackIncompleteCollection, syncID)
 	}
-	_, phase, err := e.ledger.PendingWork(ctx, 0, 1)
+	_, phase, err := x.e.ledger.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return nil, fmt.Errorf("pebble: rollback could not read pending work: %w", err)
 	}
@@ -71,17 +71,17 @@ func (e *Engine) RollbackExpansion(ctx context.Context, syncID string, dryRun, p
 	res := &RollbackExpansionResult{}
 	var scanned int
 	if dryRun {
-		scanned, err = e.rollbackExpansionRounds(ctx, false, preserveSuspect, res)
+		scanned, err = x.rollbackExpansionRounds(ctx, false, preserveSuspect, res)
 	} else {
-		if err := e.SetCurrentSync(ctx, syncID); err != nil {
+		if err := x.e.SetCurrentSync(ctx, syncID); err != nil {
 			return nil, err
 		}
 		if phase != c1zstore.LedgerQueueAbsent {
-			if err := e.ledger.Drop(ctx); err != nil {
+			if err := x.e.ledger.Drop(ctx); err != nil {
 				return nil, fmt.Errorf("pebble: rollback could not drop pending pass: %w", err)
 			}
 		}
-		scanned, err = e.rollbackExpansionRounds(ctx, true, preserveSuspect, res)
+		scanned, err = x.rollbackExpansionRounds(ctx, true, preserveSuspect, res)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("pebble: rollback failed: %w", err)
@@ -94,7 +94,7 @@ func (e *Engine) RollbackExpansion(ctx context.Context, syncID string, dryRun, p
 
 // rollbackExpansionRounds commits each round's deletes and clears when write
 // is set, and returns the number of grants scanned.
-func (e *Engine) rollbackExpansionRounds(ctx context.Context, write, preserveSuspect bool, res *RollbackExpansionResult) (int, error) {
+func (x *Expansion) rollbackExpansionRounds(ctx context.Context, write, preserveSuspect bool, res *RollbackExpansionResult) (int, error) {
 	lower := encodeGrantPrefix()
 	upper := upperBoundOf(lower)
 	scanned := 0
@@ -106,23 +106,23 @@ func (e *Engine) rollbackExpansionRounds(ctx context.Context, write, preserveSus
 		var n int
 		var err error
 		if !write {
-			next, n, err = e.rollbackExpansionRound(lower, upper, nil, preserveSuspect, res)
+			next, n, err = x.rollbackExpansionRound(lower, upper, nil, preserveSuspect, res)
 		} else {
-			err = e.withWrite(func() error {
-				if err := e.requireCurrentSync(); err != nil {
+			err = x.e.withWrite(func() error {
+				if err := x.e.requireCurrentSync(); err != nil {
 					return err
 				}
-				batch := e.db.NewRecordBatch()
+				batch := x.e.db.NewRecordBatch()
 				defer batch.Close()
 				var roundErr error
-				next, n, roundErr = e.rollbackExpansionRound(lower, upper, batch, preserveSuspect, res)
+				next, n, roundErr = x.rollbackExpansionRound(lower, upper, batch, preserveSuspect, res)
 				if roundErr != nil {
 					return roundErr
 				}
 				if batch.Empty() {
 					return nil
 				}
-				return batch.Commit(writeOpts(e.opts.durability))
+				return batch.Commit(writeOpts(x.e.opts.durability))
 			})
 		}
 		if err != nil {
@@ -138,13 +138,13 @@ func (e *Engine) rollbackExpansionRounds(ctx context.Context, write, preserveSus
 // in [lower, upper), staging each delete or clear into batch when batch is
 // non-nil. The iterator is closed on return, before the caller commits.
 // Returns the next round's lower bound, or nil when the range is exhausted.
-func (e *Engine) rollbackExpansionRound(
+func (x *Expansion) rollbackExpansionRound(
 	lower, upper []byte,
 	batch *rawdb.RecordBatch,
 	preserveSuspect bool,
 	res *RollbackExpansionResult,
 ) ([]byte, int, error) {
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := x.e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return nil, 0, err
 	}

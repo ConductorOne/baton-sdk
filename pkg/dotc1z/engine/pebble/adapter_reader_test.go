@@ -22,12 +22,12 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 
 	rt := v2.ResourceType_builder{Id: "user", DisplayName: "User",
 		Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build()
-	require.NoError(t, a.PutResourceTypes(ctx, rt))
+	require.NoError(t, a.records.PutResourceTypes(ctx, rt))
 	r := v2.Resource_builder{
 		Id:          v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 		DisplayName: "Alice",
 	}.Build()
-	require.NoError(t, a.PutResources(ctx, r))
+	require.NoError(t, a.records.PutResources(ctx, r))
 	ent := v2.Entitlement_builder{
 		Id: "github-read",
 		Resource: v2.Resource_builder{
@@ -36,10 +36,10 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 		DisplayName: "Read",
 		Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
 	}.Build()
-	require.NoError(t, a.PutEntitlements(ctx, ent))
+	require.NoError(t, a.records.PutEntitlements(ctx, ent))
 
 	// GetResourceType
-	rtResp, err := a.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
+	rtResp, err := a.records.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
 		ResourceTypeId: "user",
 	}.Build())
 	require.NoError(t, err, "GetResourceType")
@@ -47,7 +47,7 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 	require.Len(t, rtResp.GetResourceType().GetTraits(), 1, "GetResourceType traits")
 
 	// GetResource
-	rResp, err := a.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+	rResp, err := a.records.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 		ResourceId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 	}.Build())
 	require.NoError(t, err, "GetResource")
@@ -56,7 +56,7 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 	// GetEntitlement
 	// Stored external ids are verbatim; the fixture seeded the raw id.
 	readEntID := "github-read"
-	eResp, err := a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+	eResp, err := a.records.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: readEntID,
 	}.Build())
 	require.NoError(t, err, "GetEntitlement")
@@ -67,7 +67,7 @@ func TestGetEntitlementResourceResourceType(t *testing.T) {
 	// pebble.ErrNotFound at the boundary so engine-agnostic
 	// consumers (pkg/sync, pkg/sync/expand) can use one sentinel
 	// across both engines. See adapter_errors.go.
-	_, err = a.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+	_, err = a.records.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: "does-not-exist",
 	}.Build())
 	require.Equal(t, codes.NotFound, status.Code(err), "missing entitlement")
@@ -91,10 +91,10 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		grants = append(grants, mkV2Grant("u-b-"+strconv.Itoa(i), "ent-B", "user", "u"+strconv.Itoa(i)))
 	}
-	require.NoError(t, a.PutGrants(ctx, grants...))
+	require.NoError(t, a.records.PutGrants(ctx, grants...))
 
 	// ListGrantsForEntitlement(ent-A) → 8 grants total
-	resp, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+	resp, err := a.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 		PageSize:    100,
 	}.Build())
@@ -102,7 +102,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	require.Len(t, resp.GetList(), 8, "ListGrantsForEntitlement(ent-A)")
 
 	// ListGrantsForEntitlement(ent-A) filtered by principal RT=user → 5
-	respFiltered, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+	respFiltered, err := a.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement:              v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 		PrincipalResourceTypeIds: []string{"user"},
 		PageSize:                 100,
@@ -111,7 +111,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	require.Len(t, respFiltered.GetList(), 5, "ListGrantsForEntitlement(ent-A, user)")
 
 	// ListGrantsForEntitlement(ent-A) filtered by principal ID=user/u1 → 1
-	respPrincipal, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+	respPrincipal, err := a.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 		PrincipalId: v2.ResourceId_builder{
 			ResourceType: "user",
@@ -126,7 +126,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	var principalPageIDs []string
 	principalPageToken := ""
 	for {
-		respPrincipalPage, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		respPrincipalPage, err := a.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 			Entitlement: v2.Entitlement_builder{Id: canonicalTestEntID("ent-A")}.Build(),
 			PrincipalId: v2.ResourceId_builder{
 				ResourceType: "user",
@@ -148,7 +148,7 @@ func TestListGrantsForEntitlementAndResourceType(t *testing.T) {
 	require.Equal(t, canonicalTestGrantID("ent-A", "user", "u1"), principalPageIDs[0], "paginated ListGrantsForEntitlement(ent-A, user/u1)")
 
 	// ListGrantsForResourceType(user) → 7 grants (5 ent-A + 2 ent-B)
-	rtResp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+	rtResp, err := a.records.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 		ResourceTypeId: "user",
 		PageSize:       100,
 	}.Build())
@@ -174,13 +174,13 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 	for i := 0; i < groupCount; i++ {
 		grants = append(grants, mkV2Grant("g-"+strconv.Itoa(i), "ent-A", "group", "g"+strconv.Itoa(i)))
 	}
-	require.NoError(t, a.PutGrants(ctx, grants...))
+	require.NoError(t, a.records.PutGrants(ctx, grants...))
 
 	// Walk all user grants across multiple pages.
 	collected := map[string]bool{}
 	cursor := ""
 	for i := 0; i < 20; i++ {
-		resp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+		resp, err := a.records.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 			ResourceTypeId: "user",
 			PageSize:       7,
 			PageToken:      cursor,
@@ -206,15 +206,15 @@ func TestListGrantsForResourceTypePagination(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		updated = append(updated, mkV2Grant("u-"+strconv.Itoa(i), "ent-A", "group", "moved-"+strconv.Itoa(i)))
 	}
-	require.NoError(t, a.PutGrants(ctx, updated...))
+	require.NoError(t, a.records.PutGrants(ctx, updated...))
 
-	respUser, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+	respUser, err := a.records.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 		ResourceTypeId: "user", PageSize: 1000,
 	}.Build())
 	require.NoError(t, err)
 	require.Equal(t, userCount, len(respUser.GetList()), "after structured-identity add, user grants")
 
-	respGroup, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+	respGroup, err := a.records.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 		ResourceTypeId: "group", PageSize: 1000,
 	}.Build())
 	require.NoError(t, err)
@@ -233,23 +233,23 @@ func TestBulkByIdsRoundtripPebble(t *testing.T) {
 	rtUser := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
 	rtGroup := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
 	rtApp := v2.ResourceType_builder{Id: "app", DisplayName: "App"}.Build()
-	require.NoError(t, a.PutResourceTypes(ctx, rtUser, rtGroup, rtApp))
+	require.NoError(t, a.records.PutResourceTypes(ctx, rtUser, rtGroup, rtApp))
 	mkRes := func(rt, id string) *v2.Resource {
 		return v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
 		}.Build()
 	}
-	require.NoError(t, a.PutResources(ctx,
+	require.NoError(t, a.records.PutResources(ctx,
 		mkRes("user", "u1"), mkRes("user", "u2"),
 		mkRes("group", "g1"),
 	))
-	require.NoError(t, a.PutEntitlements(ctx,
+	require.NoError(t, a.records.PutEntitlements(ctx,
 		v2.Entitlement_builder{Id: "ent-A", Resource: mkRes("app", "github")}.Build(),
 		v2.Entitlement_builder{Id: "ent-B", Resource: mkRes("app", "github")}.Build(),
 	))
 
 	t.Run("ListEntitlementsByIds", func(t *testing.T) {
-		resp, err := a.ListEntitlementsByIds(ctx, reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
+		resp, err := a.records.ListEntitlementsByIds(ctx, reader_v2.EntitlementsReaderServiceListEntitlementsByIdsRequest_builder{
 			EntitlementIds: []string{"ent-A", "ent-zzz", "ent-B"},
 		}.Build())
 		require.NoError(t, err)
@@ -261,7 +261,7 @@ func TestBulkByIdsRoundtripPebble(t *testing.T) {
 			v2.ResourceId_builder{ResourceType: "user", Resource: "u-missing"}.Build(),
 			v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
 		}
-		resp, err := a.ListResourcesByIds(ctx, reader_v2.ResourcesReaderServiceListResourcesByIdsRequest_builder{
+		resp, err := a.records.ListResourcesByIds(ctx, reader_v2.ResourcesReaderServiceListResourcesByIdsRequest_builder{
 			ResourceIds: ids,
 		}.Build())
 		require.NoError(t, err)
@@ -282,11 +282,11 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		}.Build()
 	}
 	appRes := mkRes("app", "gh")
-	require.NoError(t, a.PutResources(ctx, appRes))
+	require.NoError(t, a.records.PutResources(ctx, appRes))
 	entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
 	entB := v2.Entitlement_builder{Id: "ent-B", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "B"}.Build()
 	entC := v2.Entitlement_builder{Id: "ent-C", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "C"}.Build()
-	require.NoError(t, a.PutEntitlements(ctx, entA, entB, entC))
+	require.NoError(t, a.records.PutEntitlements(ctx, entA, entB, entC))
 	mkGrant := func(id, entID, princRT, princID string) *v2.Grant {
 		return v2.Grant_builder{
 			Id:          id,
@@ -304,10 +304,10 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 	for i := 0; i < 7; i++ {
 		grants = append(grants, mkGrant("c-u-"+strconv.Itoa(i), "ent-C", "user", "uc"+strconv.Itoa(i)))
 	}
-	require.NoError(t, a.PutGrants(ctx, grants...))
+	require.NoError(t, a.records.PutGrants(ctx, grants...))
 
 	t.Run("aggregate all", func(t *testing.T) {
-		resp, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+		resp, err := a.Records().ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 			Entitlements: []*v2.Entitlement{entA, entB, entC},
 			PageSize:     100,
 		}.Build())
@@ -318,7 +318,7 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		seen := map[string]bool{}
 		token := ""
 		for i := 0; i < 10; i++ {
-			resp, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+			resp, err := a.Records().ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 				Entitlements: []*v2.Entitlement{entA, entB, entC},
 				PageSize:     4,
 				PageToken:    token,
@@ -336,13 +336,13 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		require.Len(t, seen, 15)
 	})
 	t.Run("checksum mismatch resets", func(t *testing.T) {
-		resp1, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+		resp1, err := a.Records().ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 			Entitlements: []*v2.Entitlement{entA, entB, entC},
 			PageSize:     2,
 		}.Build())
 		require.NoError(t, err)
 		require.NotEmpty(t, resp1.GetNextPageToken(), "first page should overflow")
-		resp2, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+		resp2, err := a.Records().ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 			Entitlements: []*v2.Entitlement{entA, entB},
 			PageSize:     2,
 			PageToken:    resp1.GetNextPageToken(),
@@ -357,7 +357,7 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		// resume — an order-insensitive checksum would bless the token
 		// while the positional index resumed over a different
 		// entitlement, silently skipping and re-returning grants.
-		resp1, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+		resp1, err := a.Records().ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 			Entitlements: []*v2.Entitlement{entA, entB, entC},
 			PageSize:     6, // past entA (5 grants), into entB at index 1
 		}.Build())
@@ -365,7 +365,7 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		require.NotEmpty(t, resp1.GetNextPageToken(), "first page should overflow")
 
 		reordered := []*v2.Entitlement{entC, entB, entA}
-		resp2, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+		resp2, err := a.Records().ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 			Entitlements: reordered,
 			PageSize:     6,
 			PageToken:    resp1.GetNextPageToken(),
@@ -380,7 +380,7 @@ func TestListGrantsForEntitlementsPebble(t *testing.T) {
 		seen := map[string]bool{}
 		token := ""
 		for i := 0; i < 10; i++ {
-			resp, err := a.ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
+			resp, err := a.Records().ListGrantsForEntitlements(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest_builder{
 				Entitlements: reordered,
 				PageSize:     4,
 				PageToken:    token,
@@ -413,7 +413,7 @@ func TestCrossKeyspaceCursorRejected(t *testing.T) {
 	appRes := v2.Resource_builder{
 		Id: v2.ResourceId_builder{ResourceType: "app", Resource: "gh"}.Build(),
 	}.Build()
-	require.NoError(t, a.PutResources(ctx, appRes))
+	require.NoError(t, a.records.PutResources(ctx, appRes))
 	ents := make([]*v2.Entitlement, 0, 4)
 	for i := 0; i < 4; i++ {
 		ents = append(ents, v2.Entitlement_builder{
@@ -423,17 +423,17 @@ func TestCrossKeyspaceCursorRejected(t *testing.T) {
 			Slug:     "s" + strconv.Itoa(i),
 		}.Build())
 	}
-	require.NoError(t, a.PutEntitlements(ctx, ents...))
+	require.NoError(t, a.records.PutEntitlements(ctx, ents...))
 	users := make([]*v2.Resource, 0, 4)
 	for i := 0; i < 4; i++ {
 		users = append(users, v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u" + strconv.Itoa(i)}.Build(),
 		}.Build())
 	}
-	require.NoError(t, a.PutResources(ctx, users...))
+	require.NoError(t, a.records.PutResources(ctx, users...))
 
 	// Mint a genuine entitlement-keyspace cursor.
-	entResp, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+	entResp, err := a.records.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		PageSize: 2,
 	}.Build())
 	require.NoError(t, err)
@@ -441,21 +441,21 @@ func TestCrossKeyspaceCursorRejected(t *testing.T) {
 	require.NotEmpty(t, entToken, "entitlement page should overflow")
 
 	// Feed it to the resources reader: foreign keyspace, must be rejected.
-	_, err = a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+	_, err = a.records.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: "user",
 		PageToken:      entToken,
 	}.Build())
 	require.ErrorIs(t, err, ErrInvalidPageToken, "entitlement cursor fed to resources reader must fail as an invalid page token")
 
 	// And the reverse: a resources cursor fed to the entitlements reader.
-	resResp, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+	resResp, err := a.records.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: "user",
 		PageSize:       2,
 	}.Build())
 	require.NoError(t, err)
 	resToken := resResp.GetNextPageToken()
 	require.NotEmpty(t, resToken, "resource page should overflow")
-	_, err = a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+	_, err = a.records.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		PageToken: resToken,
 	}.Build())
 	require.ErrorIs(t, err, ErrInvalidPageToken, "resource cursor fed to entitlements reader must fail as an invalid page token")
@@ -474,15 +474,15 @@ func TestStreamingReaderPebble(t *testing.T) {
 		}.Build()
 	}
 	appRes := mkRes("app", "gh")
-	require.NoError(t, a.PutResources(ctx, appRes))
+	require.NoError(t, a.records.PutResources(ctx, appRes))
 	entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
-	require.NoError(t, a.PutEntitlements(ctx, entA))
+	require.NoError(t, a.records.PutEntitlements(ctx, entA))
 	const userCount = 25
 	users := make([]*v2.Resource, userCount)
 	for i := 0; i < userCount; i++ {
 		users[i] = mkRes("user", "u"+strconv.Itoa(i))
 	}
-	require.NoError(t, a.PutResources(ctx, users...))
+	require.NoError(t, a.records.PutResources(ctx, users...))
 	grants := make([]*v2.Grant, userCount)
 	for i := 0; i < userCount; i++ {
 		grants[i] = v2.Grant_builder{
@@ -491,7 +491,7 @@ func TestStreamingReaderPebble(t *testing.T) {
 			Principal:   mkRes("user", "u"+strconv.Itoa(i)),
 		}.Build()
 	}
-	require.NoError(t, a.PutGrants(ctx, grants...))
+	require.NoError(t, a.records.PutGrants(ctx, grants...))
 
 	t.Run("StreamGrants yields all", func(t *testing.T) {
 		seen := 0
@@ -550,10 +550,10 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 		}.Build()
 	}
 	appRes := mkRes("app", "gh")
-	require.NoError(t, a.PutResources(ctx, appRes))
+	require.NoError(t, a.records.PutResources(ctx, appRes))
 	entA := v2.Entitlement_builder{Id: "ent-A", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "A"}.Build()
 	entB := v2.Entitlement_builder{Id: "ent-B", Resource: appRes, Purpose: v2.Entitlement_PURPOSE_VALUE_PERMISSION, Slug: "B"}.Build()
-	require.NoError(t, a.PutEntitlements(ctx, entA, entB))
+	require.NoError(t, a.records.PutEntitlements(ctx, entA, entB))
 	mkGrant := func(id, entID, princRT, princID string) *v2.Grant {
 		return v2.Grant_builder{
 			Id:          id,
@@ -561,14 +561,14 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 			Principal:   mkRes(princRT, princID),
 		}.Build()
 	}
-	require.NoError(t, a.PutGrants(ctx,
+	require.NoError(t, a.records.PutGrants(ctx,
 		mkGrant("g1", "ent-A", "user", "alice"),
 		mkGrant("g2", "ent-B", "user", "alice"),
 		mkGrant("g3", "ent-A", "user", "bob"),
 	))
 
 	t.Run("returns all grants for principal", func(t *testing.T) {
-		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+		resp, err := a.records.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 			PageSize:    100,
 		}.Build())
@@ -577,7 +577,7 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 	})
 
 	t.Run("entitlement filter narrows", func(t *testing.T) {
-		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+		resp, err := a.records.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			Entitlement: v2.Entitlement_builder{Id: "ent-A"}.Build(),
 			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
 			PageSize:    100,
@@ -588,7 +588,7 @@ func TestListGrantsForPrincipalPebble(t *testing.T) {
 	})
 
 	t.Run("missing principal errors", func(t *testing.T) {
-		_, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+		_, err := a.records.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			PageSize: 100,
 		}.Build())
 		require.ErrorContains(t, err, "missing principal_id")
@@ -612,7 +612,7 @@ func TestListGrantsForPrincipalEntitlementPointLookup(t *testing.T) {
 		}.Build()
 	}
 	appRes := mkRes("app", "gh")
-	require.NoError(t, a.PutResources(ctx, appRes))
+	require.NoError(t, a.records.PutResources(ctx, appRes))
 	const entCount = 20
 	ents := make([]*v2.Entitlement, entCount)
 	grants := make([]*v2.Grant, entCount)
@@ -625,15 +625,15 @@ func TestListGrantsForPrincipalEntitlementPointLookup(t *testing.T) {
 			Principal:   mkRes("user", "alice"),
 		}.Build()
 	}
-	require.NoError(t, a.PutEntitlements(ctx, ents...))
-	require.NoError(t, a.PutGrants(ctx, grants...))
+	require.NoError(t, a.records.PutEntitlements(ctx, ents...))
+	require.NoError(t, a.records.PutGrants(ctx, grants...))
 	alice := v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build()
 
 	t.Run("single page even when page size is small", func(t *testing.T) {
 		// Page size 2 with 20 grants on other entitlements: the point
 		// lookup must return the one match on the first page with no
 		// next token.
-		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+		resp, err := a.records.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			Entitlement: v2.Entitlement_builder{Id: "ent-19", Resource: appRes}.Build(),
 			PrincipalId: alice,
 			PageSize:    2,
@@ -645,7 +645,7 @@ func TestListGrantsForPrincipalEntitlementPointLookup(t *testing.T) {
 	})
 
 	t.Run("unknown entitlement yields empty response", func(t *testing.T) {
-		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+		resp, err := a.records.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			Entitlement: v2.Entitlement_builder{Id: "ent-nope"}.Build(),
 			PrincipalId: alice,
 			PageSize:    100,
@@ -656,7 +656,7 @@ func TestListGrantsForPrincipalEntitlementPointLookup(t *testing.T) {
 	})
 
 	t.Run("no grant for entitlement+principal yields empty response", func(t *testing.T) {
-		resp, err := a.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+		resp, err := a.records.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
 			Entitlement: v2.Entitlement_builder{Id: "ent-0", Resource: appRes}.Build(),
 			PrincipalId: v2.ResourceId_builder{ResourceType: "user", Resource: "bob"}.Build(),
 			PageSize:    100,
@@ -675,7 +675,7 @@ func TestListStaticEntitlementsPebble(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	resp, err := a.ListStaticEntitlements(ctx, v2.EntitlementsServiceListStaticEntitlementsRequest_builder{}.Build())
+	resp, err := a.records.ListStaticEntitlements(ctx, v2.EntitlementsServiceListStaticEntitlementsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Empty(t, resp.GetList())
 	require.Empty(t, resp.GetNextPageToken())
@@ -747,14 +747,14 @@ func TestStatsAndGrantStats(t *testing.T) {
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	require.NoError(t, a.PutResourceTypes(ctx,
+	require.NoError(t, a.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "user"}.Build(),
 		v2.ResourceType_builder{Id: "group"}.Build()))
-	require.NoError(t, a.PutResources(ctx,
+	require.NoError(t, a.records.PutResources(ctx,
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "a"}.Build()}.Build(),
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "b"}.Build()}.Build(),
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "c"}.Build()}.Build()))
-	require.NoError(t, a.PutGrants(ctx,
+	require.NoError(t, a.records.PutGrants(ctx,
 		mkV2Grant("g1", "e1", "user", "a"),
 		mkV2Grant("g2", "e1", "user", "b"),
 		mkV2Grant("g3", "e2", "group", "c")))

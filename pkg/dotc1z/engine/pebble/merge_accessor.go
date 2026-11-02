@@ -31,11 +31,11 @@ type engineAccessor interface {
 
 // PebbleEngine returns the engine. Nil-safe so AsEngine can probe
 // arbitrary writers.
-func (e *Engine) PebbleEngine() *Engine {
-	if e == nil {
+func (x *Expansion) PebbleEngine() *Engine {
+	if x == nil {
 		return nil
 	}
-	return e
+	return x.e
 }
 
 // AsEngine recovers the underlying *Engine from a connectorstore.Writer
@@ -57,11 +57,11 @@ func AsEngine(w connectorstore.Writer) (*Engine, bool) {
 // counters, labeled with the caller's phase name. Diagnostic only: used to
 // attribute wall time lost to background compactions triggered by large
 // ingests (e.g. the synthesized-grant layer segments) during benchmark runs.
-func (e *Engine) LogCompactionMetrics(ctx context.Context, phase string) {
-	if e == nil || e.db == nil {
+func (x *Expansion) LogCompactionMetrics(ctx context.Context, phase string) {
+	if x == nil || x.e.db == nil {
 		return
 	}
-	m := e.db.Metrics()
+	m := x.e.db.Metrics()
 	ctxzap.Extract(ctx).Info("pebble compaction metrics",
 		zap.String("phase", phase),
 		zap.Int64("compact_count", m.Compact.Count),

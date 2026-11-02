@@ -49,7 +49,7 @@ func TestSecurity_IngestScansRejectNonCanonicalKeys(t *testing.T) {
 				a := newAdapter(t)
 				_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(t, err)
-				e := a.PebbleEngine()
+				e := a.Expansion().PebbleEngine()
 				require.NoError(t, e.db.UnsafeForTesting().Set(tc.key, nil, nil))
 
 				err = scans[scan](ctx, e)
@@ -68,7 +68,7 @@ func TestIngestScansVisitEachGroupOnce(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	resource := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build()}.Build()
 	grant := func(entID, principalID string) *v2.Grant {
@@ -79,7 +79,7 @@ func TestIngestScansVisitEachGroupOnce(t *testing.T) {
 		}.Build()
 	}
 	// "app:github:member" is stored stripped, "raw-opaque-ent" opaque.
-	require.NoError(t, a.PutGrants(ctx,
+	require.NoError(t, a.records.PutGrants(ctx,
 		grant("app:github:member", "alice"),
 		grant("app:github:member", "bob"),
 		grant("raw-opaque-ent", "alice"),
@@ -108,7 +108,7 @@ func TestIngestScansVisitEachGroupOnce(t *testing.T) {
 	}))
 	require.Equal(t, []string{"raw-opaque-ent", "app:github:member"}, dangling)
 
-	require.NoError(t, a.PutEntitlements(ctx,
+	require.NoError(t, a.records.PutEntitlements(ctx,
 		v2.Entitlement_builder{Id: "app:github:member", Resource: resource}.Build(),
 		v2.Entitlement_builder{Id: "raw-opaque-ent", Resource: resource}.Build(),
 	))

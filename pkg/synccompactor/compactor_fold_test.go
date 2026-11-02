@@ -46,7 +46,7 @@ func grantDiscoveredAt(t *testing.T, ctx context.Context, path, syncID, grantID 
 	// One grant per principal in these fixtures (entitlement is always
 	// "member"), so the principal scan identifies the row exactly.
 	var rec *v3.GrantRecord
-	require.NoError(t, eng.IterateGrantsByPrincipal(ctx, "user", compactFixturePrincipalID(grantID), func(r *v3.GrantRecord) bool {
+	require.NoError(t, eng.Records().IterateGrantsByPrincipal(ctx, "user", compactFixturePrincipalID(grantID), func(r *v3.GrantRecord) bool {
 		rec = r
 		return false
 	}))

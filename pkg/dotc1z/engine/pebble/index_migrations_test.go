@@ -58,7 +58,7 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 		}.Build(),
 		NeedsExpansion: true,
 	}.Build()
-	require.NoErrorf(t, e.PutGrantRecord(ctx, rec), "PutGrantRecord")
+	require.NoErrorf(t, e.records.PutGrantRecord(ctx, rec), "PutGrantRecord")
 
 	// Surgically delete the index key + bump back the applied
 	// version so the next Open sees an old c1z that needs
@@ -68,7 +68,7 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 	require.NoErrorf(t, e.db.UnsafeForTesting().Delete(encodeIndexAppliedKey("grant_needs_expansion"), pebble.Sync), "delete applied-version key")
 	// Sanity: pre-migration walk finds nothing.
 	pre := 0
-	require.NoErrorf(t, e.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
+	require.NoErrorf(t, e.records.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
 		pre++
 		return true
 	}), "pre-migration iterate")
@@ -82,7 +82,7 @@ func TestApplyIndexMigrationsBackfillsNeedsExpansion(t *testing.T) {
 	defer e2.Close()
 	post := 0
 	seen := []string{}
-	require.NoErrorf(t, e2.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
+	require.NoErrorf(t, e2.records.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
 		post++
 		seen = append(seen, r.GetExternalId())
 		return true

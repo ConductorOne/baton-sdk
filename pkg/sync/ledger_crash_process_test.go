@@ -54,13 +54,13 @@ func TestLedgerCrashProcess(t *testing.T) {
 			require.NoError(t, err)
 			counters, err := recovered.Ledger().Counters(t.Context())
 			require.NoError(t, err)
-			types, err := recovered.ListResourceTypes(context.Background(), &v2.ResourceTypesServiceListResourceTypesRequest{})
+			types, err := recovered.Records().ListResourceTypes(context.Background(), &v2.ResourceTypesServiceListResourceTypesRequest{})
 			require.NoError(t, err)
 			_, hasFact := facts["crash-fact"]
 			require.Equal(t, found, hasFact)
 			require.Equal(t, found, counters.Counters["pages"] == 1)
 			require.Equal(t, found, len(types.GetList()) == 1)
-			asset, err := recovered.GetAssetRecord(t.Context(), "crash-asset")
+			asset, err := recovered.Records().GetAssetRecord(t.Context(), "crash-asset")
 			if found {
 				require.NoError(t, err)
 				require.Equal(t, []byte("asset bytes"), asset.GetData())

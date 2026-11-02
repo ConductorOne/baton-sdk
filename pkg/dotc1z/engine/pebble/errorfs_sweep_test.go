@@ -249,7 +249,7 @@ func (w sweepWorkload) connectorGrants() []*v2.Grant {
 // The bound-sync sweep's baseline stops after writeFirstPages so the
 // bound run writes new rows, not only overwrites.
 func (w sweepWorkload) writeFirstPages(ctx context.Context, a *Adapter) error {
-	if err := a.PutResourceTypes(ctx,
+	if err := a.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "app"}.Build(),
 		v2.ResourceType_builder{Id: "user"}.Build(),
 	); err != nil {
@@ -266,7 +266,7 @@ func (w sweepWorkload) writeFirstPages(ctx context.Context, a *Adapter) error {
 		}.Build())
 	}
 	scopedCtx := sourcecache.WithScope(ctx, "errorfs-sweep")
-	if err := a.PutResources(scopedCtx, resources...); err != nil {
+	if err := a.records.PutResources(scopedCtx, resources...); err != nil {
 		return err
 	}
 	ents := make([]*v2.Entitlement, 0, w.perPrinc+1)
@@ -284,18 +284,18 @@ func (w sweepWorkload) writeFirstPages(ctx context.Context, a *Adapter) error {
 			Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
 		}.Build(),
 	}.Build())
-	if err := a.PutEntitlements(scopedCtx, ents...); err != nil {
+	if err := a.records.PutEntitlements(scopedCtx, ents...); err != nil {
 		return err
 	}
 	// Two pages of grants, like a paginated connector.
 	gs := w.connectorGrants()
-	return a.PutGrants(scopedCtx, gs[:len(gs)/2]...)
+	return a.records.PutGrants(scopedCtx, gs[:len(gs)/2]...)
 }
 
 func (w sweepWorkload) writeRemainingPages(ctx context.Context, a *Adapter) error {
 	scopedCtx := sourcecache.WithScope(ctx, "errorfs-sweep")
 	gs := w.connectorGrants()
-	if err := a.PutGrants(scopedCtx, gs[len(gs)/2:]...); err != nil {
+	if err := a.records.PutGrants(scopedCtx, gs[len(gs)/2:]...); err != nil {
 		return err
 	}
 	for _, kind := range []sourcecache.RowKind{
@@ -369,7 +369,7 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 	a := NewAdapter(e)
 	require.NoErrorf(t, a.SetCurrentSync(ctx, syncID), "%s: bind sync for reads", label)
 
-	resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	resp, err := a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoErrorf(t, err, "%s: ListGrants", label)
 	gotGrantIDs := make([]string, 0, len(resp.GetList()))
 	for _, g := range resp.GetList() {
@@ -377,11 +377,11 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 	}
 	require.ElementsMatchf(t, w.expectedGrantIDs(), gotGrantIDs, "%s: grant id set", label)
 
-	rresp, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
+	rresp, err := a.records.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
 	require.NoErrorf(t, err, "%s: ListResources", label)
 	require.Lenf(t, rresp.GetList(), 1+len(w.principals), "%s: resource count", label)
 
-	eresp, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
+	eresp, err := a.records.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
 	require.NoErrorf(t, err, "%s: ListEntitlements", label)
 	require.Lenf(t, eresp.GetList(), w.perPrinc+1, "%s: entitlement count", label)
 
@@ -393,7 +393,7 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 	wantEnts := w.expectedEntIDsPerPrincipal()
 	for _, p := range w.principals {
 		var gotEnts []string
-		require.NoErrorf(t, e.IterateGrantsByPrincipal(ctx, "user", p, func(r *v3.GrantRecord) bool {
+		require.NoErrorf(t, e.records.IterateGrantsByPrincipal(ctx, "user", p, func(r *v3.GrantRecord) bool {
 			require.Equalf(t, "user", r.GetPrincipal().GetResourceTypeId(), "%s: %s index row principal type", label, p)
 			require.Equalf(t, p, r.GetPrincipal().GetResourceId(), "%s: %s index row principal id", label, p)
 			gotEnts = append(gotEnts, r.GetEntitlement().GetEntitlementId())
@@ -506,7 +506,7 @@ func (w sweepWorkload) verifyDigests(ctx context.Context, t *testing.T, e *Engin
 		count int64
 	}
 	primary := map[string]*fold{}
-	require.NoErrorf(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoErrorf(t, e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		h, err := grantContentHashForRecord(r)
 		require.NoErrorf(t, err, "%s: content hash for %s", label, r.GetExternalId())
 		gid, err := grantIdentityFromRecord(r)
@@ -969,10 +969,10 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 	// clears and (digests off) no digest build — nothing Syncs between
 	// these NoSync commits and the stamp.
 	principals := []string{"alice", "bob", "carol"}
-	require.NoError(t, a.PutResourceTypes(ctx,
+	require.NoError(t, a.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "app"}.Build(),
 		v2.ResourceType_builder{Id: "user"}.Build()))
-	require.NoError(t, a.PutEntitlements(ctx, v2.Entitlement_builder{
+	require.NoError(t, a.records.PutEntitlements(ctx, v2.Entitlement_builder{
 		Id: canonicalTestEntID("ent-00"),
 		Resource: v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
@@ -982,7 +982,7 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 	for _, p := range principals {
 		gs = append(gs, mkV2Grant("", "ent-00", "user", p))
 	}
-	require.NoError(t, a.PutGrants(ctx, gs...))
+	require.NoError(t, a.records.PutGrants(ctx, gs...))
 	require.False(t, e.db.DeferredIdxPending(), "inline-only pages must not arm the deferred marker (isolation precondition)")
 
 	var image *vfs.MemFS
@@ -1003,7 +1003,7 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 
 	va := NewAdapter(ve)
 	require.NoError(t, va.SetCurrentSync(ctx, syncID))
-	resp, err := va.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	resp, err := va.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	var wantIDs []string
 	for _, p := range principals {
@@ -1017,7 +1017,7 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 		"finished image lost NoSync page rows: the stamp's Sync no longer carries earlier commits (WAL prefix durability broken)")
 	for _, p := range principals {
 		n := 0
-		require.NoError(t, ve.IterateGrantsByPrincipal(ctx, "user", p, func(*v3.GrantRecord) bool {
+		require.NoError(t, ve.records.IterateGrantsByPrincipal(ctx, "user", p, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		}))
