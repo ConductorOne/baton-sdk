@@ -4,6 +4,7 @@ package c1.config.v1;
 
 import "c1/config/v1/rules.proto";
 import "google/protobuf/any.proto";
+import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/config/v1";
 
@@ -58,6 +59,26 @@ message Field {
   // through ActionHandlerWithSecrets; it is omitted from the public response
   // and returned as EncryptedData.
   bool is_secret = 7;
+
+  // Optional: the content type of the field. Only valid for StringField, StringSliceField, & StringMapField.
+  string content_type = 8 [(validate.rules).string = {
+    ignore_empty: true
+    min_len: 1
+    max_len: 128
+    pattern: "^[^/]+/[^/]+$"
+  }];
+
+  repeated string tags = 9 [(validate.rules).repeated = {
+    unique: true
+    items: {
+      string: {
+        min_len: 1
+        max_len: 128
+        pattern: "^[a-zA-Z0-9_-]+$"
+      }
+    }
+    max_items: 16
+  }];
 
   oneof field {
     StringField string_field = 100;
