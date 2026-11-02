@@ -198,10 +198,6 @@ type syncer struct {
 	// whose durable list-resource ratio already trips cannot abort before
 	// this run finishes more than ten list-resource actions.
 	listResourceActionsCompletedThisRun atomic.Uint64
-	// parallelActionTransitioner atomically commits parent pagination and
-	// spawned work to state and the active worker pool.
-	parallelTransitionMu       native_sync.RWMutex
-	parallelActionTransitioner func(context.Context, *Action, string, []Action) error
 
 	// Watermark for the rate_limit_wait_wall bucket: the latest instant
 	// already counted as rate-limit-blocked wall time, plus the
@@ -726,33 +722,13 @@ func (s *syncer) markTypeScopedPlanned(action *Action) {
 // could not see rows a non-stream ingestion path wrote.
 const maxEntitlementsPerExclusionGroup = 50
 
-// nextPageOrFinishAction updates the action with the next page token, or if there is no next page, finishes the action.
-// It also pushes any child actions before updating/finishing the action.
-// This is useful for pagination, and for actions that create other actions.
-func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
-	if invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation); ok {
-		return invocation.stage(action, nextPageToken, childActions)
-	}
-	s.parallelTransitionMu.RLock()
-	transitioner := s.parallelActionTransitioner
-	s.parallelTransitionMu.RUnlock()
-	if transitioner != nil {
-		return transitioner(ctx, action, nextPageToken, childActions)
-	}
-
-	return s.transitionActionState(ctx, action, nextPageToken, childActions)
-}
-
 func (s *syncer) transitionActionState(
 	ctx context.Context,
 	action *Action,
 	nextPageToken string,
 	childActions []Action,
+	pending ledgerTransitionCommit,
 ) error {
-	pending, ok := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit)
-	if !ok {
-		return errors.New("action transition requires a ledger commit")
-	}
 	if err := pending.commit(); err != nil {
 		return err
 	}

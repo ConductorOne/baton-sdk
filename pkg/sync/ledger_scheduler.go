@@ -23,8 +23,6 @@ func (e ledgerPageWriteError) GRPCStatus() *status.Status {
 }
 
 type ledgerWorkerKey struct{}
-type ledgerInvocationKey struct{}
-type ledgerCommitKey struct{}
 
 type ledgerInvocation struct {
 	attempts              *ledgerAttempts
@@ -84,7 +82,13 @@ func (i *ledgerInvocation) stage(action *Action, next string, children []Action)
 	return nil
 }
 
-func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler func(context.Context, *ledgerInvocation, *Action) error, allowWarning bool) error {
+func (s *syncer) invokeActionPage(
+	ctx context.Context,
+	action *Action,
+	handler func(context.Context, *ledgerInvocation, *Action) error,
+	allowWarning bool,
+	transition func(context.Context, ledgerTransitionCommit, *Action, string, []Action) error,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -186,8 +190,11 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 			}
 			return nil
 		}
-		commitCtx := context.WithValue(ctx, ledgerCommitKey{}, ledgerTransitionCommit{commit: publish, warning: warning != nil, restart: page.row.Restarted})
-		return s.nextPageOrFinishAction(commitCtx, action, page.row.NextPageToken, invocation.children...)
+		pending := ledgerTransitionCommit{commit: publish, warning: warning != nil, restart: page.row.Restarted}
+		if transition != nil {
+			return transition(ctx, pending, action, page.row.NextPageToken, invocation.children)
+		}
+		return s.transitionActionState(ctx, action, page.row.NextPageToken, invocation.children, pending)
 	})
 	if err != nil {
 		if handlerFailure == nil && isWarning(ctx, err) {
