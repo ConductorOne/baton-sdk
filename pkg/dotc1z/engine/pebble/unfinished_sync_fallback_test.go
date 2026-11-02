@@ -26,8 +26,8 @@ func TestResolveActiveSyncForReader_UnfinishedFallback(t *testing.T) {
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
-	require.NoError(t, a.PutResources(ctx, v2.Resource_builder{
+	require.NoError(t, a.records.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
+	require.NoError(t, a.records.PutResources(ctx, v2.Resource_builder{
 		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
 	}.Build()))
 	// Intentionally NO EndSync — the sync stays in-progress.
@@ -41,7 +41,7 @@ func TestResolveActiveSyncForReader_UnfinishedFallback(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, syncID, got, "reader must fall back to the latest in-progress sync")
 
-	resp, err := reader.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+	resp, err := reader.records.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: "group",
 	}.Build())
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestResolveActiveSyncForReader_UnfinishedCutoff(t *testing.T) {
 	// Write an in-progress (ended_at nil) sync record started 8 days
 	// ago, directly — past the one-week cutoff.
 	staleID := ksuid.New().String()
-	require.NoError(t, e.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoError(t, e.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId:    staleID,
 		Type:      v3.SyncType_SYNC_TYPE_FULL,
 		StartedAt: timestamppb.New(time.Now().AddDate(0, 0, -8)),

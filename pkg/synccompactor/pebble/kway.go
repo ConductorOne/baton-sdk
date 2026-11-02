@@ -615,7 +615,7 @@ func mergeSourceBucketToRunSection(
 	lower, upper := bucket.syncRange()
 	h := &directHeap{}
 	for i, source := range sources {
-		iter, err := source.engine.NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
+		iter, err := source.engine.Expansion().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 		if err != nil {
 			return err
 		}
@@ -701,7 +701,7 @@ func materializeSourceBucketToPebble(
 	lower, upper := bucket.syncRange()
 	h := &directHeap{}
 	for i, source := range sources {
-		iter, err := source.engine.NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
+		iter, err := source.engine.Expansion().NewIter(&cpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 		if err != nil {
 			return err
 		}
@@ -772,7 +772,7 @@ func materializeSourceBucketToPebble(
 	}
 	primarySuccess = true
 	defer func() { _ = os.Remove(primaryPath) }()
-	if err := dest.IngestSSTs(ctx, []string{primaryPath}); err != nil {
+	if err := dest.Expansion().IngestSSTs(ctx, []string{primaryPath}); err != nil {
 		return fmt.Errorf("ingest direct primary %s: %w", bucket.name, err)
 	}
 	dest.InvalidateBareIDLookups()
@@ -1280,7 +1280,7 @@ func materializeRunFileBucket(ctx context.Context, dest *enginepkg.Engine, tmpDi
 	}
 	primarySuccess = true
 	defer func() { _ = os.Remove(primaryPath) }()
-	if err := dest.IngestSSTs(ctx, []string{primaryPath}); err != nil {
+	if err := dest.Expansion().IngestSSTs(ctx, []string{primaryPath}); err != nil {
 		return fmt.Errorf("ingest primary %s: %w", bucket.name, err)
 	}
 	dest.InvalidateBareIDLookups()
@@ -1401,7 +1401,7 @@ func (w *indexRunWriter) closeSortAndIngest(ctx context.Context, dest *enginepkg
 		return err
 	}
 	defer func() { _ = os.Remove(sstPath) }()
-	if err := dest.IngestSSTs(ctx, []string{sstPath}); err != nil {
+	if err := dest.Expansion().IngestSSTs(ctx, []string{sstPath}); err != nil {
 		return fmt.Errorf("ingest index %s: %w", w.name, err)
 	}
 	dest.InvalidateBareIDLookups()

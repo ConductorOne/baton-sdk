@@ -795,7 +795,7 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		if err := b.e.db.IngestSSTs(ctx, paths); err != nil {
 			return fmt.Errorf("bulk sync import: ingest: %w", err)
 		}
-		b.e.noteEntitlementKeyspaceWrite()
+		b.e.records.noteEntitlementKeyspaceWrite()
 		// The data keyspaces are no longer provably empty: subsequent
 		// Put*Records calls in this sync must take their read-before-write
 		// paths so overwrites of imported identities clean up index entries.

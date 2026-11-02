@@ -115,11 +115,11 @@ const digestNodeBatchFlushBytes = 4 << 20
 // write: the build's own node commits may ride NoSync, and a node
 // batch becoming durable ahead of the marker would reopen exactly the
 // trust-a-crashed-build window the marker closes.
-func (e *Engine) markGrantDigestBuildPending() error {
-	if err := e.db.MetaSet(encodeGrantDigestBuildPendingKey(), nil, pebble.Sync); err != nil {
+func (d *Digests) markGrantDigestBuildPending() error {
+	if err := d.e.db.MetaSet(encodeGrantDigestBuildPendingKey(), nil, pebble.Sync); err != nil {
 		return fmt.Errorf("arm grant digest build marker: %w", err)
 	}
-	e.grantDigestBuildPending.Store(true)
+	d.grantDigestBuildPending.Store(true)
 	return nil
 }
 
@@ -131,11 +131,11 @@ func (e *Engine) markGrantDigestBuildPending() error {
 // (possibly NoSync) write that preceded it is durable too. The
 // marker's absence therefore certifies COMPLETE digest state on disk,
 // never a lucky partial one.
-func (e *Engine) clearGrantDigestBuildPending() error {
-	if err := e.db.MetaDelete(encodeGrantDigestBuildPendingKey(), pebble.Sync); err != nil {
+func (d *Digests) clearGrantDigestBuildPending() error {
+	if err := d.e.db.MetaDelete(encodeGrantDigestBuildPendingKey(), pebble.Sync); err != nil {
 		return fmt.Errorf("clear grant digest build marker: %w", err)
 	}
-	e.grantDigestBuildPending.Store(false)
+	d.grantDigestBuildPending.Store(false)
 	return nil
 }
 
@@ -461,7 +461,7 @@ func mergeGrantHashChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name str
 // crash inside that window from resurrecting correct-looking digest
 // roots over a never-ingested hash index — see
 // encodeGrantDigestBuildPendingKey.
-func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, hashIdx *spillSorter) error {
+func (d *Digests) buildGrantDigestsFromSpill(ctx context.Context, dir string, hashIdx *spillSorter) error {
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
 	chunks, err := hashIdx.finalize()
@@ -471,20 +471,20 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 	opts := recordWriteOpts
 	// Arm the durable crash marker before the first digest write on
 	// EITHER branch below.
-	if err := e.markGrantDigestBuildPending(); err != nil {
+	if err := d.markGrantDigestBuildPending(); err != nil {
 		return err
 	}
 	if len(chunks) == 0 {
 		// No grants at all — pebble rejects an empty SST, so clear any
 		// stale state directly, then give every entitlement its
 		// {count: 0} root (the "empty vs. never built" distinction).
-		if err := e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
+		if err := d.e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
 			return err
 		}
-		if err := e.db.DropKeyRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts); err != nil {
+		if err := d.e.db.DropKeyRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts); err != nil {
 			return err
 		}
-		if err := e.writeMissingEntitlementDigestRoots(ctx, opts); err != nil {
+		if err := d.writeMissingEntitlementDigestRoots(ctx, opts); err != nil {
 			return err
 		}
 		// Zero grants still means the digest WAS built (present-means-
@@ -492,40 +492,40 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		// recalculate instead of trusting "nothing to diff"). The ABI
 		// stamp precedes the root: WAL prefix ordering then guarantees a
 		// durable root is never uncertified.
-		if err := e.db.DigestSet(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue(), opts); err != nil {
+		if err := d.e.db.DigestSet(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue(), opts); err != nil {
 			return err
 		}
-		if err := e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
+		if err := d.e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
 			return err
 		}
-		e.db.SetGrantDigestsPresent(true)
-		return e.clearGrantDigestBuildPending()
+		d.e.db.SetGrantDigestsPresent(true)
+		return d.clearGrantDigestBuildPending()
 	}
 
-	fold, err := newGrantDigestFold(e)
+	fold, err := newGrantDigestFold(d.e)
 	if err != nil {
 		return err
 	}
 	defer fold.abort()
 	sstPath := filepath.Join(dir, fmt.Sprintf("index-%02x.sst", idxGrantByEntitlementPrincipalHash))
-	if err := mergeGrantHashChunksToSST(ctx, e.fs(), sstPath, fmt.Sprintf("index-%02x", idxGrantByEntitlementPrincipalHash), chunks, fold); err != nil {
+	if err := mergeGrantHashChunksToSST(ctx, d.e.fs(), sstPath, fmt.Sprintf("index-%02x", idxGrantByEntitlementPrincipalHash), chunks, fold); err != nil {
 		return err
 	}
 	if err := fold.finish(); err != nil {
 		return err
 	}
 	mergeDone := time.Now()
-	if e.test.digestBuildHook != nil {
+	if d.e.test.digestBuildHook != nil {
 		// Crash-window seam: every digest node INCLUDING the global root
 		// is committed, the ingest has not run. See
 		// grant_digest_build_crash_test.go.
-		if err := e.test.digestBuildHook("post-finish"); err != nil {
+		if err := d.e.test.digestBuildHook("post-finish"); err != nil {
 			return err
 		}
 	}
 
 	// Atomically replace the whole hash-index range with the merged SST.
-	if err := e.db.ReplaceRangeWithSSTs(ctx, []string{sstPath}, pebble.KeyRange{
+	if err := d.e.db.ReplaceRangeWithSSTs(ctx, []string{sstPath}, pebble.KeyRange{
 		Start: GrantByEntPrincHashLowerBound(),
 		End:   GrantByEntPrincHashUpperBound(),
 	}); err != nil {
@@ -534,15 +534,15 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 
 	// Grant-bearing partitions got their digests from the fold;
 	// entitlements with zero grants still need a root.
-	if err := e.writeMissingEntitlementDigestRoots(ctx, opts); err != nil {
+	if err := d.writeMissingEntitlementDigestRoots(ctx, opts); err != nil {
 		return err
 	}
-	e.db.SetGrantDigestsPresent(true)
+	d.e.db.SetGrantDigestsPresent(true)
 	// The digest state is complete: consume the crash marker. Its
 	// fsync'd delete also makes every NoSync node batch above durable
 	// (WAL prefix ordering), so "marker absent" always means "complete
 	// state on disk".
-	if err := e.clearGrantDigestBuildPending(); err != nil {
+	if err := d.clearGrantDigestBuildPending(); err != nil {
 		return err
 	}
 
@@ -564,8 +564,8 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 // but granted nothing under. One pass over the entitlement primary
 // keyspace — by far the smallest record type — with a point Get per
 // entitlement; deliberately not fused into the grant scan.
-func (e *Engine) writeMissingEntitlementDigestRoots(ctx context.Context, opts *pebble.WriteOptions) error {
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+func (d *Digests) writeMissingEntitlementDigestRoots(ctx context.Context, opts *pebble.WriteOptions) error {
+	iter, err := d.e.db.NewIter(&pebble.IterOptions{
 		LowerBound: EntitlementLowerBound(),
 		UpperBound: EntitlementUpperBound(),
 	})
@@ -573,7 +573,7 @@ func (e *Engine) writeMissingEntitlementDigestRoots(ctx context.Context, opts *p
 		return err
 	}
 	defer iter.Close()
-	batch := e.db.NewDigestBatch()
+	batch := d.e.db.NewDigestBatch()
 	// Closure, not a bare defer: the loop rotates `batch` on flush and a
 	// receiver-bound defer would double-Close the first batch.
 	defer func() { batch.Close() }()
@@ -594,7 +594,7 @@ func (e *Engine) writeMissingEntitlementDigestRoots(ctx context.Context, opts *p
 		// partition convention in keys.go) — a raw splice, no decode.
 		partition := string(key[grantPrimaryKeyPrefixLen:])
 		rootKey := encodeDigestNodeKey(grantDigestSpec.indexID, partition, digestLevelRoot, nil)
-		if _, closer, err := e.db.Get(rootKey); err == nil {
+		if _, closer, err := d.e.db.Get(rootKey); err == nil {
 			closer.Close()
 			continue
 		} else if !errors.Is(err, pebble.ErrNotFound) {
@@ -608,7 +608,7 @@ func (e *Engine) writeMissingEntitlementDigestRoots(ctx context.Context, opts *p
 				return err
 			}
 			batch.Close()
-			batch = e.db.NewDigestBatch()
+			batch = d.e.db.NewDigestBatch()
 		}
 	}
 	if err := iter.Error(); err != nil {
@@ -640,9 +640,9 @@ func (e *Engine) writeMissingEntitlementDigestRoots(ctx context.Context, opts *p
 // Failure semantics match the fused pass: any build error (except
 // context cancellation, which stays fatal) downgrades to a loud drop of
 // the digest state — absent digests are safe, half-built ones are not.
-func (e *Engine) BuildGrantDigests(ctx context.Context) error {
-	return e.withWriteAllowSealed(func() error {
-		err := e.buildGrantDigestsStandaloneLocked(ctx)
+func (d *Digests) BuildGrantDigests(ctx context.Context) error {
+	return d.e.withWriteAllowSealed(func() error {
+		err := d.buildGrantDigestsStandaloneLocked(ctx)
 		if err == nil {
 			return nil
 		}
@@ -652,22 +652,22 @@ func (e *Engine) BuildGrantDigests(ctx context.Context) error {
 		ctxzap.Extract(ctx).Error("grant digest build failed; dropping digest state — grant-diff callers must re-read grants until the next successful seal",
 			zap.Error(err),
 		)
-		if dropErr := e.dropAllGrantDigestStateLocked(); dropErr != nil {
+		if dropErr := d.dropAllGrantDigestStateLocked(); dropErr != nil {
 			return fmt.Errorf("BuildGrantDigests: drop grant digest state after failed build: %w", dropErr)
 		}
 		return nil
 	})
 }
 
-func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
+func (d *Digests) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	dir, err := e.prepareStagingDir("", "pebble-grant-digest-")
+	dir, err := d.e.prepareStagingDir("", "pebble-grant-digest-")
 	if err != nil {
 		return fmt.Errorf("BuildGrantDigests: mkdir temp: %w", err)
 	}
-	defer e.removeStagingDir(dir)
+	defer d.e.removeStagingDir(dir)
 
 	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
 	sem := make(chan struct{}, sorters)
@@ -676,7 +676,7 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 	// deletes the directory they write into; no-op after finalize.
 	defer hashIdx.abort()
 
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := d.e.db.NewIter(&pebble.IterOptions{
 		LowerBound: GrantLowerBound(),
 		UpperBound: GrantUpperBound(),
 	})
@@ -722,7 +722,7 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 	if err := iter.Close(); err != nil {
 		return fmt.Errorf("BuildGrantDigests: close iter: %w", err)
 	}
-	return e.buildGrantDigestsFromSpill(ctx, dir, hashIdx)
+	return d.buildGrantDigestsFromSpill(ctx, dir, hashIdx)
 }
 
 // dropAllGrantDigestStateLocked is DropAllGrantDigestState for callers
@@ -733,14 +733,14 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 // is cleared here in the same stroke. The clear's fsync'd delete runs
 // LAST — WAL prefix ordering makes the (possibly NoSync) tombstones
 // above durable before the marker's absence is.
-func (e *Engine) dropAllGrantDigestStateLocked() error {
-	e.db.SetGrantDigestsPresent(false)
+func (d *Digests) dropAllGrantDigestStateLocked() error {
+	d.e.db.SetGrantDigestsPresent(false)
 	opts := recordWriteOpts
-	if err := e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
+	if err := d.e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
 		return err
 	}
-	if err := e.db.DropKeyRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts); err != nil {
+	if err := d.e.db.DropKeyRange(GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound(), opts); err != nil {
 		return err
 	}
-	return e.clearGrantDigestBuildPending()
+	return d.clearGrantDigestBuildPending()
 }
