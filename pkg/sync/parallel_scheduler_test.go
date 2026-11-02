@@ -175,6 +175,11 @@ func TestTransitionActionValidationFailureIsAtomic(t *testing.T) {
 	require.Equal(t, "current", persisted.PageToken)
 }
 
+func TestTransitionActionStateRejectsContextWithoutCommitKey(t *testing.T) {
+	err := (&syncer{}).transitionActionState(t.Context(), nil, "", nil)
+	require.EqualError(t, err, "action transition requires a ledger commit")
+}
+
 func TestCheckpointVersionStampsTypeScopedTokens(t *testing.T) {
 	ctx := t.Context()
 
