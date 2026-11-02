@@ -48,20 +48,20 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	}
 	snapshot := func(t *testing.T, e *Engine) snap {
 		var s snap
-		require.NoError(t, e.IterateResourceTypes(ctx, func(r *v3.ResourceTypeRecord) bool { s.rts = append(s.rts, r); return true }))
-		require.NoError(t, e.IterateResources(ctx, func(r *v3.ResourceRecord) bool { s.rs = append(s.rs, r); return true }))
-		require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool { s.es = append(s.es, r); return true }))
-		require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool { s.gs = append(s.gs, r); return true }))
+		require.NoError(t, e.records.IterateResourceTypes(ctx, func(r *v3.ResourceTypeRecord) bool { s.rts = append(s.rts, r); return true }))
+		require.NoError(t, e.records.IterateResources(ctx, func(r *v3.ResourceRecord) bool { s.rs = append(s.rs, r); return true }))
+		require.NoError(t, e.records.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool { s.es = append(s.es, r); return true }))
+		require.NoError(t, e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool { s.gs = append(s.gs, r); return true }))
 		return s
 	}
 
 	single, _ := newTestEngine(t)
 	_, err := single.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, single.PutResourceTypes(ctx, rt))
-	require.NoError(t, single.PutResources(ctx, res...))
-	require.NoError(t, single.PutEntitlements(ctx, ent))
-	require.NoError(t, single.PutGrants(ctx, grant))
+	require.NoError(t, single.records.PutResourceTypes(ctx, rt))
+	require.NoError(t, single.records.PutResources(ctx, res...))
+	require.NoError(t, single.records.PutEntitlements(ctx, ent))
+	require.NoError(t, single.records.PutGrants(ctx, grant))
 
 	paged, _ := newTestEngine(t)
 	_, err = paged.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -139,7 +139,7 @@ func TestPageWriterGetResourceAndDiscard(t *testing.T) {
 
 	w.Discard()
 	require.ErrorIs(t, w.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "SyncResources", PageToken: ""}, nil), ErrPageUnitCommitted)
-	_, err = e.GetResourceRecord(ctx, "user", "alice")
+	_, err = e.records.GetResourceRecord(ctx, "user", "alice")
 	require.ErrorIs(t, err, pebble.ErrNotFound, "a discarded page never ran")
 }
 
@@ -172,10 +172,10 @@ func TestLedgerRowCountsDistinctKeysNotBufferedRecords(t *testing.T) {
 	require.NoError(t, w.Commit(ctx, id, &c1zstore.LedgerRow{Attempt: "a1"}))
 
 	var rts, rs, es, gs int
-	require.NoError(t, e.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool { rts++; return true }))
-	require.NoError(t, e.IterateResources(ctx, func(*v3.ResourceRecord) bool { rs++; return true }))
-	require.NoError(t, e.IterateEntitlements(ctx, func(*v3.EntitlementRecord) bool { es++; return true }))
-	require.NoError(t, e.IterateGrants(ctx, func(*v3.GrantRecord) bool { gs++; return true }))
+	require.NoError(t, e.records.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool { rts++; return true }))
+	require.NoError(t, e.records.IterateResources(ctx, func(*v3.ResourceRecord) bool { rs++; return true }))
+	require.NoError(t, e.records.IterateEntitlements(ctx, func(*v3.EntitlementRecord) bool { es++; return true }))
+	require.NoError(t, e.records.IterateGrants(ctx, func(*v3.GrantRecord) bool { gs++; return true }))
 	require.Equal(t, [4]int{1, 1, 1, 1}, [4]int{rts, rs, es, gs},
 		"premise: staging an identity twice leaves one key per family")
 
@@ -235,7 +235,7 @@ func TestTrustedImportGrantLastWriteWinsAcrossPages(t *testing.T) {
 	require.False(t, e.db.DeferredNeedsExpansionPending())
 
 	grants := 0
-	require.NoError(t, e.IterateGrants(ctx, func(record *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrants(ctx, func(record *v3.GrantRecord) bool {
 		grants++
 		require.Equal(t, "second", record.GetExternalId())
 		require.False(t, record.GetNeedsExpansion())
@@ -243,7 +243,7 @@ func TestTrustedImportGrantLastWriteWinsAcrossPages(t *testing.T) {
 	}))
 	require.Equal(t, 1, grants)
 	expandable := 0
-	require.NoError(t, e.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
 		expandable++
 		return true
 	}))
@@ -298,7 +298,7 @@ func TestTrustedImportPageConsumesFreshSyncBits(t *testing.T) {
 
 	childrenOf := func(parentID string) int {
 		n := 0
-		require.NoError(t, e.IterateResourcesByParent(ctx, "org", parentID, func(*v3.ResourceRecord) bool {
+		require.NoError(t, e.records.IterateResourcesByParent(ctx, "org", parentID, func(*v3.ResourceRecord) bool {
 			n++
 			return true
 		}))

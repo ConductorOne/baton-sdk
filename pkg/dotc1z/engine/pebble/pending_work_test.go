@@ -146,7 +146,7 @@ func TestPendingWorkDurableImages(t *testing.T) {
 			if cut == "after-flush" {
 				require.True(t, committed)
 			}
-			_, recordErr := recovered.GetResourceRecord(t.Context(), "group", "one")
+			_, recordErr := recovered.records.GetResourceRecord(t.Context(), "group", "one")
 			facts, err := recovered.Ledger().Facts(t.Context())
 			require.NoError(t, err)
 			counters, err := recovered.Ledger().Counters(t.Context())
@@ -183,7 +183,7 @@ func TestPendingWorkStaleCommitWritesNothing(t *testing.T) {
 	require.NoError(t, writer.PutResources(t.Context(), V3ResourceToV2(ledgerTestResource("group", "stale"))))
 	require.NoError(t, writer.SetFact("stale"))
 	require.ErrorIs(t, writer.Commit(t.Context(), work.Action.Identity, &c1zstore.LedgerRow{}), ErrStaleLedgerWork)
-	_, err := e.GetResourceRecord(t.Context(), "group", "stale")
+	_, err := e.records.GetResourceRecord(t.Context(), "group", "stale")
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 	facts, err := e.Ledger().Facts(t.Context())
 	require.NoError(t, err)

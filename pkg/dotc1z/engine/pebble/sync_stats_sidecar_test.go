@@ -23,16 +23,16 @@ func TestSyncStatsSidecarRoundtrip(t *testing.T) {
 	store := NewAdapter(e)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoErrorf(t, err, "StartNewSync")
-	require.NoErrorf(t, store.PutResourceTypes(ctx,
+	require.NoErrorf(t, store.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "user"}.Build(),
 		v2.ResourceType_builder{Id: "group"}.Build(),
 	), "PutResourceTypes")
-	require.NoErrorf(t, store.PutResources(ctx,
+	require.NoErrorf(t, store.records.PutResources(ctx,
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build(),
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build()}.Build(),
 		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build(),
 	), "PutResources")
-	require.NoErrorf(t, store.PutGrants(ctx,
+	require.NoErrorf(t, store.records.PutGrants(ctx,
 		mkV2Grant("gr1", "ent-A", "user", "u1"),
 		mkV2Grant("gr2", "ent-A", "user", "u2"),
 		mkV2Grant("gr3", "ent-B", "group", "g1"),
@@ -86,7 +86,7 @@ func TestSyncStatsSidecarBackfillOnOpen(t *testing.T) {
 		SyncId: syncID,
 		Type:   v3.SyncType_SYNC_TYPE_FULL,
 	}.Build()), "PutSyncRunRecord")
-	require.NoErrorf(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent-A", "alice")), "PutGrantRecord")
+	require.NoErrorf(t, e.records.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent-A", "alice")), "PutGrantRecord")
 	require.NoErrorf(t, e.SyncRuns().PersistSyncStats(ctx, syncID), "PersistSyncStats")
 	// Surgically delete the sidecar and the migration's applied-version
 	// stamp so the next Open's migrator re-runs.
@@ -112,7 +112,7 @@ func TestSyncStatsSidecarFallback(t *testing.T) {
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
 	require.NoError(t, e.MarkFreshSync(syncID))
-	require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent", "u1")))
+	require.NoError(t, e.records.PutGrantRecord(ctx, makeGrant(syncID, "g1", "ent", "u1")))
 	// Don't call PersistSyncStats — leaves the sidecar missing.
 
 	// The statsFromIteration helper still produces correct counts.
@@ -135,8 +135,8 @@ func TestPersistSyncStatsRepairsCorruptSidecar(t *testing.T) {
 			e, _ := newTestEngine(t)
 			syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			require.NoError(t, e.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
-			require.NoError(t, e.PutResources(ctx,
+			require.NoError(t, e.records.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
+			require.NoError(t, e.records.PutResources(ctx,
 				v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build(),
 			))
 			require.NoError(t, e.db.UnsafeForTesting().Set(encodeSyncStatsKey(), []byte{0xff}, nil))

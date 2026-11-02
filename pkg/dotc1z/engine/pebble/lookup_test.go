@@ -44,7 +44,7 @@ func TestBareIDEntitlementLookupExactlyOne(t *testing.T) {
 	e, _ := newTestEngine(t)
 	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
-	require.NoError(t, e.PutEntitlementRecords(ctx,
+	require.NoError(t, e.records.PutEntitlementRecords(ctx,
 		lookupTestEnt("app", "github", "opaque-ent"),
 		lookupTestEnt("app", "github", "app:github:read"), // SDK-shaped, stripped form
 		lookupTestEnt("group", "eng", "shared-id"),
@@ -52,28 +52,28 @@ func TestBareIDEntitlementLookupExactlyOne(t *testing.T) {
 	))
 
 	// Opaque id: lazy-map exact match.
-	got, err := e.GetEntitlementRecord(ctx, "opaque-ent")
+	got, err := e.records.GetEntitlementRecord(ctx, "opaque-ent")
 	require.NoError(t, err)
 	require.Equal(t, "opaque-ent", got.GetExternalId())
 
 	// SDK-shaped id round-trips byte-identical through the stripped encoding.
-	got, err = e.GetEntitlementRecord(ctx, "app:github:read")
+	got, err = e.records.GetEntitlementRecord(ctx, "app:github:read")
 	require.NoError(t, err)
 	require.Equal(t, "app:github:read", got.GetExternalId())
 
 	// Zero matches → NotFound.
-	_, err = e.GetEntitlementRecord(ctx, "no-such-id")
+	_, err = e.records.GetEntitlementRecord(ctx, "no-such-id")
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	// Two matches → explicit ambiguity, for reads AND deletes.
-	_, err = e.GetEntitlementRecord(ctx, "shared-id")
+	_, err = e.records.GetEntitlementRecord(ctx, "shared-id")
 	require.ErrorIs(t, err, ErrAmbiguousExternalID)
-	err = e.DeleteEntitlementRecord(ctx, "shared-id")
+	err = e.records.DeleteEntitlementRecord(ctx, "shared-id")
 	require.ErrorIs(t, err, ErrAmbiguousExternalID, "an ambiguous string must never guess a delete")
 
 	// Both ambiguous rows are intact.
 	var n int
-	require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
+	require.NoError(t, e.records.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
 		if r.GetExternalId() == "shared-id" {
 			n++
 		}
@@ -86,14 +86,14 @@ func TestDeleteEntitlementRecordByIdentityDisambiguatesSharedID(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
-	require.NoError(t, e.PutEntitlementRecords(ctx,
+	require.NoError(t, e.records.PutEntitlementRecords(ctx,
 		lookupTestEnt("group", "eng", "shared-id"),
 		lookupTestEnt("group", "sales", "shared-id"),
 	))
 
-	require.NoError(t, e.DeleteEntitlementRecordByIdentity(ctx, "group", "eng", "shared-id"))
+	require.NoError(t, e.records.DeleteEntitlementRecordByIdentity(ctx, "group", "eng", "shared-id"))
 	var resources []string
-	require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
+	require.NoError(t, e.records.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
 		if r.GetExternalId() == "shared-id" {
 			resources = append(resources, r.GetResource().GetResourceId())
 		}
@@ -110,19 +110,19 @@ func TestBareIDEntitlementLookupInvalidation(t *testing.T) {
 	e, _ := newTestEngine(t)
 	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
-	require.NoError(t, e.PutEntitlementRecords(ctx, lookupTestEnt("app", "github", "first")))
-	_, err := e.GetEntitlementRecord(ctx, "first")
+	require.NoError(t, e.records.PutEntitlementRecords(ctx, lookupTestEnt("app", "github", "first")))
+	_, err := e.records.GetEntitlementRecord(ctx, "first")
 	require.NoError(t, err, "build the map")
-	_, err = e.GetEntitlementRecord(ctx, "second")
+	_, err = e.records.GetEntitlementRecord(ctx, "second")
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
-	require.NoError(t, e.PutEntitlementRecords(ctx, lookupTestEnt("app", "github", "second")))
-	got, err := e.GetEntitlementRecord(ctx, "second")
+	require.NoError(t, e.records.PutEntitlementRecords(ctx, lookupTestEnt("app", "github", "second")))
+	got, err := e.records.GetEntitlementRecord(ctx, "second")
 	require.NoError(t, err, "write must invalidate the cached map")
 	require.Equal(t, "second", got.GetExternalId())
 
-	require.NoError(t, e.DeleteEntitlementRecord(ctx, "first"))
-	_, err = e.GetEntitlementRecord(ctx, "first")
+	require.NoError(t, e.records.DeleteEntitlementRecord(ctx, "first"))
+	_, err = e.records.GetEntitlementRecord(ctx, "first")
 	require.ErrorIs(t, err, pebble.ErrNotFound, "delete must invalidate the cached map")
 }
 
@@ -136,40 +136,40 @@ func TestBareIDGrantLookupExactlyOne(t *testing.T) {
 	e, _ := newTestEngine(t)
 	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
 
-	require.NoError(t, e.PutEntitlementRecords(ctx,
+	require.NoError(t, e.records.PutEntitlementRecords(ctx,
 		lookupTestEnt("app", "github", "opaque-ent"),
 	))
 
 	// SDK-shaped: stored external id IS the concat.
 	sdkID := "app:github:read:user:alice"
-	require.NoError(t, e.PutGrantRecord(ctx,
+	require.NoError(t, e.records.PutGrantRecord(ctx,
 		lookupTestGrant(sdkID, "app", "github", "app:github:read", "user", "alice")))
-	got, err := e.GetGrantRecord(ctx, sdkID)
+	got, err := e.records.GetGrantRecord(ctx, sdkID)
 	require.NoError(t, err)
 	require.Equal(t, sdkID, got.GetExternalId())
 
 	// Opaque entitlement id: the concat resolves through the entitlement
 	// record map, not the direct byte-split.
 	opaqueConcat := "opaque-ent:user:bob"
-	require.NoError(t, e.PutGrantRecord(ctx,
+	require.NoError(t, e.records.PutGrantRecord(ctx,
 		lookupTestGrant(opaqueConcat, "app", "github", "opaque-ent", "user", "bob")))
-	got, err = e.GetGrantRecord(ctx, opaqueConcat)
+	got, err = e.records.GetGrantRecord(ctx, opaqueConcat)
 	require.NoError(t, err)
 	require.Equal(t, "bob", got.GetPrincipal().GetResourceId())
 
 	// Connector-custom id (no concat shape): resolves via the stored-id
 	// scan of last resort — SQLite keyed rows by this id, so string reads
 	// must find it for reader parity.
-	require.NoError(t, e.PutGrantRecord(ctx,
+	require.NoError(t, e.records.PutGrantRecord(ctx,
 		lookupTestGrant("grant-42", "app", "github", "app:github:write", "user", "carol")))
-	got, err = e.GetGrantRecord(ctx, "grant-42")
+	got, err = e.records.GetGrantRecord(ctx, "grant-42")
 	require.NoError(t, err)
 	require.Equal(t, "carol", got.GetPrincipal().GetResourceId(),
 		"custom stored id must resolve via the stored-id scan fallback")
 	// Its concat reconstruction does not address it: the probe hit is not
 	// counted (stored id differs from the query), and the scan fallback
 	// matches stored ids only — no row STORES the concat string.
-	_, err = e.GetGrantRecord(ctx, "app:github:write:user:carol")
+	_, err = e.records.GetGrantRecord(ctx, "app:github:write:user:carol")
 	require.ErrorIs(t, err, pebble.ErrNotFound,
 		"a row with a custom stored id is addressed by that id, not its concat")
 
@@ -178,9 +178,9 @@ func TestBareIDGrantLookupExactlyOne(t *testing.T) {
 	// resolves the SDK-shaped row outright (exactly one probe hit), and the
 	// stored-id scan runs only when every probe misses. The custom-id row
 	// stays addressable by refs.
-	require.NoError(t, e.PutGrantRecord(ctx,
+	require.NoError(t, e.records.PutGrantRecord(ctx,
 		lookupTestGrant(sdkID, "group", "eng", "group:eng:member", "user", "dave")))
-	got, err = e.GetGrantRecord(ctx, sdkID)
+	got, err = e.records.GetGrantRecord(ctx, sdkID)
 	require.NoError(t, err)
 	require.Equal(t, "alice", got.GetPrincipal().GetResourceId(),
 		"concat query addresses the SDK-shaped row; custom-id rows are refs-only")
@@ -188,17 +188,17 @@ func TestBareIDGrantLookupExactlyOne(t *testing.T) {
 	// TRUE ambiguity: two SDK-shaped rows whose concats are byte-equal —
 	// entitlements on different resources sharing an external-id string.
 	dup := "shared-ent:user:erin"
-	require.NoError(t, e.PutEntitlementRecords(ctx,
+	require.NoError(t, e.records.PutEntitlementRecords(ctx,
 		lookupTestEnt("team", "red", "shared-ent"),
 		lookupTestEnt("team", "blue", "shared-ent"),
 	))
-	require.NoError(t, e.PutGrantRecord(ctx,
+	require.NoError(t, e.records.PutGrantRecord(ctx,
 		lookupTestGrant(dup, "team", "red", "shared-ent", "user", "erin")))
-	require.NoError(t, e.PutGrantRecord(ctx,
+	require.NoError(t, e.records.PutGrantRecord(ctx,
 		lookupTestGrant(dup, "team", "blue", "shared-ent", "user", "erin")))
-	_, err = e.GetGrantRecord(ctx, dup)
+	_, err = e.records.GetGrantRecord(ctx, dup)
 	require.ErrorIs(t, err, ErrAmbiguousExternalID)
-	err = e.DeleteGrantRecord(ctx, dup)
+	err = e.records.DeleteGrantRecord(ctx, dup)
 	require.ErrorIs(t, err, ErrAmbiguousExternalID, "an ambiguous string must never guess a delete")
 }
 
@@ -214,22 +214,22 @@ func TestDeleteGrantByIdentityRefsIsExact(t *testing.T) {
 	shared := "app:github:read:user:alice"
 	a := lookupTestGrant(shared, "app", "github", "app:github:read", "user", "alice")
 	b := lookupTestGrant(shared, "group", "eng", "group:eng:member", "user", "dave")
-	require.NoError(t, e.PutGrantRecord(ctx, a))
-	require.NoError(t, e.PutGrantRecord(ctx, b))
+	require.NoError(t, e.records.PutGrantRecord(ctx, a))
+	require.NoError(t, e.records.PutGrantRecord(ctx, b))
 
 	// The string is ambiguous, but refs are not.
-	require.NoError(t, e.DeleteGrantByIdentityRefs(ctx, a))
+	require.NoError(t, e.records.DeleteGrantByIdentityRefs(ctx, a))
 	var survivors []string
-	require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		survivors = append(survivors, r.GetEntitlement().GetEntitlementId())
 		return true
 	}))
 	require.Equal(t, []string{"group:eng:member"}, survivors, "refs delete removes exactly its row")
 
 	// Delete of a non-existent identity is a no-op.
-	require.NoError(t, e.DeleteGrantByIdentityRefs(ctx, a))
+	require.NoError(t, e.records.DeleteGrantByIdentityRefs(ctx, a))
 
 	// Incomplete refs are an error, never a bare-id fallback.
-	err := e.DeleteGrantByIdentityRefs(ctx, v3.GrantRecord_builder{ExternalId: shared}.Build())
+	err := e.records.DeleteGrantByIdentityRefs(ctx, v3.GrantRecord_builder{ExternalId: shared}.Build())
 	require.Error(t, err)
 }

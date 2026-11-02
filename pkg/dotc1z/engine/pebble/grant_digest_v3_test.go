@@ -250,14 +250,14 @@ func TestGrantDigestAccumulatorAddRecordMatchesSealedRoots(t *testing.T) {
 	for entID, grants := range entGrants {
 		putEnt(t, e, ctx, entID)
 		for _, g := range grants {
-			require.NoError(t, e.PutGrantRecords(ctx, V2GrantToV3("", g)))
+			require.NoError(t, e.records.PutGrantRecords(ctx, V2GrantToV3("", g)))
 		}
 	}
 	sealGrantDigests(t, e)
 
 	perEnt := map[string]*GrantDigestAccumulator{}
 	var global GrantDigestAccumulator
-	require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		key := r.GetEntitlement().GetEntitlementId()
 		if perEnt[key] == nil {
 			perEnt[key] = &GrantDigestAccumulator{}
@@ -268,7 +268,7 @@ func TestGrantDigestAccumulatorAddRecordMatchesSealedRoots(t *testing.T) {
 	}))
 
 	for entID, grants := range entGrants {
-		want, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity(entID))
+		want, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity(entID))
 		require.NoError(t, err)
 		require.True(t, ok, "digest root present for %s", entID)
 		acc := perEnt[canonicalTestEntID(entID)]
@@ -282,7 +282,7 @@ func TestGrantDigestAccumulatorAddRecordMatchesSealedRoots(t *testing.T) {
 		require.Equal(t, want.Count, acc.Root().Count, "entitlement %s count", entID)
 	}
 
-	want, ok, err := e.GetGrantDigestGlobalRoot(ctx)
+	want, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, want.Hash, global.Root().Hash, "global digest")

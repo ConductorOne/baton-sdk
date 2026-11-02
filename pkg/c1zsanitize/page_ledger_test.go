@@ -217,7 +217,7 @@ func needsExpansionCount(t *testing.T, ctx context.Context, store c1zstore.Store
 	engine, ok := pebble.AsEngine(store)
 	require.True(t, ok)
 	count := 0
-	require.NoError(t, engine.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
+	require.NoError(t, engine.Records().IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}))

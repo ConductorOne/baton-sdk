@@ -81,10 +81,10 @@ func TestEndSyncSecondCallTakesTargetedRepairPath(t *testing.T) {
 		id := ksuid.New().String()
 		grantsA = append(grantsA, makeGrant("", id, "ent-A", id))
 	}
-	if err := e.PutGrantRecords(ctx, grantsA...); err != nil {
+	if err := e.records.PutGrantRecords(ctx, grantsA...); err != nil {
 		t.Fatalf("PutGrantRecords(ent-A): %v", err)
 	}
-	if err := e.PutGrantRecords(ctx, makeGrant("", "gb1", "ent-B", "bob")); err != nil {
+	if err := e.records.PutGrantRecords(ctx, makeGrant("", "gb1", "ent-B", "bob")); err != nil {
 		t.Fatalf("PutGrantRecords(ent-B): %v", err)
 	}
 
@@ -106,16 +106,16 @@ func TestEndSyncSecondCallTakesTargetedRepairPath(t *testing.T) {
 	if err := a.SetCurrentSync(ctx, syncID); err != nil {
 		t.Fatalf("SetCurrentSync: %v", err)
 	}
-	if err := e.PutGrantRecord(ctx, makeGrant("", "ga-extra", "ent-A", "extra-user")); err != nil {
+	if err := e.records.PutGrantRecord(ctx, makeGrant("", "ga-extra", "ent-A", "extra-user")); err != nil {
 		t.Fatalf("PutGrantRecord (post-seal): %v", err)
 	}
 
 	// Sanity: only ent-A (and the global root) should be invalidated by
 	// that write.
-	if _, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A")); err != nil || ok {
+	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A")); err != nil || ok {
 		t.Fatalf("ent-A root after post-seal write: ok=%v err=%v, want missing", ok, err)
 	}
-	rootB, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-B"))
+	rootB, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-B"))
 	if err != nil || !ok {
 		t.Fatalf("ent-B root after post-seal write: ok=%v err=%v, want intact", ok, err)
 	}
@@ -164,14 +164,14 @@ func TestEndSyncSecondCallTakesTargetedRepairPath(t *testing.T) {
 
 	// ent-A must be correctly repaired (21 grants now), and the global
 	// root must be recomputed and correct.
-	rootA, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
+	rootA, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
 	if err != nil || !ok {
 		t.Fatalf("ent-A root after repair: ok=%v err=%v", ok, err)
 	}
 	if rootA.Count != 21 {
 		t.Fatalf("ent-A root count = %d, want 21", rootA.Count)
 	}
-	globalRoot, ok, err := e.GetGrantDigestGlobalRoot(ctx)
+	globalRoot, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx)
 	if err != nil || !ok {
 		t.Fatalf("global root after repair: ok=%v err=%v", ok, err)
 	}

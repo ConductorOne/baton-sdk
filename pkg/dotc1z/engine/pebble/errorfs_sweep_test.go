@@ -249,7 +249,7 @@ func (w sweepWorkload) connectorGrants() []*v2.Grant {
 // The bound-sync sweep's baseline stops after writeFirstPages so the
 // bound run writes new rows, not only overwrites.
 func (w sweepWorkload) writeFirstPages(ctx context.Context, a *Adapter) error {
-	if err := a.PutResourceTypes(ctx,
+	if err := a.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "app"}.Build(),
 		v2.ResourceType_builder{Id: "user"}.Build(),
 	); err != nil {
@@ -266,7 +266,7 @@ func (w sweepWorkload) writeFirstPages(ctx context.Context, a *Adapter) error {
 		}.Build())
 	}
 	scopedCtx := sourcecache.WithScope(ctx, "errorfs-sweep")
-	if err := a.PutResources(scopedCtx, resources...); err != nil {
+	if err := a.records.PutResources(scopedCtx, resources...); err != nil {
 		return err
 	}
 	ents := make([]*v2.Entitlement, 0, w.perPrinc+1)
@@ -284,18 +284,18 @@ func (w sweepWorkload) writeFirstPages(ctx context.Context, a *Adapter) error {
 			Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
 		}.Build(),
 	}.Build())
-	if err := a.PutEntitlements(scopedCtx, ents...); err != nil {
+	if err := a.records.PutEntitlements(scopedCtx, ents...); err != nil {
 		return err
 	}
 	// Two pages of grants, like a paginated connector.
 	gs := w.connectorGrants()
-	return a.PutGrants(scopedCtx, gs[:len(gs)/2]...)
+	return a.records.PutGrants(scopedCtx, gs[:len(gs)/2]...)
 }
 
 func (w sweepWorkload) writeRemainingPages(ctx context.Context, a *Adapter) error {
 	scopedCtx := sourcecache.WithScope(ctx, "errorfs-sweep")
 	gs := w.connectorGrants()
-	if err := a.PutGrants(scopedCtx, gs[len(gs)/2:]...); err != nil {
+	if err := a.records.PutGrants(scopedCtx, gs[len(gs)/2:]...); err != nil {
 		return err
 	}
 	for _, kind := range []sourcecache.RowKind{
@@ -369,7 +369,7 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 	a := NewAdapter(e)
 	require.NoErrorf(t, a.SetCurrentSync(ctx, syncID), "%s: bind sync for reads", label)
 
-	resp, err := a.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	resp, err := a.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoErrorf(t, err, "%s: ListGrants", label)
 	gotGrantIDs := make([]string, 0, len(resp.GetList()))
 	for _, g := range resp.GetList() {
@@ -377,11 +377,11 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 	}
 	require.ElementsMatchf(t, w.expectedGrantIDs(), gotGrantIDs, "%s: grant id set", label)
 
-	rresp, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
+	rresp, err := a.records.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
 	require.NoErrorf(t, err, "%s: ListResources", label)
 	require.Lenf(t, rresp.GetList(), 1+len(w.principals), "%s: resource count", label)
 
-	eresp, err := a.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
+	eresp, err := a.records.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
 	require.NoErrorf(t, err, "%s: ListEntitlements", label)
 	require.Lenf(t, eresp.GetList(), w.perPrinc+1, "%s: entitlement count", label)
 
@@ -393,7 +393,7 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 	wantEnts := w.expectedEntIDsPerPrincipal()
 	for _, p := range w.principals {
 		var gotEnts []string
-		require.NoErrorf(t, e.IterateGrantsByPrincipal(ctx, "user", p, func(r *v3.GrantRecord) bool {
+		require.NoErrorf(t, e.records.IterateGrantsByPrincipal(ctx, "user", p, func(r *v3.GrantRecord) bool {
 			require.Equalf(t, "user", r.GetPrincipal().GetResourceTypeId(), "%s: %s index row principal type", label, p)
 			require.Equalf(t, p, r.GetPrincipal().GetResourceId(), "%s: %s index row principal id", label, p)
 			gotEnts = append(gotEnts, r.GetEntitlement().GetEntitlementId())
@@ -486,14 +486,14 @@ func (w sweepWorkload) verifyStatsSidecar(ctx context.Context, t *testing.T, e *
 func (w sweepWorkload) verifyDigests(ctx context.Context, t *testing.T, e *Engine, requireDigests bool, label string) {
 	t.Helper()
 
-	groot, gok, err := e.GetGrantDigestGlobalRoot(ctx)
+	groot, gok, err := e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoErrorf(t, err, "%s: GetGrantDigestGlobalRoot", label)
 	if !gok {
 		require.Falsef(t, requireDigests, "%s: digest state absent on an image whose finishing EndSync ran uninjected — the build cannot legally have dropped", label)
 		// Consistent absence: no entitlement root may survive a drop.
 		for _, entID := range w.expectedEntIDsPerPrincipal() {
 			id := entitlementIdentityFromParts("app", "github", entID)
-			_, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+			_, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, id)
 			require.NoErrorf(t, err, "%s: GetEntitlementDigestRoot(%s)", label, entID)
 			require.Falsef(t, ok, "%s: global digest root absent but %s kept a root — partial digest state lies to the repair fast path", label, entID)
 		}
@@ -506,7 +506,7 @@ func (w sweepWorkload) verifyDigests(ctx context.Context, t *testing.T, e *Engin
 		count int64
 	}
 	primary := map[string]*fold{}
-	require.NoErrorf(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoErrorf(t, e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		h, err := grantContentHashForRecord(r)
 		require.NoErrorf(t, err, "%s: content hash for %s", label, r.GetExternalId())
 		gid, err := grantIdentityFromRecord(r)
@@ -528,7 +528,7 @@ func (w sweepWorkload) verifyDigests(ctx context.Context, t *testing.T, e *Engin
 		id := entitlementIdentityFromParts("app", "github", entID)
 		part := digestPartitionForEntitlement(id)
 
-		root, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+		root, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, id)
 		require.NoErrorf(t, err, "%s: GetEntitlementDigestRoot(%s)", label, entID)
 		require.Truef(t, ok, "%s: finished store must have a digest root for %s (present-means-exact)", label, entID)
 
@@ -537,7 +537,7 @@ func (w sweepWorkload) verifyDigests(ctx context.Context, t *testing.T, e *Engin
 		require.Equalf(t, pf.count, root.Count, "%s: stored root count vs primary fold for %s", label, entID)
 		require.Equalf(t, pf.xor[:], root.Hash, "%s: stored root hash vs primary fold for %s", label, entID)
 
-		idxHash, idxCount, err := e.ComputeEntitlementBucketDigest(ctx, id, DigestBucket{})
+		idxHash, idxCount, err := e.Digests().ComputeEntitlementBucketDigest(ctx, id, DigestBucket{})
 		require.NoErrorf(t, err, "%s: ComputeEntitlementBucketDigest(%s)", label, entID)
 		require.Equalf(t, root.Count, idxCount, "%s: hash-index fold count vs stored root for %s", label, entID)
 		require.Equalf(t, root.Hash, idxHash, "%s: hash-index fold hash vs stored root for %s", label, entID)
@@ -969,10 +969,10 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 	// clears and (digests off) no digest build — nothing Syncs between
 	// these NoSync commits and the stamp.
 	principals := []string{"alice", "bob", "carol"}
-	require.NoError(t, a.PutResourceTypes(ctx,
+	require.NoError(t, a.records.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "app"}.Build(),
 		v2.ResourceType_builder{Id: "user"}.Build()))
-	require.NoError(t, a.PutEntitlements(ctx, v2.Entitlement_builder{
+	require.NoError(t, a.records.PutEntitlements(ctx, v2.Entitlement_builder{
 		Id: canonicalTestEntID("ent-00"),
 		Resource: v2.Resource_builder{
 			Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
@@ -982,7 +982,7 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 	for _, p := range principals {
 		gs = append(gs, mkV2Grant("", "ent-00", "user", p))
 	}
-	require.NoError(t, a.PutGrants(ctx, gs...))
+	require.NoError(t, a.records.PutGrants(ctx, gs...))
 	require.False(t, e.db.DeferredIdxPending(), "inline-only pages must not arm the deferred marker (isolation precondition)")
 
 	var image *vfs.MemFS
@@ -1003,7 +1003,7 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 
 	va := NewAdapter(ve)
 	require.NoError(t, va.SetCurrentSync(ctx, syncID))
-	resp, err := va.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	resp, err := va.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	var wantIDs []string
 	for _, p := range principals {
@@ -1017,7 +1017,7 @@ func TestEndSyncStampDurabilityCarriesPages(t *testing.T) {
 		"finished image lost NoSync page rows: the stamp's Sync no longer carries earlier commits (WAL prefix durability broken)")
 	for _, p := range principals {
 		n := 0
-		require.NoError(t, ve.IterateGrantsByPrincipal(ctx, "user", p, func(*v3.GrantRecord) bool {
+		require.NoError(t, ve.records.IterateGrantsByPrincipal(ctx, "user", p, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		}))

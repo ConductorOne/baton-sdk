@@ -73,7 +73,7 @@ func TestV3ReadPurityWholeStoreUnchanged(t *testing.T) {
 			Principal:    v3.PrincipalRef_builder{ResourceTypeId: id.rt, ResourceId: id.pid}.Build(),
 			DiscoveredAt: timestamppb.New(base.Add(time.Duration(i) * time.Hour)),
 		}.Build()
-		require.NoError(t, e.PutGrantRecord(ctx, rec))
+		require.NoError(t, e.records.PutGrantRecord(ctx, rec))
 	}
 	require.NoError(t, e.EndSync(ctx)) // seal — reads happen against the sealed store
 
@@ -90,14 +90,14 @@ func TestV3ReadPurityWholeStoreUnchanged(t *testing.T) {
 		for _, id := range ids {
 			_, err := r3.GetGrant(ctx, reader_v3.GrantsReaderServiceGetGrantRequest_builder{GrantId: "g-" + id.pid}.Build())
 			require.NoError(t, err)
-			_, err = e.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "g-" + id.pid}.Build())
+			_, err = e.records.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "g-" + id.pid}.Build())
 			require.NoError(t, err)
 		}
 		_, err := r3.ListGrantsForEntitlement(ctx, reader_v3.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 			Entitlement: entStub, PageSize: 100,
 		}.Build())
 		require.NoError(t, err)
-		_, err = e.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		_, err = e.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 			Entitlement: entStub, PageSize: 100,
 		}.Build())
 		require.NoError(t, err)

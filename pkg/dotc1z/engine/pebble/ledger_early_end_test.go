@@ -75,7 +75,7 @@ func TestLedgerEarlyEndPreservesRecovery(t *testing.T) {
 					require.True(t, found)
 					require.False(t, row.Scrubbed)
 					require.Equal(t, "private-next-token", row.NextPageToken)
-					_, err = r.GetResourceRecord(ctx, "group", "one")
+					_, err = r.records.GetResourceRecord(ctx, "group", "one")
 					require.NoError(t, err)
 					require.NoError(t, r.EndSync(ctx))
 					stats, err := r.SyncRuns().readSyncStats(ctx, syncID)

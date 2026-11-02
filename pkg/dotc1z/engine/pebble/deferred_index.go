@@ -600,7 +600,7 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 	if hashIdx != nil {
 		digestErr := hashScanErr
 		if digestErr == nil {
-			digestErr = e.buildGrantDigestsFromSpill(ctx, dir, hashIdx)
+			digestErr = e.digests.buildGrantDigestsFromSpill(ctx, dir, hashIdx)
 		}
 		if digestErr != nil {
 			if ctx.Err() != nil {
@@ -609,7 +609,7 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 			l.Error("deferred grant index build: grant digest/hash-index build failed; dropping digest state — grant-diff callers must re-read grants until the next successful seal",
 				zap.Error(digestErr),
 			)
-			if dropErr := e.dropAllGrantDigestStateLocked(); dropErr != nil {
+			if dropErr := e.digests.dropAllGrantDigestStateLocked(); dropErr != nil {
 				return fmt.Errorf("BuildDeferredGrantIndexes: drop grant digest state after failed build: %w", dropErr)
 			}
 		}

@@ -60,7 +60,7 @@ func TestMergeFilesIntoOverlayNewerDiscoveredAtWins(t *testing.T) {
 	require.NoError(t, err, "MergeFilesIntoOverlay")
 
 	grants := map[string]*v3.GrantRecord{}
-	require.NoError(t, dest.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.Records().IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		grants[g.GetExternalId()] = g
 		return true
 	}))
@@ -77,7 +77,7 @@ func TestMergeFilesIntoOverlayNewerDiscoveredAtWins(t *testing.T) {
 	// SST-ingested index entry must be present.
 	byPrincipal := map[string][]string{}
 	for _, principal := range []string{"alice", "bob", "carol"} {
-		require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", principal, func(g *v3.GrantRecord) bool {
+		require.NoError(t, dest.Records().IterateGrantsByPrincipal(ctx, "user", principal, func(g *v3.GrantRecord) bool {
 			byPrincipal[principal] = append(byPrincipal[principal], g.GetExternalId())
 			return true
 		}))
