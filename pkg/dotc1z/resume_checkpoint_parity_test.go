@@ -11,6 +11,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // TestResumeCheckpointParity locks in that both storage engines resume
@@ -49,7 +50,9 @@ func TestResumeCheckpointParity(t *testing.T) {
 			syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
 			require.NoError(t, store.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
-			require.NoError(t, store.CheckpointSync(ctx, fsmCursor))
+			eng, ok := enginepkg.AsEngine(store)
+			require.True(t, ok)
+			require.NoError(t, eng.SetSyncTokenForTesting(ctx, fsmCursor))
 			require.NoError(t, store.Close(ctx))
 
 			// Activity window 2: a fresh process reopens the same c1z and

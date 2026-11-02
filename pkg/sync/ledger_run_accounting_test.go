@@ -146,7 +146,7 @@ func TestLedgerMigratedAccountingAcrossColdResumes(t *testing.T) {
 				importedCalls, importedWait, importedErrors, importedMs = 2, 11, 1, 9
 				wantFlags = 0
 			}
-			require.NoError(t, f.store.CheckpointSync(ctx, state))
+			require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, state))
 			for attempt := range 3 {
 				require.NoError(t, f.store.Close(ctx))
 				f = openLedgerFixtureAt(t, f.path, false)

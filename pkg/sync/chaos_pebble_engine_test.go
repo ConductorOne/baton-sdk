@@ -35,10 +35,6 @@ func (s *chaosPebbleStore) CurrentSyncStep(ctx context.Context) (string, error) 
 	return s.engine.CurrentSyncStep(ctx)
 }
 
-func (s *chaosPebbleStore) CheckpointSync(ctx context.Context, syncToken string) error {
-	return s.engine.CheckpointSync(ctx, syncToken)
-}
-
 func (s *chaosPebbleStore) EndSync(ctx context.Context) error {
 	return s.engine.EndSync(ctx)
 }

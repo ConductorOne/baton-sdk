@@ -158,7 +158,7 @@ func TestLedgerExpansionOnlyExpandsFinishedBaselineUpload(t *testing.T) {
 	require.NoError(t, f.store.PutGrants(ctx, grants...))
 	token, err := marshalToken(newRunState(), newRunStats())
 	require.NoError(t, err)
-	require.NoError(t, f.store.CheckpointSync(ctx, token))
+	require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, token))
 	require.NoError(t, f.store.EndSync(ctx))
 	want := append(listGrantIDs(t, f),
 		gt.NewGrant(groups[1], "member", alice).GetId(),
@@ -207,7 +207,7 @@ func TestLedgerExpansionOnlyImportsExternalPrincipalsFromFinishedBaselineUpload(
 			}
 			token, err := marshalToken(run, newRunStats())
 			require.NoError(t, err)
-			require.NoError(t, f.store.CheckpointSync(ctx, token))
+			require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, token))
 			require.NoError(t, f.store.EndSync(ctx))
 			require.NoError(t, f.store.Close(ctx))
 
@@ -239,7 +239,7 @@ func TestLedgerExpansionOnlyRefusesLegacyCheckpointBeforeTakeover(t *testing.T) 
 	prior.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "remaining"})
 	token, err := marshalToken(prior, newRunStats())
 	require.NoError(t, err)
-	require.NoError(t, f.store.CheckpointSync(ctx, token))
+	require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, token))
 	before := ledgerRawSnapshot(t, f.engine)
 	require.NoError(t, f.store.Close(ctx))
 
@@ -289,7 +289,7 @@ func TestLedgerLegacyCheckpointAtExpansionResumesAsBaselineWould(t *testing.T) {
 		prior.pushAction(ctx, Action{Op: SyncGrantExpansionOp})
 		token, err := marshalToken(prior, newRunStats())
 		require.NoError(t, err)
-		require.NoError(t, f.store.CheckpointSync(ctx, token))
+		require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, token))
 		collected := listGrantIDs(t, f)
 		expanded := append(slices.Clone(collected),
 			gt.NewGrant(groups[1], "member", alice).GetId(),
@@ -534,7 +534,7 @@ func TestLedgerFinishedSyncAtInitSeedRefusesCollection(t *testing.T) {
 			}
 			token, err := marshalToken(prior, newRunStats())
 			require.NoError(t, err)
-			require.NoError(t, f.store.CheckpointSync(ctx, token))
+			require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, token))
 			require.NoError(t, f.store.EndSync(ctx))
 			return f, id
 		}
@@ -628,7 +628,7 @@ func TestLedgerFrontierSeedArmsCollectionFlagLock(t *testing.T) {
 	prior.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "remaining"})
 	token, err := marshalToken(prior, newRunStats())
 	require.NoError(t, err)
-	require.NoError(t, f.store.CheckpointSync(ctx, token))
+	require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, token))
 	_, err = f.engine.Ledger().Takeover(ctx, "prior", nil, c1zstore.LedgerCounters{})
 	require.NoError(t, err)
 	state, err := f.ledger.State(ctx)
@@ -668,7 +668,7 @@ func TestLedgerLegacyTakeoverArmsCollectionFlagLock(t *testing.T) {
 	prior.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "remaining"})
 	token, err := marshalToken(prior, newRunStats())
 	require.NoError(t, err)
-	require.NoError(t, f.store.CheckpointSync(ctx, token))
+	require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, token))
 
 	takeover := ledgerContinuationSyncer(f)
 	takeover.cfg.skipGrants = true

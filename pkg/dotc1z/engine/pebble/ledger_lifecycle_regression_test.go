@@ -30,7 +30,7 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 
 	const marker = "opaque-cursor-9f3a"
 	state := `{"v":1,"actions":[{"op":"list-grants","page_token":"` + marker + `"}]}`
-	require.NoError(t, e.CheckpointSync(ctx, state))
+	require.NoError(t, e.SetSyncTokenForTesting(ctx, state))
 
 	moved, err := e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{
 		Counters: map[string]uint64{"completed_actions": 1},
@@ -53,37 +53,10 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	require.False(t, strings.Contains(f.State, marker))
 }
 
-// A sync with ledger rows must be refused a checkpoint token even when
-// the in-flight stamp has been cleared.
-//
-// This SDK clears the stamp only in the batch that removes the rows or
-// writes ended_at. An earlier SDK cleared it on its own before ended_at, so
-// a file it crashed on holds rows with the stamp at v2; gating on the stamp
-// alone let CheckpointSync write a token beside a live ledger.
-func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
-	ctx := context.Background()
-	e, _ := newTestEngine(t)
-	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-
-	u := e.ledger.newPageUnit()
-	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
-	require.True(t, e.ledger.inFlight.Load(), "committing a page stamps in flight")
-	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
-
-	require.NoError(t, e.withWriteAllowSealed(func() error { return e.stampKeyspaceVersionValueLocked(keyspaceVersion) }))
-	e.ledger.inFlight.Store(false)
-
-	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken,
-		"rows outlive the stamp, so rows are what the gate asks about")
-	require.NoError(t, e.EndSync(ctx))
-}
-
 // ResetForNewSync excises the ledger family but the keyspace stamp lives
 // in the preserved engine-meta range, so the in-flight classification
-// outlived the rows. The replacement sync was then refused a token by
-// CheckpointSync and refused a plain seal by EndSync, on a file with no
-// ledger at all: neither protocol could finish it.
+// outlived the rows. The replacement sync was then refused a plain seal
+// by EndSync, on a file with no ledger at all.
 // The stamp only outlives its rows when the ledgered sync never sealed,
 // so the setup has to abandon one: commit a page, then reopen without
 // EndSync. A seal clears the stamp in its own batch and the reset would
@@ -108,7 +81,6 @@ func TestResetForNewSyncClearsTheInFlightStamp(t *testing.T) {
 	require.Zero(t, rows, "the wipe took the rows")
 	require.False(t, e.ledger.inFlight.Load(), "and the stamp that described them")
 
-	require.NoError(t, e.CheckpointSync(ctx, "tok"))
 	require.NoError(t, e.EndSync(ctx))
 }
 
@@ -121,7 +93,7 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.CheckpointSync(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
+	require.NoError(t, e.SetSyncTokenForTesting(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 
 	_, err = e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{
 		ConnectorCalls:  map[string]c1zstore.CallStat{"ListGrants": {Count: 2, TotalMs: 40, MaxMs: 30}},
@@ -143,7 +115,7 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	e2, _ := newTestEngine(t)
 	_, err = e2.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e2.CheckpointSync(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
+	require.NoError(t, e2.SetSyncTokenForTesting(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 	_, err = e2.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{})
 	require.NoError(t, err)
 	n, err = e2.ledger.counterBucketCount(ctx)
@@ -261,7 +233,7 @@ func TestTakeoverBucketSurvivesWorkerZerosPage(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.CheckpointSync(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
+	require.NoError(t, e.SetSyncTokenForTesting(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 
 	_, err = e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{
 		Counters: map[string]uint64{"completed_actions": 5},
@@ -284,8 +256,8 @@ func TestTakeoverBucketSurvivesWorkerZerosPage(t *testing.T) {
 
 // DropLedger removed the rows and left both the on-disk stamp and the
 // in-memory flag set, so a drop before the seal left a file with no
-// ledger that still refused CheckpointSync and still refused a plain
-// EndSync — and still read as an unsupported layout to a token-only SDK.
+// ledger that still refused a plain EndSync — and still read as an
+// unsupported layout to a token-only SDK.
 // Same defect ResetForNewSync had, in the other place that deletes these
 // rows.
 func TestDropLedgerClearsTheInFlightStamp(t *testing.T) {
@@ -297,8 +269,6 @@ func TestDropLedgerClearsTheInFlightStamp(t *testing.T) {
 	u := e.ledger.newPageUnit()
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	require.True(t, e.ledger.inFlight.Load())
-	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
-
 	require.NoError(t, e.ledger.Drop(ctx))
 	require.False(t, e.ledger.inFlight.Load(), "the stamp goes with the rows")
 
@@ -306,12 +276,11 @@ func TestDropLedgerClearsTheInFlightStamp(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, keyspaceVersion, stamp, "and on disk, so an older SDK can read the file")
 
-	require.NoError(t, e.CheckpointSync(ctx, "tok"))
 	require.NoError(t, e.EndSync(ctx))
 }
 
 // The rows and the stamp leave in one batch: a failed Drop keeps both, so
-// the file still refuses a token and a retry has the same work to do.
+// a retry has the same work to do.
 func TestDropLedgerCommitFailureKeepsRowsAndStamp(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
@@ -333,8 +302,6 @@ func TestDropLedgerCommitFailureKeepsRowsAndStamp(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, keyspaceVersionLedgerInFlight, stamp, "and so does the stamp that describes it")
 	require.True(t, e.ledger.inFlight.Load())
-	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
-
 	require.NoError(t, e.ledger.Drop(ctx))
 	n, err = e.ledger.rowCount(ctx)
 	require.NoError(t, err)
@@ -342,7 +309,6 @@ func TestDropLedgerCommitFailureKeepsRowsAndStamp(t *testing.T) {
 	stamp, err = e.keyspaceVersionStamp()
 	require.NoError(t, err)
 	require.Equal(t, keyspaceVersion, stamp)
-	require.NoError(t, e.CheckpointSync(ctx, "tok"))
 }
 
 // endSync stashes the overlay before GetSyncRunRecord and endSyncFinalize
@@ -444,7 +410,7 @@ func TestDropLedgerWipesEveryLedgerSubFamily(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.CheckpointSync(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
+	require.NoError(t, e.SetSyncTokenForTesting(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 	_, err = e.ledger.Takeover(ctx, "run-1", []string{"needs_expansion"}, c1zstore.LedgerCounters{
 		Counters: map[string]uint64{"completed_actions": 1},
 	})

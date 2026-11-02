@@ -483,10 +483,6 @@ func (s *pebbleStore) StartOrResumeSync(ctx context.Context, syncType connectors
 	return id, started, err
 }
 
-func (s *pebbleStore) CheckpointSync(ctx context.Context, syncToken string) error {
-	return s.markDirty(s.engine.CheckpointSync(ctx, syncToken))
-}
-
 func (s *pebbleStore) EndSync(ctx context.Context) error {
 	return s.markDirty(s.engine.EndSync(ctx))
 }

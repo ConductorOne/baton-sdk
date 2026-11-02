@@ -58,7 +58,7 @@ func seedLedgerPublicLegacy(t *testing.T, f *ledgerFixture, c *ledgerPublicCrash
 		require.Equal(t, "1", response.GetNextPageToken())
 		require.NoError(t, f.store.PutResources(t.Context(), response.GetList()...))
 	}
-	require.NoError(t, f.store.CheckpointSync(t.Context(), ledgerPublicLegacyToken(version)))
+	require.NoError(t, f.engine.SetSyncTokenForTesting(t.Context(), ledgerPublicLegacyToken(version)))
 	require.NoError(t, f.engine.Flush(t.Context()))
 }
 

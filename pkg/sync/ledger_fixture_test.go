@@ -122,13 +122,6 @@ func (s *ledgerGuardedStore) PutAsset(ctx context.Context, ref *v2.AssetRef, con
 	return s.Store.PutAsset(ctx, ref, contentType, data)
 }
 
-func (s *ledgerGuardedStore) CheckpointSync(ctx context.Context, token string) error {
-	if err := s.audit.record(ctx, "CheckpointSync"); err != nil {
-		return err
-	}
-	return s.Store.CheckpointSync(ctx, token)
-}
-
 func (s *ledgerGuardedStore) EndSync(ctx context.Context) error {
 	if err := s.audit.record(ctx, "EndSync"); err != nil {
 		return err

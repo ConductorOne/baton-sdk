@@ -97,12 +97,8 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 // base, and encodeLedgerKey carries no sync id (one ledger per file), so
 // the base's rows, facts, and counter buckets land in the output while
 // the fold renames the sync-run record to a fresh id. They then describe
-// an ingest the output no longer claims.
-//
-// Two things go wrong if they stay: Ledger.active reports true, so a
-// later rebind that writes a checkpoint token fails with
-// ErrLedgeredSyncWritesNoToken; and LedgerCounters reports the base
-// ingest's totals as this artifact's.
+// an ingest the output no longer claims. LedgerCounters reports the base
+// ingest's totals as this artifact's if the inherited buckets stay.
 func TestCompactPebbleFoldDropsInheritedBaseLedger(t *testing.T) {
 	ctx := context.Background()
 	inDir := t.TempDir()
@@ -144,10 +140,6 @@ func TestCompactPebbleFoldDropsInheritedBaseLedger(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, counters.Counters[foldLedgerCounterKey],
 		"the fold output reports the base ingest's counter totals as its own")
-
-	require.NoError(t, store.SetCurrentSync(ctx, out.SyncID))
-	require.NoError(t, store.CheckpointSync(ctx, "token-after-fold"),
-		"an inherited ledger blocks the fold output from checkpointing a later sync")
 }
 
 // requireLedgerRow asserts whether the c1z at path carries the fixture's

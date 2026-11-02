@@ -124,7 +124,6 @@ func testLedgerDiscardDurableSealCuts(t *testing.T, previouslyFinished bool) {
 				require.Equal(t, keyspaceVersion, stamp, "a finished file opens under a token-only SDK")
 			} else {
 				require.Equal(t, keyspaceVersionLedgerInFlight, stamp, "an unfinished file refuses a token-only SDK; it would resume from Init over the sealed data")
-				require.ErrorIs(t, reopened.CheckpointSync(t.Context(), "forbidden-token"), ErrLedgeredSyncWritesNoToken)
 			}
 
 			facts, err := reopened.Ledger().Facts(t.Context())
@@ -276,7 +275,6 @@ func TestLedgerDiscardBatchFailure(t *testing.T) {
 			require.Equal(t, failAt, calls, "disposal then stamp; nothing after")
 			e.db.SetRecordCommitTestHook(nil)
 			require.NoError(t, e.SetCurrentSync(t.Context(), id))
-			require.ErrorIs(t, e.CheckpointSync(t.Context(), "forbidden-token"), ErrLedgeredSyncWritesNoToken)
 			_, found, err := e.Ledger().GetRow(t.Context(), page)
 			require.NoError(t, err)
 			require.Equal(t, failAt == 1, found, "rows go with the disposal batch")

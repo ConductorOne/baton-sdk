@@ -72,7 +72,7 @@ func TestLedgerRetainedSealDropsFrontierAndScheduling(t *testing.T) {
 	ctx := t.Context()
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.CheckpointSync(ctx, "legacy-secret-token"))
+	require.NoError(t, e.SetSyncTokenForTesting(ctx, "legacy-secret-token"))
 	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources"}}, SchedulingKey: "resource:root"}
 	_, err = e.Ledger().BeginFromToken(ctx, "old", "legacy-secret-token", nil, c1zstore.LedgerCounters{}, []c1zstore.LedgerWork{seed}, c1zstore.LedgerQueueCollecting)
 	require.NoError(t, err)

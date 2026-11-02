@@ -24,6 +24,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 )
@@ -322,7 +323,9 @@ func seedExternalMatchVerificationStore(
 	run.setFact(factHasExternalResourceGrants)
 	run.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
 	token := encodeTestRun(t, run, newRunStats())
-	require.NoError(t, store.CheckpointSync(ctx, token))
+	eng, ok := enginepkg.AsEngine(store)
+	require.True(t, ok)
+	require.NoError(t, eng.SetSyncTokenForTesting(ctx, token))
 
 	return store, syncID, verificationPrincipals(t)
 }
@@ -339,7 +342,9 @@ func finishExternalMatchVerificationSync(
 	require.Equal(t, SyncExternalResourcesOp, action.Op)
 	run.finishAction(ctx, action)
 	token := encodeTestRun(t, run, newRunStats())
-	require.NoError(t, store.CheckpointSync(ctx, token))
+	eng, ok := enginepkg.AsEngine(store)
+	require.True(t, ok)
+	require.NoError(t, eng.SetSyncTokenForTesting(ctx, token))
 	require.NoError(t, store.EndSync(ctx))
 	require.NoError(t, store.Close(ctx))
 }

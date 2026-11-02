@@ -126,7 +126,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 			}
 			token, err := marshalToken(prior, newRunStats())
 			require.NoError(t, err)
-			require.NoError(t, f.store.CheckpointSync(t.Context(), token))
+			require.NoError(t, f.engine.SetSyncTokenForTesting(t.Context(), token))
 			require.NoError(t, f.store.EndSync(t.Context()))
 			require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
 			before, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)

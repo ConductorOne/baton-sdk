@@ -267,7 +267,6 @@ type Writer interface {
 	StartNewSync(ctx context.Context, syncType SyncType, parentSyncID string) (string, error)
 	SetCurrentSync(ctx context.Context, syncID string) error
 	CurrentSyncStep(ctx context.Context) (string, error)
-	CheckpointSync(ctx context.Context, syncToken string) error
 	EndSync(ctx context.Context) error
 	PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error
 	Cleanup(ctx context.Context) error

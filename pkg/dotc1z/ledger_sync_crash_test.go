@@ -209,7 +209,7 @@ func runDurableSync(t *testing.T, fs vfs.FS, dir, mode string, workers int, cutO
 				require.NoError(t, store.PutResources(ctx, crashResource()))
 				state := `{"version":1,"actions_map":{"a":{"id":"a","operation":"fetch-assets","resource_type_id":"type","resource_id":"one"}}` +
 					`,"action_order":["a"],"ingest_quality":{}}`
-				require.NoError(t, store.CheckpointSync(ctx, state))
+				require.NoError(t, e.SetSyncTokenForTesting(ctx, state))
 				require.NoError(t, e.Flush(ctx))
 			}
 		} else {
