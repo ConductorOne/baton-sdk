@@ -868,6 +868,9 @@ type CredentialIssueOptionDescriptor struct {
 	xxx_hidden_Preferred              bool                             `protobuf:"varint,10,opt,name=preferred,proto3"`
 	xxx_hidden_RequestSchema          *CredentialIssueRequestSchema    `protobuf:"bytes,11,opt,name=request_schema,json=requestSchema,proto3"`
 	xxx_hidden_SecretContentType      *string                          `protobuf:"bytes,12,opt,name=secret_content_type,json=secretContentType,proto3,oneof"`
+	xxx_hidden_Arguments              *[]*v1.Field                     `protobuf:"bytes,13,rep,name=arguments,proto3"`
+	xxx_hidden_Constraints            *[]*v1.Constraint                `protobuf:"bytes,14,rep,name=constraints,proto3"`
+	xxx_hidden_ReturnTypes            *[]*v1.Field                     `protobuf:"bytes,15,rep,name=return_types,json=returnTypes,proto3"`
 	XXX_raceDetectHookData            protoimpl.RaceDetectHookData
 	XXX_presence                      [1]uint32
 	unknownFields                     protoimpl.UnknownFields
@@ -971,6 +974,7 @@ func (x *CredentialIssueOptionDescriptor) GetPreferred() bool {
 	return false
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *CredentialIssueOptionDescriptor) GetRequestSchema() *CredentialIssueRequestSchema {
 	if x != nil {
 		return x.xxx_hidden_RequestSchema
@@ -978,6 +982,7 @@ func (x *CredentialIssueOptionDescriptor) GetRequestSchema() *CredentialIssueReq
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *CredentialIssueOptionDescriptor) GetSecretContentType() string {
 	if x != nil {
 		if x.xxx_hidden_SecretContentType != nil {
@@ -986,6 +991,33 @@ func (x *CredentialIssueOptionDescriptor) GetSecretContentType() string {
 		return ""
 	}
 	return ""
+}
+
+func (x *CredentialIssueOptionDescriptor) GetArguments() []*v1.Field {
+	if x != nil {
+		if x.xxx_hidden_Arguments != nil {
+			return *x.xxx_hidden_Arguments
+		}
+	}
+	return nil
+}
+
+func (x *CredentialIssueOptionDescriptor) GetConstraints() []*v1.Constraint {
+	if x != nil {
+		if x.xxx_hidden_Constraints != nil {
+			return *x.xxx_hidden_Constraints
+		}
+	}
+	return nil
+}
+
+func (x *CredentialIssueOptionDescriptor) GetReturnTypes() []*v1.Field {
+	if x != nil {
+		if x.xxx_hidden_ReturnTypes != nil {
+			return *x.xxx_hidden_ReturnTypes
+		}
+	}
+	return nil
 }
 
 func (x *CredentialIssueOptionDescriptor) SetOption(v CapabilityDetailCredentialOption) {
@@ -1028,13 +1060,27 @@ func (x *CredentialIssueOptionDescriptor) SetPreferred(v bool) {
 	x.xxx_hidden_Preferred = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *CredentialIssueOptionDescriptor) SetRequestSchema(v *CredentialIssueRequestSchema) {
 	x.xxx_hidden_RequestSchema = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *CredentialIssueOptionDescriptor) SetSecretContentType(v string) {
 	x.xxx_hidden_SecretContentType = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 12)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 15)
+}
+
+func (x *CredentialIssueOptionDescriptor) SetArguments(v []*v1.Field) {
+	x.xxx_hidden_Arguments = &v
+}
+
+func (x *CredentialIssueOptionDescriptor) SetConstraints(v []*v1.Constraint) {
+	x.xxx_hidden_Constraints = &v
+}
+
+func (x *CredentialIssueOptionDescriptor) SetReturnTypes(v []*v1.Field) {
+	x.xxx_hidden_ReturnTypes = &v
 }
 
 func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
@@ -1044,6 +1090,7 @@ func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
 	return x.xxx_hidden_Expiry != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *CredentialIssueOptionDescriptor) HasRequestSchema() bool {
 	if x == nil {
 		return false
@@ -1051,6 +1098,7 @@ func (x *CredentialIssueOptionDescriptor) HasRequestSchema() bool {
 	return x.xxx_hidden_RequestSchema != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *CredentialIssueOptionDescriptor) HasSecretContentType() bool {
 	if x == nil {
 		return false
@@ -1062,10 +1110,12 @@ func (x *CredentialIssueOptionDescriptor) ClearExpiry() {
 	x.xxx_hidden_Expiry = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *CredentialIssueOptionDescriptor) ClearRequestSchema() {
 	x.xxx_hidden_RequestSchema = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *CredentialIssueOptionDescriptor) ClearSecretContentType() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 11)
 	x.xxx_hidden_SecretContentType = nil
@@ -1097,9 +1147,16 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// Connector-owned schema for additional values required to issue this
 	// credential kind. Hosts may narrow this schema in an offering, but must not
 	// add connector-specific fields to their own credential models.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 	RequestSchema *CredentialIssueRequestSchema
 	// Declared payload type; absent means legacy generic.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 	SecretContentType *string
+	Arguments         []*v1.Field
+	Constraints       []*v1.Constraint
+	ReturnTypes       []*v1.Field
 }
 
 func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOptionDescriptor {
@@ -1118,9 +1175,12 @@ func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOption
 	x.xxx_hidden_Preferred = b.Preferred
 	x.xxx_hidden_RequestSchema = b.RequestSchema
 	if b.SecretContentType != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 12)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 15)
 		x.xxx_hidden_SecretContentType = b.SecretContentType
 	}
+	x.xxx_hidden_Arguments = &b.Arguments
+	x.xxx_hidden_Constraints = &b.Constraints
+	x.xxx_hidden_ReturnTypes = &b.ReturnTypes
 	return m0
 }
 
@@ -2879,7 +2939,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xcc\x01\n" +
 	" CredentialDetailsCredentialIssue\x12J\n" +
 	"\aoptions\x18\x01 \x03(\v20.c1.connector.v2.CredentialIssueOptionDescriptorR\aoptions\x12\\\n" +
-	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\x99\x06\n" +
+	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xc6\a\n" +
 	"\x1fCredentialIssueOptionDescriptor\x12I\n" +
 	"\x06option\x18\x01 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x06option\x12H\n" +
 	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12A\n" +
@@ -2892,9 +2952,12 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x17secret_resource_type_id\x18\t \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x14secretResourceTypeId\x12\x1c\n" +
 	"\tpreferred\x18\n" +
-	" \x01(\bR\tpreferred\x12T\n" +
-	"\x0erequest_schema\x18\v \x01(\v2-.c1.connector.v2.CredentialIssueRequestSchemaR\rrequestSchema\x12]\n" +
-	"\x13secret_content_type\x18\f \x01(\tB(\xfaB%r#\x10\x01\x18\x80\x012\x1c^[a-z0-9]+([._-][a-z0-9]+)*$H\x00R\x11secretContentType\x88\x01\x01B\x16\n" +
+	" \x01(\bR\tpreferred\x12X\n" +
+	"\x0erequest_schema\x18\v \x01(\v2-.c1.connector.v2.CredentialIssueRequestSchemaB\x02\x18\x01R\rrequestSchema\x12_\n" +
+	"\x13secret_content_type\x18\f \x01(\tB*\xfaB%r#\x10\x01\x18\x80\x012\x1c^[a-z0-9]+([._-][a-z0-9]+)*$\x18\x01H\x00R\x11secretContentType\x88\x01\x01\x121\n" +
+	"\targuments\x18\r \x03(\v2\x13.c1.config.v1.FieldR\targuments\x12:\n" +
+	"\vconstraints\x18\x0e \x03(\v2\x18.c1.config.v1.ConstraintR\vconstraints\x126\n" +
+	"\freturn_types\x18\x0f \x03(\v2\x13.c1.config.v1.FieldR\vreturnTypesB\x16\n" +
 	"\x14_secret_content_type\"\x87\x01\n" +
 	"\x1cCredentialIssueRequestSchema\x12+\n" +
 	"\x06fields\x18\x01 \x03(\v2\x13.c1.config.v1.FieldR\x06fields\x12:\n" +
@@ -3072,40 +3135,43 @@ var file_c1_connector_v2_connector_proto_depIdxs = []int32{
 	11, // 18: c1.connector.v2.CredentialIssueOptionDescriptor.expiry:type_name -> c1.connector.v2.IssuanceExpiryCapability
 	36, // 19: c1.connector.v2.CredentialIssueOptionDescriptor.resource_mode:type_name -> c1.connector.v2.CredentialResourceMode
 	10, // 20: c1.connector.v2.CredentialIssueOptionDescriptor.request_schema:type_name -> c1.connector.v2.CredentialIssueRequestSchema
-	37, // 21: c1.connector.v2.CredentialIssueRequestSchema.fields:type_name -> c1.config.v1.Field
-	38, // 22: c1.connector.v2.CredentialIssueRequestSchema.constraints:type_name -> c1.config.v1.Constraint
-	39, // 23: c1.connector.v2.IssuanceExpiryCapability.min:type_name -> google.protobuf.Duration
-	39, // 24: c1.connector.v2.IssuanceExpiryCapability.max:type_name -> google.protobuf.Duration
-	18, // 25: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
-	0,  // 26: c1.connector.v2.ConnectorCapabilities.connector_capabilities:type_name -> c1.connector.v2.Capability
-	5,  // 27: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
-	13, // 28: c1.connector.v2.CapabilityPermissions.permissions:type_name -> c1.connector.v2.CapabilityPermission
-	40, // 29: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
-	0,  // 30: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
-	14, // 31: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
-	8,  // 32: c1.connector.v2.ResourceTypeCapability.credential_issue:type_name -> c1.connector.v2.CredentialDetailsCredentialIssue
-	4,  // 33: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
-	32, // 34: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
-	24, // 35: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
-	25, // 36: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	26, // 37: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
-	27, // 38: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
-	28, // 39: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
-	29, // 40: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
-	30, // 41: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
-	31, // 42: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
-	25, // 43: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	19, // 44: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
-	21, // 45: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
-	2,  // 46: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
-	20, // 47: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
-	22, // 48: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
-	3,  // 49: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
-	47, // [47:50] is the sub-list for method output_type
-	44, // [44:47] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	37, // 21: c1.connector.v2.CredentialIssueOptionDescriptor.arguments:type_name -> c1.config.v1.Field
+	38, // 22: c1.connector.v2.CredentialIssueOptionDescriptor.constraints:type_name -> c1.config.v1.Constraint
+	37, // 23: c1.connector.v2.CredentialIssueOptionDescriptor.return_types:type_name -> c1.config.v1.Field
+	37, // 24: c1.connector.v2.CredentialIssueRequestSchema.fields:type_name -> c1.config.v1.Field
+	38, // 25: c1.connector.v2.CredentialIssueRequestSchema.constraints:type_name -> c1.config.v1.Constraint
+	39, // 26: c1.connector.v2.IssuanceExpiryCapability.min:type_name -> google.protobuf.Duration
+	39, // 27: c1.connector.v2.IssuanceExpiryCapability.max:type_name -> google.protobuf.Duration
+	18, // 28: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
+	0,  // 29: c1.connector.v2.ConnectorCapabilities.connector_capabilities:type_name -> c1.connector.v2.Capability
+	5,  // 30: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
+	13, // 31: c1.connector.v2.CapabilityPermissions.permissions:type_name -> c1.connector.v2.CapabilityPermission
+	40, // 32: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
+	0,  // 33: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
+	14, // 34: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
+	8,  // 35: c1.connector.v2.ResourceTypeCapability.credential_issue:type_name -> c1.connector.v2.CredentialDetailsCredentialIssue
+	4,  // 36: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
+	32, // 37: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
+	24, // 38: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
+	25, // 39: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	26, // 40: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
+	27, // 41: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
+	28, // 42: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
+	29, // 43: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
+	30, // 44: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
+	31, // 45: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
+	25, // 46: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	19, // 47: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
+	21, // 48: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
+	2,  // 49: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
+	20, // 50: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
+	22, // 51: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
+	3,  // 52: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
+	50, // [50:53] is the sub-list for method output_type
+	47, // [47:50] is the sub-list for method input_type
+	47, // [47:47] is the sub-list for extension type_name
+	47, // [47:47] is the sub-list for extension extendee
+	0,  // [0:47] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_connector_proto_init() }
