@@ -50,15 +50,15 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 			require.True(t, s.run.hasFact(factNeedsExpansion))
 			if cut == "after-page" {
 				stopped := errors.New("stop after processing page")
-				s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
+				s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 					if action.Op == InitOp {
-						return inv.stage(action, "", []Action{Action{Op: SyncResourcesOp, ResourceTypeID: "type"}})
+						return page.stage(action, "", []Action{Action{Op: SyncResourcesOp, ResourceTypeID: "type"}})
 					}
 					require.Equal(t, SyncResourcesOp, action.Op)
 					if action.PageToken != "" {
 						return stopped
 					}
-					return inv.stage(action, "remaining", nil)
+					return page.stage(action, "remaining", nil)
 				}
 				_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 				require.ErrorIs(t, err, stopped)
@@ -89,16 +89,16 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 				require.Equal(t, InitOp, s.run.current().Op)
 			}
 			calls := 0
-			s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
+			s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 				if action.Op == InitOp {
-					return inv.stage(action, "", []Action{Action{Op: SyncResourcesOp, ResourceTypeID: "type"}})
+					return page.stage(action, "", []Action{Action{Op: SyncResourcesOp, ResourceTypeID: "type"}})
 				}
 				require.Equal(t, SyncResourcesOp, action.Op)
 				if cut == "after-page" {
 					require.Equal(t, "remaining", action.PageToken)
 				}
 				calls++
-				return inv.stage(action, "", nil)
+				return page.stage(action, "", nil)
 			}
 			_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			require.NoError(t, err)

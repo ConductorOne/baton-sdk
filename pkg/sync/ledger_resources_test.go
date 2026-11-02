@@ -259,12 +259,12 @@ func TestLedgerConnectorObservationsAccumulate(t *testing.T) {
 	require.NoError(t, err)
 	annos := []*anypb.Any{wait, usage}
 	s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "parent"})
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
-		s.recordLedgerConnectorResponse(ctx, inv, "list-resources", 2*time.Millisecond, annos)
-		s.recordLedgerSessionUsage(inv, annos)
-		s.recordLedgerConnectorResponse(ctx, inv, "list-resources", 3*time.Millisecond, annos)
-		s.recordLedgerSessionUsage(inv, annos)
-		return inv.stage(action, "", nil)
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+		s.recordLedgerConnectorResponse(ctx, page, "list-resources", 2*time.Millisecond, annos)
+		s.recordLedgerSessionUsage(page, annos)
+		s.recordLedgerConnectorResponse(ctx, page, "list-resources", 3*time.Millisecond, annos)
+		s.recordLedgerSessionUsage(page, annos)
+		return page.stage(action, "", nil)
 	}
 	f.audit.enter(ledgerHandler)
 	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), s.SyncResources, false))

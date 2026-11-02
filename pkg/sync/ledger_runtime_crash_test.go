@@ -81,8 +81,8 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			crash()
 		}
 		f.audit.enter(ledgerHandler)
-		require.NoError(t, runLedgerSchedulerFixture(t, runtime, []ledgerAction{{identity: id}}, 1, func(ctx context.Context, inv *ledgerInvocation, s *syncer, action *Action, _ *ledgerPage) error {
-			return inv.stage(action, "", nil)
+		require.NoError(t, runLedgerSchedulerFixture(t, runtime, []ledgerAction{{identity: id}}, 1, func(ctx context.Context, page *ledgerPage, s *syncer, action *Action) error {
+			return page.stage(action, "", nil)
 		}))
 		f.audit.enter(ledgerLifecycle)
 		require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{StepDurationsMs: map[string]int64{"run": 17}}))

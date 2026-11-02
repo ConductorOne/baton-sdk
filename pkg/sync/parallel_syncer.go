@@ -219,8 +219,8 @@ func (s *syncer) parallelSync(
 
 		switch stateAction.Op {
 		case InitOp:
-			err = s.invokeActionPage(ctx, stateAction, func(pageCtx context.Context, inv *ledgerInvocation, action *Action) error {
-				return s.initializeAction(pageCtx, inv, action, targetedResources)
+			err = s.invokeActionPage(ctx, stateAction, func(pageCtx context.Context, page *ledgerPage, action *Action) error {
+				return s.initializeAction(pageCtx, page, action, targetedResources)
 			}, false, 0, nil, nil)
 			if err != nil {
 				return warnings, err
@@ -722,7 +722,7 @@ func (q *parallelActionQueue) abort() {
 	q.cond.Broadcast()
 }
 
-func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actions []*Action, f func(ctx context.Context, inv *ledgerInvocation, action *Action) error) ([]error, error) {
+func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actions []*Action, f func(ctx context.Context, page *ledgerPage, action *Action) error) ([]error, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("syncing in parallel", zap.Int("actions", len(actions)), zap.Int("workers", s.cfg.workerCount))
 
@@ -846,7 +846,7 @@ func (s *syncer) syncOneAction(
 	l *zap.Logger,
 	retryer *retry.Retryer,
 	action *Action,
-	f func(ctx context.Context, inv *ledgerInvocation, action *Action) error,
+	f func(ctx context.Context, page *ledgerPage, action *Action) error,
 	worker int,
 	attempts *ledgerAttempts,
 	transition func(context.Context, ledgerTransitionCommit, *Action, string, []Action) error,

@@ -28,12 +28,12 @@ func (c staticMaterializationCursor) encode() (string, error) {
 	return string(data), err
 }
 
-func (s *syncer) materializeLedgerStaticEntitlements(ctx context.Context, inv *ledgerInvocation, action *Action) error {
-	if inv == nil {
+func (s *syncer) materializeLedgerStaticEntitlements(ctx context.Context, page *ledgerPage, action *Action) error {
+	if page == nil {
 		return errors.New("static materialization requires an open ledger page")
 	}
 	started := time.Now()
-	defer func() { inv.page.row.PageDuration = time.Since(started) }()
+	defer func() { page.row.PageDuration = time.Since(started) }()
 	var cursor staticMaterializationCursor
 	if err := json.Unmarshal([]byte(action.PageToken), &cursor); err != nil {
 		return err
@@ -82,7 +82,7 @@ func (s *syncer) materializeLedgerStaticEntitlements(ctx context.Context, inv *l
 		values = append(values, &v2.Entitlement{Resource: resource, Id: entitlement.NewEntitlementID(resource, template.GetSlug()), DisplayName: display,
 			Description: description, GrantableTo: template.GetGrantableTo(), Annotations: annos, Slug: template.GetSlug(), Purpose: template.GetPurpose()})
 	}
-	if err := inv.page.writer.PutEntitlements(ctx, values...); err != nil {
+	if err := page.writer.PutEntitlements(ctx, values...); err != nil {
 		return err
 	}
 	token := ""
@@ -93,5 +93,5 @@ func (s *syncer) materializeLedgerStaticEntitlements(ctx context.Context, inv *l
 			return err
 		}
 	}
-	return inv.stage(action, token, nil)
+	return page.stage(action, token, nil)
 }

@@ -18,12 +18,12 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-func (s *syncer) syncLedgerGrants(ctx context.Context, inv *ledgerInvocation, action *Action) error {
-	if inv == nil {
+func (s *syncer) syncLedgerGrants(ctx context.Context, page *ledgerPage, action *Action) error {
+	if page == nil {
 		return errors.New("grant ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { inv.page.row.PageDuration = time.Since(start) }()
+	defer func() { page.row.PageDuration = time.Since(start) }()
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrants")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -38,16 +38,16 @@ func (s *syncer) syncLedgerGrants(ctx context.Context, inv *ledgerInvocation, ac
 		if err != nil {
 			return err
 		}
-		if nextPageErr := inv.stage(action, nextPageToken, actions); nextPageErr != nil {
+		if nextPageErr := page.stage(action, nextPageToken, actions); nextPageErr != nil {
 			err = nextPageErr
 			return err
 		}
 		if plannedTypeScoped {
-			inv.page.row.TypeScopedPlanned = true
+			page.row.TypeScopedPlanned = true
 		}
 		return nil
 	}
-	err = s.collectLedgerGrants(ctx, inv, action)
+	err = s.collectLedgerGrants(ctx, page, action)
 	if err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func (s *syncer) syncLedgerGrants(ctx context.Context, inv *ledgerInvocation, ac
 	return nil
 }
 
-func (s *syncer) collectLedgerGrants(ctx context.Context, inv *ledgerInvocation, action *Action) error {
+func (s *syncer) collectLedgerGrants(ctx context.Context, page *ledgerPage, action *Action) error {
 	var filterStats ingestFilterStats
 	filterStats.markKnown()
 	typeScoped := action.TypeScoped
@@ -85,14 +85,14 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, inv *ledgerInvocation,
 		ActiveSyncId: s.getActiveSyncID(),
 		Annotations:  reqAnnos,
 	}.Build())
-	s.recordLedgerConnectorResponse(ctx, inv, "list-grants", time.Since(start), resp.GetAnnotations())
-	recordLedgerConnectorError(inv, err)
-	s.recordLedgerSessionUsage(inv, resp.GetAnnotations())
+	s.recordLedgerConnectorResponse(ctx, page, "list-grants", time.Since(start), resp.GetAnnotations())
+	recordLedgerConnectorError(page, err)
+	s.recordLedgerSessionUsage(page, resp.GetAnnotations())
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", markActionListCall(err))
 	}
 
-	collection := ledgerCollection(inv)
+	collection := ledgerCollection(page)
 	recordLedgerList(collection, &collection.GrantsReceived, resp.GetList(), resp.GetNextPageToken())
 	grants := resp.GetList()
 
@@ -160,19 +160,19 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, inv *ledgerInvocation,
 		return fmt.Errorf("sync-grants-for-resource: filtering disabled-type references: %w", err)
 	}
 
-	if err := s.stageLedgerFilterStats(inv, &filterStats); err != nil {
+	if err := s.stageLedgerFilterStats(page, &filterStats); err != nil {
 		return err
 	}
 
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
 		if !s.cfg.dontExpandGrants && grantAnnos.Contains(&v2.GrantExpandable{}) {
-			if err := inv.page.setFact(factNeedsExpansion); err != nil {
+			if err := page.setFact(factNeedsExpansion); err != nil {
 				return err
 			}
 		}
 		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
-			if err := inv.page.setFact(factHasExternalResourceGrants); err != nil {
+			if err := page.setFact(factHasExternalResourceGrants); err != nil {
 				return err
 			}
 		}
@@ -181,7 +181,7 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, inv *ledgerInvocation,
 			continue
 		}
 		entitlementResource := grant.GetEntitlement().GetResource()
-		_, err := inv.page.writer.GetResource(ctx, entitlementResource.GetId().GetResourceType(), entitlementResource.GetId().GetResource())
+		_, err := page.writer.GetResource(ctx, entitlementResource.GetId().GetResourceType(), entitlementResource.GetId().GetResource())
 		if err != nil {
 			if status.Code(err) != codes.NotFound {
 				return err
@@ -189,7 +189,7 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, inv *ledgerInvocation,
 
 			erId := entitlementResource.GetId()
 			prId := entitlementResource.GetParentResourceId()
-			resource, err := s.getLedgerResourceFromConnector(ctx, inv, erId, prId)
+			resource, err := s.getLedgerResourceFromConnector(ctx, page, erId, prId)
 			if err != nil {
 				l.Error("error fetching entitlement resource", zap.Error(err))
 				return err
@@ -197,7 +197,7 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, inv *ledgerInvocation,
 			if resource == nil {
 				continue
 			}
-			if err := s.putLedgerResources(ctx, inv, resource); err != nil {
+			if err := s.putLedgerResources(ctx, page, resource); err != nil {
 				return err
 			}
 		}
@@ -208,19 +208,19 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, inv *ledgerInvocation,
 		for _, resource := range resourcesToInsertMap {
 			resourcesToInsert = append(resourcesToInsert, resource)
 		}
-		err = s.putLedgerResources(ctx, inv, resourcesToInsert...)
+		err = s.putLedgerResources(ctx, page, resourcesToInsert...)
 		if err != nil {
 			return fmt.Errorf("sync-grants-for-resource: error putting resources: %w", err)
 		}
 	}
 
-	err = inv.page.writer.PutGrants(ctx, grants...)
+	err = page.writer.PutGrants(ctx, grants...)
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error putting grants: %w", err)
 	}
 
 	progressAction := *action
-	inv.afterCommit = append(inv.afterCommit, func() {
+	page.afterCommit = append(page.afterCommit, func() {
 		s.handleProgress(ctx, &progressAction, len(grants))
 
 		progressIncrement, countOnly := collectionProgressIncrement(&progressAction, len(grants), resp.GetNextPageToken() != "")
@@ -236,35 +236,35 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, inv *ledgerInvocation,
 	if err != nil {
 		return err
 	}
-	return inv.stage(action, resp.GetNextPageToken(), spawned)
+	return page.stage(action, resp.GetNextPageToken(), spawned)
 }
 
-func (s *syncer) putLedgerResources(ctx context.Context, invocation *ledgerInvocation, resources ...*v2.Resource) error {
-	resources, err := s.filterLedgerResources(invocation, resources)
+func (s *syncer) putLedgerResources(ctx context.Context, page *ledgerPage, resources ...*v2.Resource) error {
+	resources, err := s.filterLedgerResources(page, resources)
 	if err != nil {
 		return err
 	}
-	return invocation.page.writer.PutResources(ctx, resources...)
+	return page.writer.PutResources(ctx, resources...)
 }
 
-func (s *syncer) stageLedgerFilterStats(invocation *ledgerInvocation, stats *ingestFilterStats) error {
+func (s *syncer) stageLedgerFilterStats(page *ledgerPage, stats *ingestFilterStats) error {
 	q := stats.snapshot()
 	if q == nil {
 		return nil
 	}
 	if q.SourceCacheReplayBlocked {
-		if err := invocation.page.setFact(ledgerFactIngestKnown); err != nil {
+		if err := page.setFact(ledgerFactIngestKnown); err != nil {
 			return err
 		}
-		if err := invocation.page.setFact(ledgerFactIngestBlocked); err != nil {
+		if err := page.setFact(ledgerFactIngestBlocked); err != nil {
 			return err
 		}
 	}
-	collection := ledgerCollection(invocation)
+	collection := ledgerCollection(page)
 	collection.GrantsExcludedByType += q.GrantsDropped
 	collection.DerivedResourcesExcludedByType += q.GrantResourcesDropped
-	invocation.page.observations = addLedgerCounters(invocation.page.observations, ledgerIngestCounters(q))
-	invocation.afterCommit = append(invocation.afterCommit, func() {
+	page.observations = addLedgerCounters(page.observations, ledgerIngestCounters(q))
+	page.afterCommit = append(page.afterCommit, func() {
 		s.ingestFilterStats.entitlementsDropped.Add(q.EntitlementsDropped)
 		s.ingestFilterStats.grantsDropped.Add(q.GrantsDropped)
 		s.ingestFilterStats.grantResourcesDropped.Add(q.GrantResourcesDropped)

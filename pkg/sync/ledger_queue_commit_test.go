@@ -103,17 +103,17 @@ func TestLedgerCommitWakesWorkerWaitingForChildren(t *testing.T) {
 		child := c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "type", ResourceID: "child"}
 		var seenMu native_sync.Mutex
 		workers := map[string]int{}
-		s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
+		s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 			seenMu.Lock()
-			workers[action.ResourceID] = inv.worker
+			workers[action.ResourceID] = page.worker
 			seenMu.Unlock()
 			if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 				return err
 			}
 			if action.ResourceID == "parent" {
-				return ledgerFixtureTransition(inv, action, "", c1zstore.LedgerChild{Identity: child})
+				return ledgerFixtureTransition(page, action, "", c1zstore.LedgerChild{Identity: child})
 			}
-			return inv.stage(action, "", nil)
+			return page.stage(action, "", nil)
 		}
 		f.audit.enter(ledgerHandler)
 		seedLedgerTestRun(t, s, parent)
@@ -165,7 +165,7 @@ func TestLedgerCommitAcrossSiblingAbort(t *testing.T) {
 					gated.after = gate
 				}
 				s.ledger.store = gated
-				s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
+				s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 					if action.ResourceID == "failing" {
 						<-slowEntered
 						defer close(failingReturned)
@@ -174,7 +174,7 @@ func TestLedgerCommitAcrossSiblingAbort(t *testing.T) {
 					if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 						return err
 					}
-					return inv.stage(action, "", nil)
+					return page.stage(action, "", nil)
 				}
 				f.audit.enter(ledgerHandler)
 				seedLedgerTestRun(t, s, nil)
@@ -218,11 +218,11 @@ func TestLedgerCommitPublishesBeforeCancellation(t *testing.T) {
 			cancel()
 		}
 	}}
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.PageToken + "x"}.Build()); err != nil {
 			return err
 		}
-		return inv.stage(action, "more", nil)
+		return page.stage(action, "more", nil)
 	}
 	f.audit.enter(ledgerHandler)
 	seedLedgerTestRun(t, s, action)

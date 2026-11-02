@@ -3,8 +3,6 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 import (
 	"context"
 	"errors"
-	"slices"
-	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -23,15 +21,9 @@ func (e ledgerPageWriteError) GRPCStatus() *status.Status {
 }
 
 type ledgerInvocation struct {
-	attempts              *ledgerAttempts
-	worker                int
-	action                *Action
-	page                  *ledgerPage
-	children              []Action
-	afterCommit           []func()
-	connectorObservations c1zstore.LedgerCounters
-	// Set when the page is a connector-signaled restart (stageActionRestart).
-	restart *restartRequest
+	attempts *ledgerAttempts
+	worker   int
+	action   *Action
 }
 
 type ledgerTransitionCommit struct {
@@ -49,42 +41,10 @@ func ledgerIdentity(action *Action) c1zstore.LedgerActionIdentity {
 	}
 }
 
-func (i *ledgerInvocation) stage(action *Action, next string, children []Action) error {
-	if action.ID != i.action.ID {
-		return errors.New("ledger page transitioned a different action")
-	}
-	scheduled := make(map[string]bool)
-	accepted := make([]Action, 0, len(children))
-	for _, child := range children {
-		key := ledgerSchedulingKey(child)
-		if strings.HasPrefix(key, "resource:") {
-			if scheduled[key] {
-				continue
-			}
-			scheduled[key] = true
-		}
-		accepted = append(accepted, child)
-	}
-	children = accepted
-	rows := make([]c1zstore.LedgerChild, 0, len(children))
-	for index := range children {
-		child := &children[index]
-		if child.ID != "" {
-			return errors.New("action ID must be empty for new actions")
-		}
-		rows = append(rows, c1zstore.LedgerChild{Identity: ledgerIdentity(child), Spawned: child.Spawned})
-	}
-	if err := i.page.transition(next, rows...); err != nil {
-		return err
-	}
-	i.children = slices.Clone(children)
-	return nil
-}
-
 func (s *syncer) invokeActionPage(
 	ctx context.Context,
 	action *Action,
-	handler func(context.Context, *ledgerInvocation, *Action) error,
+	handler func(context.Context, *ledgerPage, *Action) error,
 	allowWarning bool,
 	worker int,
 	attempts *ledgerAttempts,
@@ -108,26 +68,30 @@ func (s *syncer) invokeActionPage(
 	}
 	attempts.selectPage(ledgerIdentity(action))
 	invocation := &ledgerInvocation{action: action, attempts: attempts, worker: worker}
+	var opened *ledgerPage
 	var warning error
 	var handlerFailure error
 	_, err := s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
-		invocation.page = page
+		opened = page
+		page.action = invocation.action
+		page.attempts = invocation.attempts
+		page.worker = invocation.worker
 		page.row.WorkID = action.WorkID
 		page.row.WorkRevision = action.WorkRevision
-		ledgerCollection(invocation)
+		ledgerCollection(page)
 		page.row.Spawned = action.Spawned
 		page.row.TypeScopedPlanned = action.TypeScopedPlanned
 		var err error
 		switch {
 		case s.testHooks.ledgerHandler != nil:
-			err = s.testHooks.ledgerHandler(pageCtx, invocation, action, page)
+			err = s.testHooks.ledgerHandler(pageCtx, page, action)
 		case action.Op == InitOp || action.Op == SyncResourceTypesOp || action.Op == SyncResourcesOp || action.Op == SyncTargetedResourceOp || action.Op == SyncEntitlementsOp ||
 			action.Op == SyncGrantsOp || action.Op == SyncStaticEntitlementsOp || action.Op == SyncAssetsOp || action.Op == MaterializeStaticEntitlementsOp:
-			err = handler(pageCtx, invocation, action)
+			err = handler(pageCtx, page, action)
 		default:
 			return errors.New("ledger production handlers are not integrated")
 		}
-		invocation.connectorObservations = attempts.addObservations(invocation.connectorObservations)
+		page.connectorObservations = attempts.addObservations(page.connectorObservations)
 		if err != nil {
 			detail, present, classErr := classifyRestartRequest(action, err)
 			switch {
@@ -135,7 +99,7 @@ func (s *syncer) invokeActionPage(
 				handlerFailure = classErr
 				return classErr
 			case present:
-				if err := s.stageActionRestart(invocation, page, action, detail, err); err != nil {
+				if err := s.stageActionRestart(page, action, detail, err); err != nil {
 					return err
 				}
 				ctxzap.Extract(pageCtx).Info("connector invalidated the action's page token; restarting the action", restartLogFields(action, detail)...)
@@ -147,7 +111,7 @@ func (s *syncer) invokeActionPage(
 				if page.transitions != 0 {
 					return errors.New("ledger warning followed an action transition")
 				}
-				if err := invocation.stage(action, "", nil); err != nil {
+				if err := page.stage(action, "", nil); err != nil {
 					return err
 				}
 			}
@@ -162,14 +126,14 @@ func (s *syncer) invokeActionPage(
 				page.observations.Counters[ledgerWarningsPrefix+action.Op.String()]++
 			}
 		}
-		childKeys := make([]string, len(invocation.children))
-		for i, child := range invocation.children {
+		childKeys := make([]string, len(page.children))
+		for i, child := range page.children {
 			childKeys[i] = ledgerSchedulingKey(child)
 		}
 		if err := page.writer.SetPendingWork(s.pendingForAction(action), childKeys...); err != nil {
 			return err
 		}
-		page.observations = addLedgerCounters(page.observations, invocation.connectorObservations)
+		page.observations = addLedgerCounters(page.observations, page.connectorObservations)
 		attempts.snapshot(&page.row)
 		return nil
 	}, func(page *ledgerPage, commit func() error) error {
@@ -191,18 +155,22 @@ func (s *syncer) invokeActionPage(
 		}
 		pending := ledgerTransitionCommit{commit: publish, warning: warning != nil, restart: page.row.Restarted}
 		if transition != nil {
-			return transition(ctx, pending, action, page.row.NextPageToken, invocation.children)
+			return transition(ctx, pending, action, page.row.NextPageToken, page.children)
 		}
-		return s.transitionActionState(ctx, action, page.row.NextPageToken, invocation.children, pending)
+		return s.transitionActionState(ctx, action, page.row.NextPageToken, page.children, pending)
 	})
 	if err != nil {
 		if handlerFailure == nil && isWarning(ctx, err) {
 			return ledgerPageWriteError{cause: err}
 		}
-		return wrapRestartCommitError(action, invocation.restart, err)
+		var restart *restartRequest
+		if opened != nil {
+			restart = opened.restart
+		}
+		return wrapRestartCommitError(action, restart, err)
 	}
-	s.publishLedgerConnectorObservations(invocation.connectorObservations)
-	for _, publish := range invocation.afterCommit {
+	s.publishLedgerConnectorObservations(opened.connectorObservations)
+	for _, publish := range opened.afterCommit {
 		publish()
 	}
 	return warning

@@ -33,12 +33,12 @@ func TestLedgerDeterministicTimeFixture(t *testing.T) {
 			require.NoError(t, err)
 			f.audit.enter(ledgerHandler)
 			require.NoError(t, runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(
-				ctx context.Context, inv *ledgerInvocation, s *syncer, action *Action, page *ledgerPage,
+				ctx context.Context, page *ledgerPage, s *syncer, action *Action,
 			) error {
 				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
 					return err
 				}
-				return ledgerFixtureTransition(inv, action, "")
+				return ledgerFixtureTransition(page, action, "")
 			}))
 			f.audit.enter(ledgerLifecycle)
 			require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
@@ -74,12 +74,12 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 				require.NoError(t, err)
 				failed := false
 				stopped := fmt.Errorf("injected before commit of page %d", cut)
-				handler := func(ctx context.Context, inv *ledgerInvocation, s *syncer, action *Action, page *ledgerPage) error {
+				handler := func(ctx context.Context, page *ledgerPage, s *syncer, action *Action) error {
 					if action.Op == SyncResourceTypesOp {
 						if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
 							return err
 						}
-						return ledgerFixtureTransition(inv, action, "",
+						return ledgerFixtureTransition(page, action, "",
 							c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "type", ResourceID: "stream-0"}},
 							c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "type", ResourceID: "stream-1"}})
 					}
@@ -116,7 +116,7 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 					if index < 2 {
 						next = strconv.Itoa(index + 1)
 					}
-					return ledgerFixtureTransition(inv, action, next)
+					return ledgerFixtureTransition(page, action, next)
 				}
 				f.audit.enter(ledgerHandler)
 				err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), workers, handler)

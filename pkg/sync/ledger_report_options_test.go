@@ -34,11 +34,11 @@ func TestLedgerReportOptionsPrecedePages(t *testing.T) {
 	require.True(t, options.Requested.PreviousSourceConfigured)
 	require.NotContains(t, facts, c1zstore.LedgerFactFirstReportOptions, "no Init page has run")
 
-	s.testHooks.ledgerHandler = func(context.Context, *ledgerInvocation, *Action, *ledgerPage) error { return errors.New("failed page") }
+	s.testHooks.ledgerHandler = func(context.Context, *ledgerPage, *Action) error { return errors.New("failed page") }
 	_, err = runLedgerSchedulerBatch(t, s, SyncResourcesOp)
 	require.Error(t, err)
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
-		return inv.stage(action, "", nil)
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+		return page.stage(action, "", nil)
 	}
 	_, err = runLedgerSchedulerBatch(t, s, SyncResourcesOp)
 	require.NoError(t, err)

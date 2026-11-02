@@ -2,11 +2,11 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import "github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 
-func ledgerCollection(invocation *ledgerInvocation) *c1zstore.LedgerCollectionStats {
-	if invocation.page.row.Collection == nil {
-		invocation.page.row.Collection = &c1zstore.LedgerCollectionStats{}
+func ledgerCollection(page *ledgerPage) *c1zstore.LedgerCollectionStats {
+	if page.row.Collection == nil {
+		page.row.Collection = &c1zstore.LedgerCollectionStats{}
 	}
-	return invocation.page.row.Collection
+	return page.row.Collection
 }
 
 func recordLedgerList[T any](c *c1zstore.LedgerCollectionStats, received *uint64, records []T, next string) {

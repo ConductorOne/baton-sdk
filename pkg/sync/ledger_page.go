@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
@@ -38,11 +39,51 @@ func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, workerCount 
 }
 
 type ledgerPage struct {
-	writer       c1zstore.PageWriter
-	row          c1zstore.LedgerRow
-	transitions  int
-	facts        map[string]string
-	observations c1zstore.LedgerCounters
+	writer                c1zstore.PageWriter
+	row                   c1zstore.LedgerRow
+	transitions           int
+	facts                 map[string]string
+	observations          c1zstore.LedgerCounters
+	action                *Action
+	attempts              *ledgerAttempts
+	worker                int
+	children              []Action
+	afterCommit           []func()
+	connectorObservations c1zstore.LedgerCounters
+	// Set when the page is a connector-signaled restart (stageActionRestart).
+	restart *restartRequest
+}
+
+func (p *ledgerPage) stage(action *Action, next string, children []Action) error {
+	if action.ID != p.action.ID {
+		return errors.New("ledger page transitioned a different action")
+	}
+	scheduled := make(map[string]bool)
+	accepted := make([]Action, 0, len(children))
+	for _, child := range children {
+		key := ledgerSchedulingKey(child)
+		if strings.HasPrefix(key, "resource:") {
+			if scheduled[key] {
+				continue
+			}
+			scheduled[key] = true
+		}
+		accepted = append(accepted, child)
+	}
+	children = accepted
+	rows := make([]c1zstore.LedgerChild, 0, len(children))
+	for index := range children {
+		child := &children[index]
+		if child.ID != "" {
+			return errors.New("action ID must be empty for new actions")
+		}
+		rows = append(rows, c1zstore.LedgerChild{Identity: ledgerIdentity(child), Spawned: child.Spawned})
+	}
+	if err := p.transition(next, rows...); err != nil {
+		return err
+	}
+	p.children = slices.Clone(children)
+	return nil
 }
 
 func (p *ledgerPage) transition(next string, children ...c1zstore.LedgerChild) error {

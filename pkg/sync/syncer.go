@@ -984,8 +984,8 @@ func (s *syncer) SkipSync(ctx context.Context) (err error) {
 	return s.skipLedgerSync(runCtx)
 }
 
-func (s *syncer) SyncResourceTypes(ctx context.Context, inv *ledgerInvocation, action *Action) error {
-	return s.syncLedgerResourceTypes(ctx, inv, action)
+func (s *syncer) SyncResourceTypes(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerResourceTypes(ctx, page, action)
 }
 
 func (s *syncer) hasChildResources(resource *v2.Resource) bool {
@@ -1064,14 +1064,14 @@ func (s *syncer) pendingChildResourceActions(childTypeIDs []string, parentTypeID
 	return actions
 }
 
-func (s *syncer) SyncTargetedResource(ctx context.Context, inv *ledgerInvocation, action *Action) error {
-	return s.syncLedgerTargetedResource(ctx, inv, action)
+func (s *syncer) SyncTargetedResource(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerTargetedResource(ctx, page, action)
 }
 
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
-func (s *syncer) SyncResources(ctx context.Context, inv *ledgerInvocation, action *Action) error {
-	return s.syncLedgerResources(ctx, inv, action)
+func (s *syncer) SyncResources(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerResources(ctx, page, action)
 }
 
 func resourceTraitMessage(t v2.ResourceType_Trait) proto.Message {
@@ -1358,8 +1358,8 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 
 // SyncEntitlements fetches entitlements. Annotated resource types receive one
 // type-scoped action instead of a per-resource fan-out.
-func (s *syncer) SyncEntitlements(ctx context.Context, inv *ledgerInvocation, action *Action) error {
-	return s.syncLedgerEntitlements(ctx, inv, action)
+func (s *syncer) SyncEntitlements(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerEntitlements(ctx, page, action)
 }
 
 func (s *syncer) resourceTypeHasTypeScopedEntitlements(ctx context.Context, resourceTypeID string) (bool, error) {
@@ -1370,13 +1370,13 @@ func (s *syncer) typeScopedEntitlementsResourceTypes(ctx context.Context) ([]str
 	return s.resourceTypesCarrying(ctx, &v2.TypeScopedEntitlements{}, &s.typeScopedEntitlementsForResourceType)
 }
 
-func (s *syncer) SyncStaticEntitlements(ctx context.Context, inv *ledgerInvocation, action *Action) error {
-	return s.syncLedgerStaticEntitlements(ctx, inv, action)
+func (s *syncer) SyncStaticEntitlements(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerStaticEntitlements(ctx, page, action)
 }
 
 // SyncAssets iterates each resource in the data store, and adds an action to fetch all of the assets for that resource.
-func (s *syncer) SyncAssets(ctx context.Context, inv *ledgerInvocation, action *Action) error {
-	return s.syncLedgerAssets(ctx, inv, action)
+func (s *syncer) SyncAssets(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerAssets(ctx, page, action)
 }
 
 // SyncGrantExpansion handles the grant expansion phase of sync.
@@ -1525,8 +1525,8 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 
 // SyncGrants fetches grants. Annotated resource types receive one type-scoped
 // action instead of a per-resource fan-out.
-func (s *syncer) SyncGrants(ctx context.Context, inv *ledgerInvocation, action *Action) error {
-	return s.syncLedgerGrants(ctx, inv, action)
+func (s *syncer) SyncGrants(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerGrants(ctx, page, action)
 }
 
 func (s *syncer) resourceTypeHasTypeScopedGrants(ctx context.Context, resourceTypeID string) (bool, error) {

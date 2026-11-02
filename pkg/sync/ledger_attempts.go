@@ -69,9 +69,9 @@ func (a *ledgerAttempts) committed() {
 	a.observations = c1zstore.LedgerCounters{}
 }
 
-func recordLedgerConnectorError(invocation *ledgerInvocation, err error) {
-	if invocation.attempts != nil {
-		invocation.attempts.recordError(err)
+func recordLedgerConnectorError(page *ledgerPage, err error) {
+	if page.attempts != nil {
+		page.attempts.recordError(err)
 	}
 }
 

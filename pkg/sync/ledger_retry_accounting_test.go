@@ -36,22 +36,22 @@ func TestLedgerConnectorCallTotalsIncludeRetriedCalls(t *testing.T) {
 				annos := []*anypb.Any{usage, wait}
 				var rows []c1zstore.LedgerRow
 				s.testHooks.ledgerCommitted = func(row c1zstore.LedgerRow) { rows = append(rows, row) }
-				s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
+				s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 					calls++
-					s.recordLedgerConnectorResponse(ctx, inv, "list-resources", 4*time.Millisecond, annos)
-					s.recordLedgerSessionUsage(inv, annos)
+					s.recordLedgerConnectorResponse(ctx, page, "list-resources", 4*time.Millisecond, annos)
+					s.recordLedgerSessionUsage(page, annos)
 					if calls < 3 {
 						require.NoError(t, page.setFact("failed-attempt"))
 						page.observations.Counters = map[string]uint64{"failed-ingest": 7}
 						require.NoError(t, page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "failed"}.Build()))
 						err := status.Error(codes.Unavailable, "retry")
-						recordLedgerConnectorError(inv, err)
+						recordLedgerConnectorError(page, err)
 						return err
 					}
 					if calls == 3 || calls == 4 {
-						return inv.stage(action, "next", nil)
+						return page.stage(action, "next", nil)
 					}
-					return inv.stage(action, "", nil)
+					return page.stage(action, "", nil)
 				}
 
 				ctx := s.withRateLimitWaitObserver(t.Context())

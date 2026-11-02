@@ -12,7 +12,7 @@ func ledgerListingFixtureRoots() []ledgerAction {
 }
 
 func runLedgerSchedulerFixture(t *testing.T, runtime *ledgerRuntime, roots []ledgerAction, workers uint32,
-	handler func(context.Context, *ledgerInvocation, *syncer, *Action, *ledgerPage) error,
+	handler func(context.Context, *ledgerPage, *syncer, *Action) error,
 ) error {
 	t.Helper()
 	s := &syncer{caps: storeCaps{pageLedger: runtime.store}, ledger: runtime, run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: int(workers)}}
@@ -50,19 +50,19 @@ func runLedgerSchedulerFixture(t *testing.T, runtime *ledgerRuntime, roots []led
 	}
 	// Continue the supplied attempt, including its already committed worker buckets.
 	s.ledger = runtime
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
-		return handler(ctx, inv, s, action, page)
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+		return handler(ctx, page, s, action)
 	}
 	_, err = s.parallelSync(t.Context(), t.Context(), nil)
 	return err
 }
 
-func ledgerFixtureTransition(inv *ledgerInvocation, action *Action, next string, rows ...c1zstore.LedgerChild) error {
+func ledgerFixtureTransition(page *ledgerPage, action *Action, next string, rows ...c1zstore.LedgerChild) error {
 	children := make([]Action, 0, len(rows))
 	for _, row := range rows {
 		child := ledgerActionFromIdentity(row.Identity)
 		child.Spawned = row.Spawned
 		children = append(children, child)
 	}
-	return inv.stage(action, next, children)
+	return page.stage(action, next, children)
 }

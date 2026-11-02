@@ -29,8 +29,8 @@ func runLedgerSchedulerBatch(t *testing.T, s *syncer, op ActionOp) ([]error, err
 	t.Helper()
 	seedLedgerTestRun(t, s, nil)
 	retryer := retry.NewRetryer(t.Context(), retry.RetryConfig{MaxAttempts: 1})
-	return s.syncParallel(t.Context(), retryer, s.run.peekMatchingActions(t.Context(), op), func(context.Context, *ledgerInvocation, *Action) error {
-		return errors.New("ledger invocation reached the token handler")
+	return s.syncParallel(t.Context(), retryer, s.run.peekMatchingActions(t.Context(), op), func(context.Context, *ledgerPage, *Action) error {
+		return errors.New("ledger page reached the token handler")
 	})
 }
 
@@ -43,7 +43,7 @@ func TestLedgerExistingSchedulerOperationBarrier(t *testing.T) {
 		release := make(chan struct{})
 		var resourcesStarted atomic.Int32
 		var grantStarted atomic.Bool
-		s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
+		s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 			if action.Op == SyncResourcesOp {
 				resourcesStarted.Add(1)
 				<-release
@@ -53,7 +53,7 @@ func TestLedgerExistingSchedulerOperationBarrier(t *testing.T) {
 			if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 				return err
 			}
-			return inv.stage(action, "", nil)
+			return page.stage(action, "", nil)
 		}
 		result := make(chan error, 1)
 		f.audit.enter(ledgerHandler)
@@ -78,8 +78,8 @@ func TestLedgerExistingSchedulerOperationBarrier(t *testing.T) {
 func TestLedgerExistingSchedulerSpawnedCompletion(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 2)
 	s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type", PageToken: "spawn", Spawned: true})
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
-		return inv.stage(action, "", nil)
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+		return page.stage(action, "", nil)
 	}
 	f.audit.enter(ledgerHandler)
 	warnings, err := runLedgerSchedulerBatch(t, s, SyncResourcesOp)
@@ -100,11 +100,11 @@ func TestLedgerExistingSchedulerRejectsDuplicateBeforeCommit(t *testing.T) {
 	child := Action{Op: SyncResourcesOp, ResourceTypeID: "type", PageToken: "child", Spawned: true}
 	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()); err != nil {
 			return err
 		}
-		return inv.stage(action, "", []Action{child, child})
+		return page.stage(action, "", []Action{child, child})
 	}
 	f.audit.enter(ledgerHandler)
 	_, err := runLedgerSchedulerBatch(t, s, SyncResourcesOp)
@@ -122,7 +122,7 @@ func TestLedgerExistingSchedulerPreservesIndependentErrors(t *testing.T) {
 	s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "second"})
 	var arrived atomic.Int32
 	ready := make(chan struct{})
-	s.testHooks.ledgerHandler = func(_ context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(_ context.Context, page *ledgerPage, action *Action) error {
 		if arrived.Add(1) == 2 {
 			close(ready)
 		}
@@ -148,7 +148,7 @@ func TestLedgerExistingSchedulerWarningCommitsAccounting(t *testing.T) {
 	action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
 	seedLedgerTestRun(t, s, action)
 	warning := status.Error(codes.NotFound, "resource no longer exists")
-	s.testHooks.ledgerHandler = func(context.Context, *ledgerInvocation, *Action, *ledgerPage) error { return warning }
+	s.testHooks.ledgerHandler = func(context.Context, *ledgerPage, *Action) error { return warning }
 	f.audit.enter(ledgerHandler)
 	warnings, err := runLedgerSchedulerBatch(t, s, SyncResourcesOp)
 	f.audit.enter(ledgerLifecycle)
@@ -168,11 +168,11 @@ func TestLedgerExistingSchedulerCommitFailureKeepsAction(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
 	seedLedgerTestRun(t, s, action)
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()); err != nil {
 			return err
 		}
-		return inv.stage(action, "next", nil)
+		return page.stage(action, "next", nil)
 	}
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	seedLedgerTestRun(t, s, nil)
@@ -188,14 +188,14 @@ func TestLedgerExistingSchedulerCommitFailureKeepsAction(t *testing.T) {
 func TestLedgerExistingSchedulerPublishesFactsAfterCommit(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
 		if err := page.setFact(factNeedsExpansion); err != nil {
 			return err
 		}
 		if s.run.hasFact(factNeedsExpansion) {
 			return errors.New("uncommitted fact was published")
 		}
-		if err := inv.stage(action, "", nil); err != nil {
+		if err := page.stage(action, "", nil); err != nil {
 			return err
 		}
 		if s.run.current() == nil {
@@ -235,8 +235,8 @@ func TestLedgerExistingSchedulerCommitNotFoundIsNotWarning(t *testing.T) {
 	seedLedgerTestRun(t, s, action)
 	missing := status.Error(codes.NotFound, "commit target disappeared")
 	s.ledger.store = ledgerSchedulerCommitFaultStore{PageLedgerStore: f.ledger, err: missing}
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
-		return inv.stage(action, "", nil)
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+		return page.stage(action, "", nil)
 	}
 	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
@@ -254,7 +254,7 @@ func TestLedgerExistingSchedulerRootNotFoundDiscardsPage(t *testing.T) {
 	action := s.run.pushAction(t.Context(), Action{Op: SyncResourceTypesOp})
 	seedLedgerTestRun(t, s, action)
 	missing := status.Error(codes.NotFound, "resource type listing unavailable")
-	s.testHooks.ledgerHandler = func(context.Context, *ledgerInvocation, *Action, *ledgerPage) error { return missing }
+	s.testHooks.ledgerHandler = func(context.Context, *ledgerPage, *Action) error { return missing }
 	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerHandler)
@@ -269,8 +269,8 @@ func TestLedgerExistingSchedulerRejectsAssignedChildBeforeCommit(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
 	seedLedgerTestRun(t, s, action)
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
-		return inv.stage(action, "", []Action{Action{ID: "already-assigned", Op: SyncResourcesOp, ResourceTypeID: "child"}})
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+		return page.stage(action, "", []Action{Action{ID: "already-assigned", Op: SyncResourcesOp, ResourceTypeID: "child"}})
 	}
 	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
@@ -285,12 +285,12 @@ func TestLedgerExistingSchedulerRejectsAssignedChildBeforeCommit(t *testing.T) {
 func TestLedgerExistingSchedulerCompletedWorkDoesNotRunAgain(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
-	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
-		return inv.stage(action, "", nil)
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+		return page.stage(action, "", nil)
 	}
 	_, err := runLedgerSchedulerBatch(t, s, SyncResourcesOp)
 	require.NoError(t, err)
-	s.testHooks.ledgerHandler = func(context.Context, *ledgerInvocation, *Action, *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(context.Context, *ledgerPage, *Action) error {
 		return errors.New("completed work ran again")
 	}
 	before := ledgerRawSnapshot(t, f.engine)
