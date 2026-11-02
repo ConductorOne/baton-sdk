@@ -579,6 +579,7 @@ func v3SyncRunToV2(rec *v3.SyncRunRecord, stats *reader_v2.SyncStats) *reader_v2
 		SyncType:     v3SyncTypeToString(rec.GetType()),
 		ParentSyncId: rec.GetParentSyncId(),
 		Stats:        stats,
+		Sampled:      rec.GetSampled(),
 	}.Build()
 }
 

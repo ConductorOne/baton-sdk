@@ -25,6 +25,7 @@ func (s *syncer) actionFromPending(work c1zstore.LedgerWork) (Action, error) {
 	action.WorkPageToken = work.Action.Identity.PageToken
 	action.Spawned = work.Action.Spawned
 	action.TypeScopedPlanned = work.TypeScopedPlanned
+	action.WindowPages = work.WindowPages
 	return action, nil
 }
 
@@ -32,7 +33,8 @@ func (s *syncer) pendingForAction(action *Action) c1zstore.LedgerWork {
 	identity := ledgerIdentity(action)
 	identity.PageToken = action.WorkPageToken
 	return c1zstore.LedgerWork{SyncID: s.syncID, ID: action.WorkID, Revision: action.WorkRevision,
-		Action: c1zstore.LedgerChild{Identity: identity, Spawned: action.Spawned}, TypeScopedPlanned: action.TypeScopedPlanned}
+		Action: c1zstore.LedgerChild{Identity: identity, Spawned: action.Spawned}, TypeScopedPlanned: action.TypeScopedPlanned,
+		WindowPages: action.WindowPages}
 }
 
 func (s *syncer) refreshPendingWindow(ctx context.Context) error {
@@ -60,6 +62,9 @@ func (s *syncer) refreshPendingWindow(ctx context.Context) error {
 	s.run.spawnedAdmitted = make(map[parallelActionKey]string)
 	for i := len(actions) - 1; i >= 0; i-- {
 		action := actions[i]
+		if old, ok := prior[action.ID]; ok && old.WorkRevision == action.WorkRevision {
+			action.WindowPages = old.WindowPages
+		}
 		if action.Op == SyncGrantExpansionOp || action.Op == SyncExternalResourcesOp {
 			if old, ok := prior[action.ID]; ok && old.WorkRevision == action.WorkRevision {
 				action.PageToken = old.PageToken
@@ -136,6 +141,7 @@ func (s *syncer) publishPendingTransition(ctx context.Context, action *Action, n
 	defer s.run.mu.Unlock()
 	updated := s.run.actions[action.ID]
 	updated.PageToken = next
+	updated.WindowPages = action.WindowPages
 	updated.WorkPageToken = next
 	updated.WorkRevision = action.WorkRevision + 1
 	s.run.actions[action.ID] = updated

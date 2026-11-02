@@ -296,6 +296,10 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	if err != nil {
 		return err
 	}
+	sampledStats := &v3.SyncStatsRecord{}
+	c1zstore.ApplySyncTokenStatsRecord(sampledStats, existing.GetSyncToken())
+	// A follow-on pass must not clear an earlier sampled verdict.
+	sampled := existing.GetSampled() || c1zstore.SampledFromCounters(sampledStats.GetCounters()) || c1zstore.SampledFromCounters(overlay.GetCounters())
 	if !preserveRecovery && ledgered {
 		// The terminal page moved the declaration to sealing with the queue
 		// empty; a finished sync with no declaration is an engine-level reseal.
@@ -331,7 +335,7 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	// on AllowSealed paths; sync-run metadata stamps remain allowed.
 	// Sealing also pauses compactions for the EndSync-to-close window.
 	e.seal()
-	if err := e.endSyncFinalize(ctx, existing, preserveRecovery); err != nil {
+	if err := e.endSyncFinalize(ctx, existing, preserveRecovery, sampled); err != nil {
 		// On failure the sync stays bound and the caller may keep writing
 		// (or retry EndSync later): leave the sealed state and resume
 		// compactions, or L0 would accumulate until pebble stalls writes at
@@ -346,11 +350,13 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 }
 
 // Requires a sealed engine; EndSync unseals it if finalization fails.
-func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord, preserveRecovery bool) error {
+func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord, preserveRecovery, sampled bool) error {
 	if preserveRecovery {
-		if err := e.restoreEndSyncStats(ctx, existing.GetSyncId()); err != nil {
+		recoveredSampled, err := e.restoreEndSyncStats(ctx, existing.GetSyncId())
+		if err != nil {
 			return err
 		}
+		sampled = sampled || recoveredSampled
 	}
 	cost := &SealCost{}
 	defer func() { e.test.sealCost.Store(cost) }()
@@ -499,6 +505,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// Preserve all provenance fields while adding the lifecycle stamp.
 	updated := proto.Clone(existing).(*v3.SyncRunRecord)
 	updated.SetEndedAt(timestamppb.Now())
+	updated.SetSampled(sampled)
 	if e.test.endSyncStampHook != nil {
 		if err := e.test.endSyncStampHook(); err != nil {
 			return err

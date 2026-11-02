@@ -58,6 +58,7 @@ file here that no `goldenTokenCases` entry reads.
 | `v1_facts_all.json` | All five facts together. |
 | `v1_run_stats.json` | `step_durations_ms`, `connector_call_stats` (recorded and merged), `session_store_stats` (including `errors`/`timeouts`), a fully populated `ingest_quality`. |
 | `v1_action_counts.json` | The per-op `action_counts` tally, alongside a live `list-resources` action mid-pagination — the shape a resumed sync reads the tally in. Two ops: one with `warning_count` set, one where it is absent because `omitempty` drops a zero. |
+| `v1_list_page_window.json` | A live list walk with `window_pages` and cumulative `counters` from earlier sampled walks, recorded through `marshalToken`; pins the additive checkpoint fields. |
 | `v1_compaction.json` | The `compaction` provenance block written by `BuildCompactedToken`, with partial timings folded into the top-level stat maps. |
 | `v1_inline_graph.json` | An inline `entitlement_graph` (4 nodes, 3 edges, one expanded, one shallow, one with a nil resource-type filter) travelling with a live `grant-expansion` page token. Hand-authored: no writer has produced this shape since CXE-1376 removed the inline-graph writer. |
 | `v1_inline_graph.dropped.json` | The same token re-encoded by the current writer: graph dropped, `grant-expansion` page token blanked. |

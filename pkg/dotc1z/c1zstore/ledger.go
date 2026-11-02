@@ -65,6 +65,7 @@ type LedgerRow struct {
 
 	Replayed          bool
 	TypeScopedPlanned bool
+	WindowPages       uint32 `json:"window_pages,omitempty"`
 	// Scrubbed: tokens replaced by hashes at seal; Identity.PageToken,
 	// NextPageToken and the children's tokens are empty.
 	Scrubbed bool
@@ -175,6 +176,7 @@ type RunStats struct {
 	StepDurationsMs    map[string]int64
 	ConnectorCallStats map[string]CallStat
 	SessionStoreStats  map[string]CallStat
+	Counters           map[string]uint64
 	CompletedActions   uint64
 }
 

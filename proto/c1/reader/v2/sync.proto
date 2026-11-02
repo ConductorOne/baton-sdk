@@ -16,6 +16,8 @@ message SyncRun {
   string sync_type = 5;
   string parent_sync_id = 6;
   SyncStats stats = 7;
+  // True when a list-page window sampled the run instead of collecting a snapshot.
+  bool sampled = 8;
 }
 
 message SyncStats {
@@ -35,6 +37,8 @@ message SyncStats {
   map<string, int64> step_durations_ms = 9;
   map<string, CallStat> connector_call_stats = 10;
   map<string, CallStat> session_store_stats = 11;
+  // Bounded list-walk sampling counters, keyed by list_page_window.*.
+  map<string, int64> counters = 12;
 }
 
 // CallStat is a cumulative latency / outcome counter for one named

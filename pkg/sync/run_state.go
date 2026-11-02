@@ -124,6 +124,7 @@ type Action struct {
 	ID                   string   `json:"id,omitempty"`
 	Op                   ActionOp `json:"operation,omitempty"`
 	PageToken            string   `json:"page_token,omitempty"`
+	WindowPages          uint32   `json:"window_pages,omitempty"`
 	ResourceTypeID       string   `json:"resource_type_id,omitempty"`
 	ResourceID           string   `json:"resource_id,omitempty"`
 	ParentResourceTypeID string   `json:"parent_resource_type_id,omitempty"`
@@ -468,6 +469,7 @@ func (r *runState) transitionActionWithCompletion(
 	if nextPageToken != "" {
 		updated := r.actions[parent.ID]
 		updated.PageToken = nextPageToken
+		updated.WindowPages = parent.WindowPages
 		r.actions[parent.ID] = updated
 		return pushed, nil
 	}

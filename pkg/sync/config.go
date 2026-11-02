@@ -46,13 +46,15 @@ type syncConfig struct {
 	// entirely in default mode). Tests and equivalence harnesses set
 	// it; production default follows the per-invariant policy in the
 	// verdict table (ingestInvariants).
-	failFastInvariants bool
-	runDuration        time.Duration
-	transitionHandler  func(s Action)
-	progressHandler    func(p *Progress)
-	tmpDir             string
-	storageEngine      c1zstore.Engine
-	skipFullSync       bool
+	failFastInvariants    bool
+	runDuration           time.Duration
+	transitionHandler     func(s Action)
+	progressHandler       func(p *Progress)
+	listPageWindow        uint32
+	listPageWindowHandler func(ListPageWindowReport)
+	tmpDir                string
+	storageEngine         c1zstore.Engine
+	skipFullSync          bool
 	// compactionMergedStore marks the store as a pre-sealed artifact
 	// this process did not collect (WithCompactionMergedStore — the
 	// compactor's keep-newer merge and rollback-expansion's replay):

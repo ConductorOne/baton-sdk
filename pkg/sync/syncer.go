@@ -777,6 +777,38 @@ const maxEntitlementsPerExclusionGroup = 50
 // It also pushes any child actions before updating/finishing the action.
 // This is useful for pagination, and for actions that create other actions.
 func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
+	if _, committing := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit); committing {
+		return s.commitNextPageOrFinishAction(ctx, action, nextPageToken, childActions)
+	}
+	previousPages := action.WindowPages
+	nextPageToken, report := s.applyListPageWindow(action, nextPageToken)
+	if err := s.commitNextPageOrFinishAction(ctx, action, nextPageToken, childActions); err != nil {
+		action.WindowPages = previousPages
+		return err
+	}
+	if report == nil {
+		return nil
+	}
+	if invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation); ok {
+		if !report.VendorTerminated {
+			if invocation.page.observations.Counters == nil {
+				invocation.page.observations.Counters = make(map[string]uint64)
+			}
+			invocation.page.observations.Counters[c1zstore.ListPageWindowCounterPrefix+"sampled"]++
+			invocation.page.observations.Counters[c1zstore.ListPageWindowCounterPrefix+"sampled:"+report.ResourceTypeID]++
+		}
+		invocation.afterCommit = append(invocation.afterCommit, func() { s.reportListPageWindow(*report) })
+		return nil
+	}
+	if !report.VendorTerminated {
+		s.stats.addCounter(c1zstore.ListPageWindowCounterPrefix+"sampled", 1)
+		s.stats.addCounter(c1zstore.ListPageWindowCounterPrefix+"sampled:"+report.ResourceTypeID, 1)
+	}
+	s.reportListPageWindow(*report)
+	return nil
+}
+
+func (s *syncer) commitNextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions []Action) error {
 	if s.ledgered {
 		if invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation); ok {
 			return invocation.stage(action, nextPageToken, childActions)
@@ -4037,6 +4069,20 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 		if f != nil {
 			s.cfg.transitionHandler = f
 		}
+	}
+}
+
+// WithListPageWindow bounds successful resources, entitlements, and grants pages
+// per list walk. Zero leaves pagination unbounded. The handler may be nil; it runs
+// synchronously outside scheduler locks and must support concurrent workers.
+// Connector-signaled cursor restarts retain already-counted pages, so rewound
+// pages consume the remaining window and may reduce the sample of distinct rows.
+// Sampled artifacts remain local-only until downstream upload/uplift gates consume
+// the durable marker. A separate sampled-run sync-fact follow-up is deferred.
+func WithListPageWindow(window uint32, handler func(ListPageWindowReport)) SyncOpt {
+	return func(s *syncer) {
+		s.cfg.listPageWindow = window
+		s.cfg.listPageWindowHandler = handler
 	}
 }
 
