@@ -1,10 +1,13 @@
 package pebble
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
 
 	"google.golang.org/protobuf/proto"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
@@ -46,4 +49,18 @@ func SyncRunKeyForTest() []byte { return []byte{versionV3, typeSyncRun} }
 // marshal options.
 func MarshalRecordForTest(msg proto.Message) ([]byte, error) {
 	return marshalRecord(msg)
+}
+
+func (e *Engine) SetSyncToken(ctx context.Context, token string) error {
+	syncID := e.CurrentSyncID()
+	if syncID == "" {
+		return errors.New("SetSyncToken: no open sync")
+	}
+	existing, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		return err
+	}
+	updated := proto.Clone(existing).(*v3.SyncRunRecord)
+	updated.SetSyncToken(token)
+	return e.SyncRuns().PutSyncRunRecord(ctx, updated)
 }

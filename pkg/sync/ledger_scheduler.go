@@ -85,9 +85,6 @@ func (i *ledgerInvocation) stage(action *Action, next string, children []Action)
 }
 
 func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler func(context.Context, *Action) error, allowWarning bool) error {
-	if !s.ledgered {
-		return handler(ctx, action)
-	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

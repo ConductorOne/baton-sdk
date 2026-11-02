@@ -834,7 +834,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 	takeoverPages := func(t *testing.T, e *Engine) {
 		t.Helper()
 		for i, tok := range tokens[1:] {
-			require.NoError(t, e.CheckpointSync(ctx, fmt.Sprintf(`{"state":%q,"n":%d}`, tok, i)))
+			require.NoError(t, e.SetSyncToken(ctx, fmt.Sprintf(`{"state":%q,"n":%d}`, tok, i)))
 			require.NoError(t, e.Flush(ctx))
 		}
 		_, err := e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{})

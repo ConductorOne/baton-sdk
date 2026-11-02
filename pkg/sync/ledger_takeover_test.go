@@ -23,7 +23,7 @@ func TestLedgerTakeoverLegacyFixtures(t *testing.T) {
 			expected, expectedFacts, expectedCounters, err := decodeLedgerCheckpoint(state)
 			require.NoError(t, err)
 			f := newLedgerFixture(t)
-			require.NoError(t, f.store.CheckpointSync(t.Context(), state))
+			require.NoError(t, setSyncToken(t.Context(), f.engine, state))
 			got, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "takeover-attempt")
 			require.NoError(t, err)
 			require.NotEqual(t, c1zstore.LedgerQueueAbsent, got.phase)
@@ -65,7 +65,7 @@ func TestLedgerTakeoverRejectsInvalidStateBeforeConsumption(t *testing.T) {
 	} {
 		t.Run(state, func(t *testing.T) {
 			f := newLedgerFixture(t)
-			require.NoError(t, f.store.CheckpointSync(t.Context(), state))
+			require.NoError(t, setSyncToken(t.Context(), f.engine, state))
 			before := ledgerRawSnapshot(t, f.engine)
 			_, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "attempt")
 			require.ErrorContains(t, err, "invalid ledger resume")
@@ -84,7 +84,7 @@ func TestLedgerTakeoverCountersImportedOnlyWhenAbsent(t *testing.T) {
 	} {
 		f := newLedgerFixture(t)
 		state := `{"version":1,"completed_actions_count":7,"connector_call_stats":{"list":{"count":2,"total_ms":9,"max_ms":6}},"ingest_quality":{}}`
-		require.NoError(t, f.store.CheckpointSync(t.Context(), state))
+		require.NoError(t, setSyncToken(t.Context(), f.engine, state))
 		if !prior.IsZero() {
 			require.NoError(t, f.ledger.PutCounterBucket(t.Context(), "prior", 2, prior))
 		}
@@ -126,7 +126,7 @@ func TestLedgerTakeoverIngestQuality(t *testing.T) {
 		{quality: `,"ingest_quality":{"source_cache_replay_blocked":true,"reason_flags":8,"grants_dropped":4}`, known: true, blocked: true, reasons: 8},
 	} {
 		f := newLedgerFixture(t)
-		require.NoError(t, f.store.CheckpointSync(t.Context(), `{"version":1`+test.quality+`}`))
+		require.NoError(t, setSyncToken(t.Context(), f.engine, `{"version":1`+test.quality+`}`))
 		_, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "attempt")
 		require.NoError(t, err)
 		facts, err := f.ledger.LedgerFacts(t.Context())
@@ -159,7 +159,7 @@ func TestLedgerTakeoverRejectsConflictingAndEmptyFrontier(t *testing.T) {
 	for _, token := range []string{"", `{"version":1}`} {
 		f := newLedgerFixture(t)
 		if token != "" {
-			require.NoError(t, f.store.CheckpointSync(t.Context(), token))
+			require.NoError(t, setSyncToken(t.Context(), f.engine, token))
 		}
 		source := ledgerFrontierReadOverride{PageLedgerStore: f.ledger, frontier: &c1zstore.LedgerFrontier{}, found: true}
 		before := ledgerRawSnapshot(t, f.engine)
@@ -173,7 +173,7 @@ func TestLedgerTakeoverV0CursorAndParentIdentity(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "tokens", "v0_current_action.json"))
 	require.NoError(t, err)
 	f := newLedgerFixture(t)
-	require.NoError(t, f.store.CheckpointSync(t.Context(), string(data)))
+	require.NoError(t, setSyncToken(t.Context(), f.engine, string(data)))
 	resume, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "attempt")
 	require.NoError(t, err)
 	require.NotEqual(t, c1zstore.LedgerQueueAbsent, resume.phase)

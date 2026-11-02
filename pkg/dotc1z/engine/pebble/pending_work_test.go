@@ -258,7 +258,7 @@ func TestPendingWorkTakeoverIsOneUnit(t *testing.T) {
 			e, _ := newTestEngine(t)
 			syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			require.NoError(t, e.CheckpointSync(t.Context(), "legacy-state"))
+			require.NoError(t, e.SetSyncToken(t.Context(), "legacy-state"))
 			work := []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", PageToken: "second"}}, TypeScopedPlanned: true}}
 			counters := c1zstore.LedgerCounters{Counters: map[string]uint64{"pages": 9}}
 			injected := errors.New("takeover commit failure")
@@ -315,7 +315,7 @@ func TestPendingWorkTakeoverRejectsChangedToken(t *testing.T) {
 	e, _ := newTestEngine(t)
 	syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.CheckpointSync(t.Context(), "new-state"))
+	require.NoError(t, e.SetSyncToken(t.Context(), "new-state"))
 	_, err = e.Ledger().BeginFromToken(t.Context(), "attempt", "old-state", nil, c1zstore.LedgerCounters{}, nil, c1zstore.LedgerQueueCollecting)
 	require.ErrorContains(t, err, "changed")
 	rec, err := e.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
@@ -338,7 +338,7 @@ func TestPendingWorkTakeoverDurableImages(t *testing.T) {
 			defer e.Close()
 			syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			require.NoError(t, e.CheckpointSync(t.Context(), "checkpoint"))
+			require.NoError(t, e.SetSyncToken(t.Context(), "checkpoint"))
 			require.NoError(t, e.db.FlushMemtables())
 			var image *vfs.MemFS
 			injected := errors.New("before takeover commit")
@@ -383,7 +383,7 @@ func TestPendingWorkInitializationRefusesCheckpoint(t *testing.T) {
 	e, _ := newTestEngine(t)
 	syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.CheckpointSync(t.Context(), "unconsumed"))
+	require.NoError(t, e.SetSyncToken(t.Context(), "unconsumed"))
 	require.ErrorContains(t, e.Ledger().BeginCollecting(t.Context(), nil, nil), "takeover")
 	rec, err := e.SyncRuns().GetSyncRunRecord(t.Context(), syncID)
 	require.NoError(t, err)

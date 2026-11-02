@@ -2,8 +2,10 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -96,16 +98,27 @@ func (c *staticOrderConnector) ListStaticEntitlements(
 	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{List: []*v2.Entitlement{template("first"), template("last")}}.Build(), nil
 }
 
+func entitlementsSortedByID(list []*v2.Entitlement) []*v2.Entitlement {
+	cloned := make([]*v2.Entitlement, len(list))
+	for i, ent := range list {
+		cloned[i] = proto.Clone(ent).(*v2.Entitlement)
+	}
+	slices.SortFunc(cloned, func(a, b *v2.Entitlement) int {
+		return cmp.Compare(a.GetId(), b.GetId())
+	})
+	return cloned
+}
+
 func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 	baseline, baseStore, _ := staticPageFixture(t)
-	baseline.ledgered = false
-	baseline.store = staticResourcePageStore{Store: baseStore.store}
 	baseline.connector = &staticOrderConnector{mockConnector: newMockConnector()}
+	baseline.store = staticResourcePageStore{Store: baseStore.store}
+	baseline.ledger.store = &staticBoundStore{PageLedgerStore: baseStore.ledger}
 	_, err := runLedgerTestSync(t, baseline, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	expected, err := baseStore.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
 	require.NoError(t, err)
-	require.EqualValues(t, 1, baseline.run.completedActionsCount())
+	uninterrupted := entitlementsSortedByID(expected.GetList())
 	for _, interrupted := range []bool{false, true} {
 		t.Run(map[bool]string{false: "uninterrupted", true: "cold-resume"}[interrupted], func(t *testing.T) {
 			s, f, _ := staticPageFixture(t)
@@ -166,9 +179,8 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 			for _, ent := range response.GetList() {
 				require.Equal(t, "last", ent.GetDisplayName())
 			}
-			require.Len(t, response.GetList(), len(expected.GetList()))
-			for i, ent := range response.GetList() {
-				require.True(t, proto.Equal(expected.GetList()[i], ent))
+			if interrupted {
+				equalProtoLists(t, uninterrupted, entitlementsSortedByID(response.GetList()))
 			}
 			first, found, err := f.ledger.GetLedgerRow(t.Context(), root)
 			require.NoError(t, err)

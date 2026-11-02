@@ -26,7 +26,7 @@ import (
 )
 
 // This file is the Engine's connectorstore face: the sync lifecycle
-// (StartNewSync/ResumeSync/CheckpointSync/EndSync) and the v2
+// (StartNewSync/ResumeSync/EndSync) and the v2
 // writer/reader surface C1 + the syncer call. It translates v2 wire
 // types ↔ v3 record types via translate_v2.go and routes Put/Get/List
 // into the per-record-type methods. Historically this was a separate
@@ -234,34 +234,6 @@ func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return rec.GetSyncToken(), nil
-}
-
-// A token beside a ledger would be a second, lagging authority.
-var ErrLedgeredSyncWritesNoToken = errors.New("CheckpointSync: sync has a ledger; ledgered syncs write no token")
-
-func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
-	e.lifecycleMu.Lock()
-	defer e.lifecycleMu.Unlock()
-	syncID := e.CurrentSyncID()
-	if syncID == "" {
-		return errors.New("CheckpointSync: no open sync")
-	}
-	ledgered, err := e.ledger.active()
-	if err != nil {
-		return err
-	}
-	if ledgered {
-		return ErrLedgeredSyncWritesNoToken
-	}
-	existing, err := e.syncRuns.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
-		return err
-	}
-	// Clone-and-mutate so lifecycle updates preserve every metadata field,
-	// including fields introduced after this code was written.
-	updated := proto.Clone(existing).(*v3.SyncRunRecord)
-	updated.SetSyncToken(syncToken)
-	return e.syncRuns.PutSyncRunRecord(ctx, updated)
 }
 
 // EndSync stamps the open sync_run's ended_at and detaches it. After

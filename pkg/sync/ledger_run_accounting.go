@@ -24,9 +24,6 @@ func (s *syncer) completeLedgerLocalWork(ctx context.Context, work c1zstore.Ledg
 }
 
 func (s *syncer) checkpointLedgerOnStop(ctx context.Context) {
-	if s.ledger == nil {
-		return
-	}
 	counters := s.stats.attemptLedgerCounters()
 	if counters.IsZero() {
 		return

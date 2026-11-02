@@ -38,9 +38,9 @@ func TestBoundSyncUnstarted(t *testing.T) {
 			ctx := t.Context()
 			switch kind {
 			case "token":
-				require.NoError(t, e.CheckpointSync(ctx, "legacy-state"))
+				require.NoError(t, e.SetSyncToken(ctx, "legacy-state"))
 			case "frontier":
-				require.NoError(t, e.CheckpointSync(ctx, "legacy-state"))
+				require.NoError(t, e.SetSyncToken(ctx, "legacy-state"))
 				_, err = e.Ledger().Takeover(ctx, "attempt", nil, c1zstore.LedgerCounters{})
 				require.NoError(t, err)
 			case "stamp-only":

@@ -103,7 +103,8 @@ var defaultEngineRegistry = &engineRegistry{
 }
 
 // RegisterEngine registers a storage engine driver with the process-global
-// dotc1z engine registry.
+// dotc1z engine registry. sync.(*syncer).setStore requires Pebble and
+// PageLedgerStore.
 func RegisterEngine(driver EngineDriver) error {
 	return defaultEngineRegistry.register(driver)
 }

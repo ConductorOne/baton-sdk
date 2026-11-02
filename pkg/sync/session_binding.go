@@ -21,7 +21,6 @@ func (b *sessionBinding) bind(
 	binder sessions.SessionStoreBinder,
 	syncID string,
 	store c1zstore.Store,
-	ledgered bool,
 	onOp session.SessionOpObserver,
 ) error {
 	if binder == nil {
@@ -30,10 +29,7 @@ func (b *sessionBinding) bind(
 	if err := b.release(ctx); err != nil {
 		return err
 	}
-	sessionStore := store.SessionStore()
-	if ledgered {
-		sessionStore = ledgerSessionStore{SessionStore: sessionStore}
-	}
+	sessionStore := ledgerSessionStore{SessionStore: store.SessionStore()}
 	kind := "c1z_" + store.Metadata().Engine
 	unbind, err := binder.BindSessionStore(ctx, syncID, session.NewInstrumentedSessionStore(sessionStore, kind, "", onOp))
 	if err != nil {

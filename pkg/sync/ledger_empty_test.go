@@ -33,7 +33,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			case "grant":
 				require.NoError(t, f.store.PutGrants(ctx, ledgerGrant("saved", "type", "resource", "user")))
 			case "legacy-token", "legacy-frontier":
-				require.NoError(t, f.store.CheckpointSync(ctx, `{"version":1,"actions":[]}`))
+				require.NoError(t, setSyncToken(ctx, f.engine, `{"version":1,"actions":[]}`))
 				if kind == "legacy-frontier" {
 					_, err := loadTestLedgerResume(ctx, f.store, f.ledger, "takeover")
 					require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 				}
 				require.NoError(t, f.ledger.PutCounterBucket(ctx, "prior", 0, prior))
 			case "uninitialized-fact", "uninitialized-blocked":
-				require.NoError(t, f.store.CheckpointSync(ctx, `{"version":1,"actions":[]}`))
+				require.NoError(t, setSyncToken(ctx, f.engine, `{"version":1,"actions":[]}`))
 				facts := []string{ledgerFactIngestBlocked}
 				prior := c1zstore.LedgerCounters{}
 				if kind == "uninitialized-blocked" {

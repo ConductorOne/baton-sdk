@@ -18,7 +18,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/retry"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -378,33 +377,6 @@ func TestCollectEnqueuedPageTokensAcceptsMaximumCount(t *testing.T) {
 	require.Len(t, spawned, maxEnqueuePageTokensPerResponse)
 }
 
-func TestSpawnedActionsCoexistWithOriginContinuation(t *testing.T) {
-	ctx := context.Background()
-	st, _, _ := decodeTestRun(t, "")
-	st.finishAction(ctx, st.current())
-	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1"})
-	origin := st.current()
-	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph()}
-	require.NoError(t, s.nextPageOrFinishAction(ctx, origin, "origin-next",
-		Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1", PageToken: "sibling-1", Spawned: true},
-		Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1", PageToken: "sibling-2", Spawned: true},
-	))
-
-	token := encodeTestRun(t, st, newRunStats())
-	resumed, _, _ := decodeTestRun(t, token)
-
-	seen := map[string]Action{}
-	for resumed.current() != nil {
-		action := *resumed.current()
-		seen[action.PageToken] = action
-		resumed.finishAction(ctx, &action)
-	}
-	require.Len(t, seen, 3)
-	require.False(t, seen["origin-next"].Spawned)
-	require.True(t, seen["sibling-1"].Spawned)
-	require.True(t, seen["sibling-2"].Spawned)
-}
-
 func TestSpawnedActionsSurviveCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	st, _, _ := decodeTestRun(t, "")
@@ -423,50 +395,6 @@ func TestSpawnedActionsSurviveCheckpoint(t *testing.T) {
 	require.True(t, resumed.current().Spawned)
 	require.True(t, resumed.current().TypeScoped)
 	require.Equal(t, "chunk-1", resumed.current().PageToken)
-}
-
-func TestSpawnedCursorJoinsActiveParallelBatch(t *testing.T) {
-	ctx := t.Context()
-	st, _, _ := decodeTestRun(t, "")
-	st.finishAction(ctx, st.current())
-	origin := st.pushAction(ctx, Action{
-		Op:             SyncGrantsOp,
-		ResourceTypeID: "group",
-		ResourceID:     "group-1",
-	})
-	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 2}}
-	childStarted := make(chan struct{})
-
-	f := func(ctx context.Context, action *Action) error {
-		switch action.PageToken {
-		case "":
-			return s.nextPageOrFinishAction(ctx, action, "origin-next", Action{
-				Op:             SyncGrantsOp,
-				ResourceTypeID: "group",
-				ResourceID:     "group-1",
-				PageToken:      "sibling",
-				Spawned:        true,
-			})
-		case "sibling":
-			close(childStarted)
-			s.run.finishAction(ctx, action)
-			return nil
-		case "origin-next":
-			select {
-			case <-childStarted:
-				s.run.finishAction(ctx, action)
-				return nil
-			case <-time.After(2 * time.Second):
-				return fmt.Errorf("spawned cursor did not join the active worker batch")
-			}
-		default:
-			return fmt.Errorf("unexpected page token %q", action.PageToken)
-		}
-	}
-
-	_, err := s.syncParallel(ctx, retry.NewRetryer(ctx, retry.RetryConfig{}), []*Action{origin}, f)
-	require.NoError(t, err)
-	require.Nil(t, st.current())
 }
 
 func TestParallelActionQueueReleasesDequeuedStorage(t *testing.T) {

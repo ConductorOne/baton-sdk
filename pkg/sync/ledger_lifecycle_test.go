@@ -11,7 +11,7 @@ import (
 )
 
 func ledgerContinuationSyncer(f *ledgerFixture) *syncer {
-	return &syncer{ledgered: true, syncID: f.engine.CurrentSyncID(), store: f.store, caps: resolveStoreCaps(f.store), cfg: syncConfig{workerCount: 1}}
+	return &syncer{syncID: f.engine.CurrentSyncID(), store: f.store, caps: resolveStoreCaps(f.store), cfg: syncConfig{workerCount: 1}}
 }
 
 // A finished sync's one further pass is expansion.
@@ -126,7 +126,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 			}
 			token, err := marshalToken(prior, newRunStats())
 			require.NoError(t, err)
-			require.NoError(t, f.store.CheckpointSync(t.Context(), token))
+			require.NoError(t, setSyncToken(t.Context(), f.engine, token))
 			require.NoError(t, f.store.EndSync(t.Context()))
 			require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
 			before, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)

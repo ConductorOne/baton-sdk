@@ -289,8 +289,8 @@ func (l *Ledger) scrubFrontierLocked(ctx context.Context, batch *rawdb.RecordBat
 // The scrub writes new versions; the pre-scrub rows stay in the SSTs they
 // were flushed to and CheckpointTo hard-links SSTs as they are, so without
 // this compaction the verbatim tokens ship as byte-level residue.
-// SyncRunKey's range is included: CheckpointSync before a takeover left
-// superseded sync-run versions carrying tokens, in SSTs that need not
+// SyncRunKey's range is included: a token on the sync-run record before a
+// takeover left superseded versions carrying tokens, in SSTs that need not
 // overlap the ledger range.
 func (l *Ledger) purgeResidue(ctx context.Context) error {
 	return l.e.withWriteAllowSealed(func() error {
@@ -577,10 +577,9 @@ func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, 
 	return out, true, nil
 }
 
-// Holds lifecycleMu across the read and the commit: a CheckpointSync landing
-// between them would be reverted by the blind-set of the sync-run key, and an
-// endSync that snapshotted the record first would write the pre-takeover token
-// back beside a live frontier.
+// Holds lifecycleMu across the read and the commit: an endSync that
+// snapshotted the record first would write the pre-takeover token back
+// beside a live frontier.
 func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
 	bare := make(map[string]string, len(facts))
 	for _, f := range facts {

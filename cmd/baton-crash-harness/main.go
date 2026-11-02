@@ -19,8 +19,7 @@
 // so any two completed syncs of the same flags must produce identical
 // stores — that determinism is the driver's oracle. `-page-delay-ms`
 // stretches every paginated connector call so sessions are interruptible
-// mid-action and sequential syncs outlive the production checkpoint cadence
-// (minCheckpointInterval).
+// mid-action.
 //
 // The storage engine and worker count come from BATON_STORAGE_ENGINE and
 // BATON_WORKERS, mirroring the CI demo matrix. The final stdout line is

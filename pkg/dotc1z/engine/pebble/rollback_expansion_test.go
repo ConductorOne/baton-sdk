@@ -305,7 +305,7 @@ func TestRollbackExpansionRefusesUnfinishedLegacyCheckpoint(t *testing.T) {
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, e.records.PutGrantRecords(ctx, rollbackClassificationGrants()...))
-	require.NoError(t, e.CheckpointSync(ctx, "legacy-token"))
+	require.NoError(t, e.SetSyncToken(ctx, "legacy-token"))
 
 	for _, dryRun := range []bool{true, false} {
 		_, err := e.Expansion().RollbackExpansion(ctx, syncID, dryRun, false)

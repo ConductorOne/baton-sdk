@@ -56,7 +56,6 @@ func TestLedgerBeginPassPreservesHistory(t *testing.T) {
 	records, err := e.records.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{})
 	require.NoError(t, err)
 	require.Len(t, records.GetList(), 1)
-	require.ErrorIs(t, e.CheckpointSync(ctx, "forbidden"), ErrLedgeredSyncWritesNoToken)
 }
 
 func TestLedgerBeginPassRefusals(t *testing.T) {
@@ -81,7 +80,7 @@ func TestLedgerBeginPassRefusals(t *testing.T) {
 		e, _ := newTestEngine(t)
 		syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		require.NoError(t, e.CheckpointSync(t.Context(), "legacy"))
+		require.NoError(t, e.SetSyncToken(t.Context(), "legacy"))
 		require.NoError(t, e.EndSync(t.Context()))
 		require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
 		require.ErrorContains(t, e.Ledger().BeginPass(t.Context(), nil, nil), "taken over")
@@ -117,7 +116,7 @@ func TestLedgerBeginPassFailureCuts(t *testing.T) {
 			ctx := t.Context()
 			syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			require.NoError(t, e.CheckpointSync(ctx, "legacy"))
+			require.NoError(t, e.SetSyncToken(ctx, "legacy"))
 			_, err = e.Ledger().Takeover(ctx, "old", []string{"finished", "history"}, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 9}})
 			require.NoError(t, err)
 			require.NoError(t, e.Ledger().BeginCollecting(ctx, nil, nil))
@@ -154,7 +153,6 @@ func TestLedgerBeginPassFailureCuts(t *testing.T) {
 			counters, err := e.Ledger().Counters(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, 9, counters.Counters["completed"])
-			require.ErrorIs(t, e.CheckpointSync(ctx, "forbidden"), ErrLedgeredSyncWritesNoToken)
 
 			require.NoError(t, e.Ledger().BeginPass(ctx, nil, []string{"finished"}))
 			facts, err = e.Ledger().Facts(ctx)

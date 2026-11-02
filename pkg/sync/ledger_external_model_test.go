@@ -35,7 +35,7 @@ func (p *externalStreamingProbe) ListGrantsForEntitlement(
 }
 
 func TestLedgerExternalImportsPagesDirectly(t *testing.T) {
-	s, f, source := externalPageFixture(t, true)
+	s, f, source := externalPageFixture(t)
 	fresh := externalMatchPrincipal(t, "fresh", nil)
 	for _, id := range []string{"one", "two", "three"} {
 		require.NoError(t, source.store.PutGrants(t.Context(), gt.NewGrant(fresh, "member", v2.ResourceId_builder{ResourceType: "user", Resource: id}.Build())))

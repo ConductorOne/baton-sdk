@@ -92,7 +92,9 @@ func buildPebbleInputWithQuality(
 	require.NoError(t, w.PutAsset(ctx, v2.AssetRef_builder{Id: "asset-1"}.Build(), "text/plain", []byte("payload")))
 
 	if qualityCheckpoint != "" {
-		require.NoError(t, w.CheckpointSync(ctx, qualityCheckpoint))
+		eng, ok := enginepkg.AsEngine(w)
+		require.True(t, ok)
+		require.NoError(t, setSyncToken(ctx, eng, qualityCheckpoint))
 	}
 	require.NoError(t, w.EndSync(ctx))
 	require.NoError(t, w.Close(ctx))

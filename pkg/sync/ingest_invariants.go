@@ -631,10 +631,8 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 			s.ingestFilterStats.blockReplay(ingestQualityReasonRetainedInvalid)
 		},
 	}
-	if s.ledgered {
-		policy.scheduledChild = func(ctx context.Context, child, parentType, parent string) (bool, error) {
-			return s.caps.pageLedger.HasScheduledWork(ctx, "resource:"+childScheduleKey(child, parentType, parent))
-		}
+	policy.scheduledChild = func(ctx context.Context, child, parentType, parent string) (bool, error) {
+		return s.caps.pageLedger.HasScheduledWork(ctx, "resource:"+childScheduleKey(child, parentType, parent))
 	}
 	// Leaving the predicate nil is how the policy says "no scheduler
 	// evidence, skip I10". The nil check has to be here: a bound method

@@ -59,7 +59,7 @@ func TestLedgerRestoreCheckpointFixtures(t *testing.T) {
 			expected, err := unmarshalToken(string(data))
 			require.NoError(t, err)
 			s, f := newLedgerSchedulerFixture(t, 1)
-			require.NoError(t, f.store.CheckpointSync(t.Context(), string(data)))
+			require.NoError(t, setSyncToken(t.Context(), f.engine, string(data)))
 			resume, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "takeover")
 			require.NoError(t, err)
 			s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "resumed")
@@ -90,7 +90,7 @@ func TestLedgerRestoreFinishedCheckpointPreservesLifecycle(t *testing.T) {
 			stats.connectorCalls["ListResources"] = &ConnectorCallStat{Count: 8, TotalMs: 40, MaxMs: 9}
 			state, err := marshalToken(prior, stats)
 			require.NoError(t, err)
-			require.NoError(t, f.store.CheckpointSync(t.Context(), state))
+			require.NoError(t, setSyncToken(t.Context(), f.engine, state))
 			syncID := f.engine.CurrentSyncID()
 			require.NoError(t, f.store.EndSync(t.Context()))
 			require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))

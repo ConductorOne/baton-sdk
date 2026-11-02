@@ -13,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // TestEndSyncPersistsSyncTokenStats locks in that EndSync lifts
@@ -60,7 +61,9 @@ func TestEndSyncPersistsSyncTokenStats(t *testing.T) {
 			require.NoError(t, store.PutResourceTypes(ctx,
 				v2.ResourceType_builder{Id: "user"}.Build(),
 			))
-			require.NoError(t, store.CheckpointSync(ctx, string(tokenJSON)))
+			eng, ok := enginepkg.AsEngine(store)
+			require.True(t, ok)
+			require.NoError(t, setSyncToken(ctx, eng, string(tokenJSON)))
 			require.NoError(t, store.EndSync(ctx))
 
 			stats, err := store.SyncMeta().StatsV2(ctx, connectorstore.SyncTypeFull, syncID)
