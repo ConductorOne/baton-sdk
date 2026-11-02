@@ -32,7 +32,9 @@ func TestLedgerDeterministicTimeFixture(t *testing.T) {
 			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 			require.NoError(t, err)
 			f.audit.enter(ledgerHandler)
-			require.NoError(t, runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, inv *ledgerInvocation, s *syncer, action *Action, page *ledgerPage) error {
+			require.NoError(t, runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(
+				ctx context.Context, inv *ledgerInvocation, s *syncer, action *Action, page *ledgerPage,
+			) error {
 				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
 					return err
 				}
