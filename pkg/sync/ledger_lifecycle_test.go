@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -126,7 +127,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 			}
 			token, err := marshalToken(prior, newRunStats())
 			require.NoError(t, err)
-			require.NoError(t, f.engine.SetSyncTokenForTesting(t.Context(), token))
+			require.NoError(t, c1ztest.SetSyncToken(t.Context(), f.engine, token))
 			require.NoError(t, f.store.EndSync(t.Context()))
 			require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
 			before, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), syncID)

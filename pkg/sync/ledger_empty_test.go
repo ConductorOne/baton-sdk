@@ -6,6 +6,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			case "grant":
 				require.NoError(t, f.store.PutGrants(ctx, ledgerGrant("saved", "type", "resource", "user")))
 			case "legacy-token", "legacy-frontier":
-				require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, `{"version":1,"actions":[]}`))
+				require.NoError(t, c1ztest.SetSyncToken(ctx, f.engine, `{"version":1,"actions":[]}`))
 				if kind == "legacy-frontier" {
 					_, err := loadTestLedgerResume(ctx, f.store, f.ledger, "takeover")
 					require.NoError(t, err)
@@ -52,7 +53,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 				}
 				require.NoError(t, f.ledger.PutCounterBucket(ctx, "prior", 0, prior))
 			case "uninitialized-fact", "uninitialized-blocked":
-				require.NoError(t, f.engine.SetSyncTokenForTesting(ctx, `{"version":1,"actions":[]}`))
+				require.NoError(t, c1ztest.SetSyncToken(ctx, f.engine, `{"version":1,"actions":[]}`))
 				facts := []string{ledgerFactIngestBlocked}
 				prior := c1zstore.LedgerCounters{}
 				if kind == "uninitialized-blocked" {

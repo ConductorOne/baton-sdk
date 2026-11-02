@@ -30,7 +30,7 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 
 	const marker = "opaque-cursor-9f3a"
 	state := `{"v":1,"actions":[{"op":"list-grants","page_token":"` + marker + `"}]}`
-	require.NoError(t, e.SetSyncTokenForTesting(ctx, state))
+	require.NoError(t, e.SetSyncToken(ctx, state))
 
 	moved, err := e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{
 		Counters: map[string]uint64{"completed_actions": 1},
@@ -93,7 +93,7 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.SetSyncTokenForTesting(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
+	require.NoError(t, e.SetSyncToken(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 
 	_, err = e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{
 		ConnectorCalls:  map[string]c1zstore.CallStat{"ListGrants": {Count: 2, TotalMs: 40, MaxMs: 30}},
@@ -115,7 +115,7 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	e2, _ := newTestEngine(t)
 	_, err = e2.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e2.SetSyncTokenForTesting(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
+	require.NoError(t, e2.SetSyncToken(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 	_, err = e2.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{})
 	require.NoError(t, err)
 	n, err = e2.ledger.counterBucketCount(ctx)
@@ -233,7 +233,7 @@ func TestTakeoverBucketSurvivesWorkerZerosPage(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.SetSyncTokenForTesting(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
+	require.NoError(t, e.SetSyncToken(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 
 	_, err = e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{
 		Counters: map[string]uint64{"completed_actions": 5},
@@ -410,7 +410,7 @@ func TestDropLedgerWipesEveryLedgerSubFamily(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.SetSyncTokenForTesting(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
+	require.NoError(t, e.SetSyncToken(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 	_, err = e.ledger.Takeover(ctx, "run-1", []string{"needs_expansion"}, c1zstore.LedgerCounters{
 		Counters: map[string]uint64{"completed_actions": 1},
 	})

@@ -42,7 +42,7 @@ func TestResumeSyncRestoresCheckpointStep(t *testing.T) {
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, a.records.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
-	require.NoError(t, a.SetSyncTokenForTesting(ctx, fsmCursor))
+	require.NoError(t, a.SetSyncToken(ctx, fsmCursor))
 	// No EndSync: the sync is still in progress when the window expires.
 
 	// New activity window / process: reopen from disk, fresh adapter.
@@ -74,7 +74,7 @@ func TestStartOrResumeSyncRestoresCheckpointStep(t *testing.T) {
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, a.records.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
-	require.NoError(t, a.SetSyncTokenForTesting(ctx, fsmCursor))
+	require.NoError(t, a.SetSyncToken(ctx, fsmCursor))
 
 	// New activity window / process.
 	e2 := reopenEngine(t, e, dir)
@@ -103,7 +103,7 @@ func TestSetCurrentSyncRehydratesStep(t *testing.T) {
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.SetSyncTokenForTesting(ctx, fsmCursor))
+	require.NoError(t, a.SetSyncToken(ctx, fsmCursor))
 
 	// New activity window / process: fresh adapter, rebind by id.
 	e2 := reopenEngine(t, e, dir)

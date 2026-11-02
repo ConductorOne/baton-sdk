@@ -15,6 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func seedLedgerPublicLegacy(t *testing.T, f *ledgerFixture, c *ledgerPublicCrash
 		require.Equal(t, "1", response.GetNextPageToken())
 		require.NoError(t, f.store.PutResources(t.Context(), response.GetList()...))
 	}
-	require.NoError(t, f.engine.SetSyncTokenForTesting(t.Context(), ledgerPublicLegacyToken(version)))
+	require.NoError(t, c1ztest.SetSyncToken(t.Context(), f.engine, ledgerPublicLegacyToken(version)))
 	require.NoError(t, f.engine.Flush(t.Context()))
 }
 

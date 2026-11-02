@@ -47,8 +47,7 @@ type Engine struct {
 	corruption atomic.Pointer[pebble.DataCorruptionInfo]
 
 	// lifecycleMu serializes the sync-lifecycle transitions
-	// (StartNewSync/ResumeSync/SetCurrentSync/EndSync and
-	// SetSyncTokenForTesting),
+	// (StartNewSync/ResumeSync/SetCurrentSync/EndSync),
 	// whose bodies are read-check-write sequences over the sync-run
 	// record + the currentSync binding. Formerly the Adapter layer's
 	// mutex; the record writes themselves ride the write barrier.

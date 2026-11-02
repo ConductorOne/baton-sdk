@@ -40,7 +40,7 @@ func TestManifestSyncRunProjection(t *testing.T) {
 	require.NoError(t, w.PutGrants(ctx, grant))
 	engine, ok := enginepkg.AsEngine(w)
 	require.True(t, ok)
-	require.NoError(t, engine.SetSyncTokenForTesting(ctx, `{"version":1,"ingest_quality":{"source_cache_replay_blocked":true,"entitlements_dropped":2,"reason_flags":33}}`))
+	require.NoError(t, engine.SetSyncToken(ctx, `{"version":1,"ingest_quality":{"source_cache_replay_blocked":true,"entitlements_dropped":2,"reason_flags":33}}`))
 	require.NoError(t, w.EndSync(ctx))
 	syncRun, err := engine.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)

@@ -20,6 +20,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
@@ -94,7 +95,7 @@ func buildPebbleInputWithQuality(
 	if qualityCheckpoint != "" {
 		eng, ok := enginepkg.AsEngine(w)
 		require.True(t, ok)
-		require.NoError(t, eng.SetSyncTokenForTesting(ctx, qualityCheckpoint))
+		require.NoError(t, c1ztest.SetSyncToken(ctx, eng, qualityCheckpoint))
 	}
 	require.NoError(t, w.EndSync(ctx))
 	require.NoError(t, w.Close(ctx))

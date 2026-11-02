@@ -107,7 +107,7 @@ func TestLedgerTakeoverIsOneUnit(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	const legacyState = `{"v":1,"actions":[{"op":"list-grants"}]}`
-	require.NoError(t, e.SetSyncTokenForTesting(ctx, legacyState))
+	require.NoError(t, e.SetSyncToken(ctx, legacyState))
 
 	counters := c1zstore.LedgerCounters{Counters: map[string]uint64{"grants_dropped": 7, "known": 1}, Flags: 0b100}
 
@@ -189,7 +189,7 @@ func TestLedgerTakeoverCrashImages(t *testing.T) {
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	const legacyState = `{"v":1,"actions":[{"op":"list-grants"}]}`
-	require.NoError(t, e.SetSyncTokenForTesting(ctx, legacyState))
+	require.NoError(t, e.SetSyncToken(ctx, legacyState))
 	e.ledger.SetRetainTokens(true)
 	counters := c1zstore.LedgerCounters{Counters: map[string]uint64{"grants_dropped": 7}, Flags: 0b100}
 

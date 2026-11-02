@@ -2,13 +2,17 @@ package c1ztest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 type C1ZCounts struct {
@@ -98,4 +102,18 @@ func CreateTestSync(ctx context.Context, t *testing.T, f c1zstore.Store, counts 
 	require.NoError(t, err)
 
 	return syncID, nil
+}
+
+func SetSyncToken(ctx context.Context, e *pebble.Engine, token string) error {
+	syncID := e.CurrentSyncID()
+	if syncID == "" {
+		return errors.New("SetSyncToken: no open sync")
+	}
+	existing, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		return err
+	}
+	updated := proto.Clone(existing).(*v3.SyncRunRecord)
+	updated.SetSyncToken(token)
+	return e.SyncRuns().PutSyncRunRecord(ctx, updated)
 }

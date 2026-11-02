@@ -245,7 +245,7 @@ func TestAdapterResumeSync(t *testing.T) {
 	id1, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
-	require.NoError(t, a.SetSyncTokenForTesting(ctx, "step-7"))
+	require.NoError(t, a.SetSyncToken(ctx, "step-7"))
 	// Simulate restart by clearing the engine's bound sync (the only
 	// in-memory lifecycle state post-2.6; the step token lives on the
 	// durable SyncRunRecord).

@@ -864,7 +864,7 @@ func buildBoundSweepBaseline(ctx context.Context, t *testing.T, w sweepWorkload,
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, w.writeFirstPages(ctx, a))
-	require.NoError(t, a.SetSyncTokenForTesting(ctx, "after-first-pages"))
+	require.NoError(t, a.SetSyncToken(ctx, "after-first-pages"))
 	require.NoError(t, e.Close())
 	return fs, syncID
 }

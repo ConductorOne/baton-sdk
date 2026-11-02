@@ -21,6 +21,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	sdk "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
@@ -209,7 +210,7 @@ func runDurableSync(t *testing.T, fs vfs.FS, dir, mode string, workers int, cutO
 				require.NoError(t, store.PutResources(ctx, crashResource()))
 				state := `{"version":1,"actions_map":{"a":{"id":"a","operation":"fetch-assets","resource_type_id":"type","resource_id":"one"}}` +
 					`,"action_order":["a"],"ingest_quality":{}}`
-				require.NoError(t, e.SetSyncTokenForTesting(ctx, state))
+				require.NoError(t, c1ztest.SetSyncToken(ctx, e, state))
 				require.NoError(t, e.Flush(ctx))
 			}
 		} else {
