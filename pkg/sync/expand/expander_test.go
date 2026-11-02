@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/cockroachdb/pebble/v2/vfs"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/stretchr/testify/require"
@@ -23,12 +24,9 @@ type MockExpanderStore struct {
 	pageSize int
 }
 
-// NewMockExpanderStore creates a new mock store for testing.
-func useMemProjectionScratch(t *testing.T) {
-	t.Helper()
-	prev := projectionScratchMem
-	projectionScratchMem = true
-	t.Cleanup(func() { projectionScratchMem = prev })
+func withMemProjectionScratch(e *Expander) *Expander {
+	e.projectionScratchFS = vfs.NewMem()
+	return e
 }
 
 func NewMockExpanderStore() *MockExpanderStore {

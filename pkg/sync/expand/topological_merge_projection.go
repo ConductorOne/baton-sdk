@@ -28,8 +28,6 @@ import (
 // emits progress logs during a large expansion.
 const projectionProgressInterval = 15 * time.Second
 
-var projectionScratchMem bool
-
 type discardProjectionLogger struct{}
 
 func (discardProjectionLogger) Infof(string, ...any)  {}
@@ -43,9 +41,9 @@ type projectionScratch struct {
 	cleanup func()
 }
 
-func openProjectionScratch() (*projectionScratch, error) {
-	if projectionScratchMem {
-		fs := vfs.NewMem()
+func (e *Expander) openProjectionScratch() (*projectionScratch, error) {
+	if e.projectionScratchFS != nil {
+		fs := e.projectionScratchFS
 		db, err := pebble.Open("db", &pebble.Options{
 			FS:         fs,
 			DisableWAL: true,
@@ -95,7 +93,7 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	metrics := &EntitlementGraphMetrics{Algorithm: "topological_projection"}
 	e.graph.ExpansionMetrics = metrics
 
-	scratch, err := openProjectionScratch()
+	scratch, err := e.openProjectionScratch()
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cockroachdb/pebble/v2/vfs"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -91,6 +92,8 @@ type Expander struct {
 	// whole sync (the syncer owns it across step-wise Expander
 	// reconstruction). Nil is safe: recording no-ops.
 	dropStats *DroppedEdgeStats
+	// Nil uses an on-disk temporary directory.
+	projectionScratchFS vfs.FS
 }
 
 // SetDropStats installs the sync-scoped dropped-edge aggregator.

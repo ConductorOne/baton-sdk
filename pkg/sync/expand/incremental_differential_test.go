@@ -185,12 +185,11 @@ func (m differentialMutation) String() string {
 
 func runDifferentialScript(t *testing.T, seed int64) (int, int, map[differentialMutation]int) {
 	t.Helper()
-	useMemProjectionScratch(t)
 	ctx := context.Background()
 	rng := rand.New(rand.NewSource(seed ^ 0x5eed)) //nolint:gosec // deterministic fixture generation
 	model := randomExpansionCase(seed)
 	incStore, incGraph := mockStoreFromCase(t, ctx, model)
-	require.NoError(t, NewExpander(incStore, incGraph).Run(ctx))
+	require.NoError(t, withMemProjectionScratch(NewExpander(incStore, incGraph)).Run(ctx))
 	incGraph.Loaded = true
 
 	incrementalRuns := 0
@@ -221,7 +220,7 @@ func runDifferentialScript(t *testing.T, seed int64) (int, int, map[differential
 		incrementalRuns++
 
 		fullStore, fullGraph := mockStoreFromCase(t, ctx, model)
-		require.NoError(t, NewExpander(fullStore, fullGraph).Run(ctx))
+		require.NoError(t, withMemProjectionScratch(NewExpander(fullStore, fullGraph)).Run(ctx))
 		require.Equal(t, snapshotStoreGrants(fullStore), snapshotStoreGrants(incStore),
 			"seed=%d step=%d mutation=%s", seed, step, mutation)
 		require.Equal(t, independentAccessOracle(model), snapshotAccessPairs(incStore),
