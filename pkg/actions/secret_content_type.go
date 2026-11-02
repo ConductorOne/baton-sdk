@@ -12,24 +12,28 @@ import (
 
 func validateActionSecretContentTypes(schema *v2.BatonActionSchema) error {
 	for _, field := range schema.GetArguments() {
-		if field.HasSecretContentType() {
-			return errors.New("secret content type is only valid on secret action returns")
+		meta, err := crypto.ResolveFieldOutput(field)
+		if err != nil {
+			return err
+		}
+		if meta.HasType {
+			return errors.New("logical type is only valid on secret action returns")
 		}
 	}
 	secretReturns := 0
 	hasTypedReturn := false
 	for _, field := range schema.GetReturnTypes() {
+		meta, err := crypto.ResolveFieldOutput(field)
+		if err != nil {
+			return err
+		}
 		if field.GetIsSecret() {
 			secretReturns++
 		}
-		if !field.HasSecretContentType() {
-			continue
+		if meta.HasType && !field.GetIsSecret() {
+			return errors.New("logical type is only valid on secret action returns")
 		}
-		value := field.GetSecretContentType()
-		if !field.GetIsSecret() || !crypto.ValidSecretContentType(value) {
-			return errors.New("secret action return content type is invalid")
-		}
-		if value != "generic" {
+		if meta.HasType && meta.LogicalType != "generic" {
 			hasTypedReturn = true
 		}
 	}
@@ -42,14 +46,10 @@ func validateActionSecretContentTypes(schema *v2.BatonActionSchema) error {
 func snapshotSecretContentTypes(fields []*config.Field) map[string]string {
 	types := make(map[string]string)
 	for _, field := range fields {
-		if !field.GetIsSecret() {
-			continue
+		if field.GetIsSecret() {
+			meta, _ := crypto.ResolveFieldOutput(field)
+			types[field.GetName()] = meta.LogicalType
 		}
-		value := "generic"
-		if field.HasSecretContentType() {
-			value = field.GetSecretContentType()
-		}
-		types[field.GetName()] = value
 	}
 	return types
 }
