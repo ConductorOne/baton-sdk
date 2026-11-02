@@ -11,7 +11,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -53,7 +52,7 @@ func TestResumeCheckpointParity(t *testing.T) {
 			require.NoError(t, store.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
 			eng, ok := enginepkg.AsEngine(store)
 			require.True(t, ok)
-			require.NoError(t, c1ztest.SetSyncToken(ctx, eng, fsmCursor))
+			require.NoError(t, setSyncToken(ctx, eng, fsmCursor))
 			require.NoError(t, store.Close(ctx))
 
 			// Activity window 2: a fresh process reopens the same c1z and

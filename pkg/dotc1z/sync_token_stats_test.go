@@ -13,7 +13,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
@@ -64,7 +63,7 @@ func TestEndSyncPersistsSyncTokenStats(t *testing.T) {
 			))
 			eng, ok := enginepkg.AsEngine(store)
 			require.True(t, ok)
-			require.NoError(t, c1ztest.SetSyncToken(ctx, eng, string(tokenJSON)))
+			require.NoError(t, setSyncToken(ctx, eng, string(tokenJSON)))
 			require.NoError(t, store.EndSync(ctx))
 
 			stats, err := store.SyncMeta().StatsV2(ctx, connectorstore.SyncTypeFull, syncID)

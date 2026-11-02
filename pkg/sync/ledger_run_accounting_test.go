@@ -8,7 +8,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/stretchr/testify/require"
@@ -147,7 +146,7 @@ func TestLedgerMigratedAccountingAcrossColdResumes(t *testing.T) {
 				importedCalls, importedWait, importedErrors, importedMs = 2, 11, 1, 9
 				wantFlags = 0
 			}
-			require.NoError(t, c1ztest.SetSyncToken(ctx, f.engine, state))
+			require.NoError(t, setSyncToken(ctx, f.engine, state))
 			for attempt := range 3 {
 				require.NoError(t, f.store.Close(ctx))
 				f = openLedgerFixtureAt(t, f.path, false)

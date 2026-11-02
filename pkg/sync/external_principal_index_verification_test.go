@@ -24,7 +24,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -326,7 +325,7 @@ func seedExternalMatchVerificationStore(
 	token := encodeTestRun(t, run, newRunStats())
 	eng, ok := enginepkg.AsEngine(store)
 	require.True(t, ok)
-	require.NoError(t, c1ztest.SetSyncToken(ctx, eng, token))
+	require.NoError(t, setSyncToken(ctx, eng, token))
 
 	return store, syncID, verificationPrincipals(t)
 }
@@ -345,7 +344,7 @@ func finishExternalMatchVerificationSync(
 	token := encodeTestRun(t, run, newRunStats())
 	eng, ok := enginepkg.AsEngine(store)
 	require.True(t, ok)
-	require.NoError(t, c1ztest.SetSyncToken(ctx, eng, token))
+	require.NoError(t, setSyncToken(ctx, eng, token))
 	require.NoError(t, store.EndSync(ctx))
 	require.NoError(t, store.Close(ctx))
 }

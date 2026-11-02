@@ -13,7 +13,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -92,7 +91,7 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 			// EndSync lifts stats from the token and must leave the verification provenance in place.
 			eng, ok := enginepkg.AsEngine(store)
 			require.True(t, ok)
-			require.NoError(t, c1ztest.SetSyncToken(ctx, eng, "after-verification"))
+			require.NoError(t, setSyncToken(ctx, eng, "after-verification"))
 			require.NoError(t, store.EndSync(ctx))
 			// Production ordering: the marker is persisted only after the
 			// seal, so a crash before EndSync leaves the sync unverified.
