@@ -67,7 +67,13 @@ message Field {
   }];
   repeated string tags = 9 [(validate.rules).repeated = {
     unique: true
-    items: {string: {min_len: 1 max_len: 143 pattern: "^[a-zA-Z0-9_.-]+$"}}
+    items: {
+      string: {
+        min_len: 1
+        max_len: 143
+        pattern: "^[a-zA-Z0-9_.-]+$"
+      }
+    }
     max_items: 16
   }];
 
