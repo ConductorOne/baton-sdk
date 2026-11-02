@@ -13,7 +13,7 @@ import (
 
 func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
-	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, page *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
 		if err := s.recordFirstReportOptions(page); err != nil {
 			return err
 		}
@@ -22,7 +22,7 @@ func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 		if s.ledger.runID == "attempt-127" {
 			next = ""
 		}
-		return s.nextPageOrFinishAction(ctx, action, next)
+		return inv.stage(action, next, nil)
 	}
 	for i := 0; i < 128; i++ {
 		s.cfg.workerCount = i%4 + 1
@@ -106,8 +106,8 @@ func TestLedgerOptionsSnapshotBeforeAnyPage(t *testing.T) {
 	require.Equal(t, "attempt-a", latest.Attempt)
 
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), func(ctx context.Context, action *Action) error {
-		return s.initializeAction(ctx, action, nil)
+	require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), func(ctx context.Context, inv *ledgerInvocation, action *Action) error {
+		return s.initializeAction(ctx, inv, action, nil)
 	}, false))
 	f.audit.enter(ledgerLifecycle)
 	facts, err = f.ledger.LedgerFacts(t.Context())

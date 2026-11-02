@@ -23,7 +23,7 @@ func TestLedgerScheduleDrainsDiamondAndCycle(t *testing.T) {
 				return c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceID: name}
 			}
 			graph := map[string][]string{"root": {"left", "right"}, "left": {"shared"}, "right": {"shared"}, "shared": {"root"}}
-			handler := func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
+			handler := func(ctx context.Context, inv *ledgerInvocation, s *syncer, action *Action, page *ledgerPage) error {
 				calls.Add(1)
 				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 					return err
@@ -32,7 +32,7 @@ func TestLedgerScheduleDrainsDiamondAndCycle(t *testing.T) {
 				for _, name := range graph[action.ResourceID] {
 					children = append(children, c1zstore.LedgerChild{Identity: id(name), Spawned: true})
 				}
-				return ledgerFixtureTransition(ctx, s, action, "", children...)
+				return ledgerFixtureTransition(inv, action, "", children...)
 			}
 			f.audit.enter(ledgerHandler)
 			require.NoError(t, runLedgerSchedulerFixture(t, runtime, []ledgerAction{{identity: id("root"), spawned: true}}, workers, handler))
@@ -66,7 +66,7 @@ func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 	require.NoError(t, f.ledger.BeginCollecting(t.Context(), pendingSeeds(roots), nil))
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerHandler)
-	err = runLedgerSchedulerFixture(t, runtime, roots, 4, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
+	err = runLedgerSchedulerFixture(t, runtime, roots, 4, func(ctx context.Context, inv *ledgerInvocation, s *syncer, action *Action, page *ledgerPage) error {
 		active.Add(1)
 		defer active.Add(-1)
 		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
@@ -92,12 +92,12 @@ func TestLedgerScheduleRunsNewlyDiscoveredWork(t *testing.T) {
 	require.NoError(t, err)
 	child := c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "type"}
 	calls := 0
-	err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, s *syncer, action *Action, _ *ledgerPage) error {
+	err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, inv *ledgerInvocation, s *syncer, action *Action, _ *ledgerPage) error {
 		calls++
 		if action.Op == SyncResourcesOp {
-			return s.nextPageOrFinishAction(ctx, action, "")
+			return inv.stage(action, "", nil)
 		}
-		return ledgerFixtureTransition(ctx, s, action, "", c1zstore.LedgerChild{Identity: child})
+		return ledgerFixtureTransition(inv, action, "", c1zstore.LedgerChild{Identity: child})
 	})
 	require.NoError(t, err)
 	require.Equal(t, 2, calls)

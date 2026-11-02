@@ -214,8 +214,8 @@ func (s *syncer) parallelSync(
 
 		switch stateAction.Op {
 		case InitOp:
-			err = s.invokeActionPage(ctx, stateAction, func(pageCtx context.Context, action *Action) error {
-				return s.initializeAction(pageCtx, action, targetedResources)
+			err = s.invokeActionPage(ctx, stateAction, func(pageCtx context.Context, inv *ledgerInvocation, action *Action) error {
+				return s.initializeAction(pageCtx, inv, action, targetedResources)
 			}, false)
 			if err != nil {
 				return warnings, err
@@ -725,7 +725,7 @@ func (s *syncer) setParallelActionTransitioner(
 	s.parallelActionTransitioner = transition
 }
 
-func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actions []*Action, f func(ctx context.Context, action *Action) error) ([]error, error) {
+func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actions []*Action, f func(ctx context.Context, inv *ledgerInvocation, action *Action) error) ([]error, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("syncing in parallel", zap.Int("actions", len(actions)), zap.Int("workers", s.cfg.workerCount))
 
@@ -843,7 +843,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 
 // syncOneAction processes a single action to completion,
 // handling pagination by re-reading the action from state after each call.
-func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, retryer *retry.Retryer, action *Action, f func(ctx context.Context, action *Action) error) workerResult {
+func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, retryer *retry.Retryer, action *Action, f func(ctx context.Context, inv *ledgerInvocation, action *Action) error) workerResult {
 	for {
 		err := s.invokeActionPage(ctx, action, f, true)
 		if isWarning(ctx, err) {

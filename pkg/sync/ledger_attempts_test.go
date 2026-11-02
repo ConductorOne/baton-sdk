@@ -22,13 +22,12 @@ func TestLedgerRetryObservationsAcrossPages(t *testing.T) {
 		action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
 		firstID := ledgerIdentity(action)
 		var calls int
-		s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, page *ledgerPage) error {
+		s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, page *ledgerPage) error {
 			calls++
-			invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-			s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Millisecond, nil)
+			s.recordLedgerConnectorResponse(ctx, inv, "list-resources", time.Millisecond, nil)
 			if calls <= 2 {
 				err := status.Error(codes.Unavailable, "retry")
-				recordLedgerConnectorError(invocation, err)
+				recordLedgerConnectorError(inv, err)
 				return err
 			}
 			ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: 3 * time.Millisecond})
@@ -36,7 +35,7 @@ func TestLedgerRetryObservationsAcrossPages(t *testing.T) {
 			if action.PageToken == "" {
 				next = "next"
 			}
-			return s.nextPageOrFinishAction(ctx, action, next)
+			return inv.stage(action, next, nil)
 		}
 		ctx := s.withRateLimitWaitObserver(t.Context())
 		r := retry.NewRetryer(ctx, retry.RetryConfig{MaxAttempts: 4, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond})
@@ -70,11 +69,10 @@ func TestLedgerExhaustedRetryHasNoRow(t *testing.T) {
 		s, f := newLedgerSchedulerFixture(t, 1)
 		action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
 		id := ledgerIdentity(action)
-		s.testHooks.ledgerHandler = func(ctx context.Context, _ *Action, _ *ledgerPage) error {
-			invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-			s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Millisecond, nil)
+		s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, _ *Action, _ *ledgerPage) error {
+			s.recordLedgerConnectorResponse(ctx, inv, "list-resources", time.Millisecond, nil)
 			err := status.Error(codes.Unavailable, "unavailable")
-			recordLedgerConnectorError(invocation, err)
+			recordLedgerConnectorError(inv, err)
 			return err
 		}
 		_, err := runLedgerSchedulerBatch(t, s, SyncResourcesOp)
@@ -92,16 +90,15 @@ func TestLedgerCoordinatorRetryObservations(t *testing.T) {
 		action := s.run.pushAction(t.Context(), Action{Op: SyncResourceTypesOp})
 		id := ledgerIdentity(action)
 		calls := 0
-		s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+		s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
 			calls++
-			invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-			s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", time.Millisecond, nil)
+			s.recordLedgerConnectorResponse(ctx, inv, "list-resource-types", time.Millisecond, nil)
 			if calls == 1 {
 				err := status.Error(codes.Unavailable, "retry")
-				recordLedgerConnectorError(invocation, err)
+				recordLedgerConnectorError(inv, err)
 				return err
 			}
-			return s.nextPageOrFinishAction(ctx, action, "")
+			return inv.stage(action, "", nil)
 		}
 		ctx := s.withRateLimitWaitObserver(t.Context())
 		warnings, err := runLedgerTestSync(t, s, ctx, ctx, nil)
@@ -124,11 +121,10 @@ func TestLedgerCancelledRetryDoesNotSurviveNewWorker(t *testing.T) {
 		id := ledgerIdentity(action)
 		ctx, cancel := context.WithCancel(s.withRateLimitWaitObserver(t.Context()))
 		defer cancel()
-		s.testHooks.ledgerHandler = func(ctx context.Context, _ *Action, _ *ledgerPage) error {
-			invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-			s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Millisecond, nil)
+		s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, _ *Action, _ *ledgerPage) error {
+			s.recordLedgerConnectorResponse(ctx, inv, "list-resources", time.Millisecond, nil)
 			err := status.Error(codes.Unavailable, "retry")
-			recordLedgerConnectorError(invocation, err)
+			recordLedgerConnectorError(inv, err)
 			time.AfterFunc(5*time.Millisecond, cancel)
 			return err
 		}
@@ -139,10 +135,9 @@ func TestLedgerCancelledRetryDoesNotSurviveNewWorker(t *testing.T) {
 		_, found, err := f.ledger.GetLedgerRow(t.Context(), id)
 		require.NoError(t, err)
 		require.False(t, found)
-		s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
-			invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-			s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Millisecond, nil)
-			return s.nextPageOrFinishAction(ctx, action, "")
+		s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
+			s.recordLedgerConnectorResponse(ctx, inv, "list-resources", time.Millisecond, nil)
+			return inv.stage(action, "", nil)
 		}
 		_, err = runLedgerSchedulerBatch(t, s, SyncResourcesOp)
 		require.NoError(t, err)
@@ -170,19 +165,18 @@ func TestLedgerWaitObservationsStayWithWorker(t *testing.T) {
 	barrier.Add(2)
 	var seenMu native_sync.Mutex
 	seen := map[*ledgerAttempts]int{}
-	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
-		invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
 		attempts := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts)
 		seenMu.Lock()
 		seen[attempts] = ctx.Value(ledgerWorkerKey{}).(int)
 		seenMu.Unlock()
-		s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Millisecond, nil)
+		s.recordLedgerConnectorResponse(ctx, inv, "list-resources", time.Millisecond, nil)
 		barrier.Done()
 		barrier.Wait()
 		for range 8 {
 			ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Millisecond})
 		}
-		return s.nextPageOrFinishAction(ctx, action, "")
+		return inv.stage(action, "", nil)
 	}
 	ctx := withLedgerAttempts(s.withRateLimitWaitObserver(t.Context()))
 	coordinator := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts)

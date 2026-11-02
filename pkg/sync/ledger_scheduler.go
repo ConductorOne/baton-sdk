@@ -84,7 +84,7 @@ func (i *ledgerInvocation) stage(action *Action, next string, children []Action)
 	return nil
 }
 
-func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler func(context.Context, *Action) error, allowWarning bool) error {
+func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler func(context.Context, *ledgerInvocation, *Action) error, allowWarning bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -114,14 +114,13 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		ledgerCollection(invocation)
 		page.row.Spawned = action.Spawned
 		page.row.TypeScopedPlanned = action.TypeScopedPlanned
-		pageCtx = context.WithValue(pageCtx, ledgerInvocationKey{}, invocation)
 		var err error
 		switch {
 		case s.testHooks.ledgerHandler != nil:
-			err = s.testHooks.ledgerHandler(pageCtx, action, page)
+			err = s.testHooks.ledgerHandler(pageCtx, invocation, action, page)
 		case action.Op == InitOp || action.Op == SyncResourceTypesOp || action.Op == SyncResourcesOp || action.Op == SyncTargetedResourceOp || action.Op == SyncEntitlementsOp ||
 			action.Op == SyncGrantsOp || action.Op == SyncStaticEntitlementsOp || action.Op == SyncAssetsOp || action.Op == MaterializeStaticEntitlementsOp:
-			err = handler(pageCtx, action)
+			err = handler(pageCtx, invocation, action)
 		default:
 			return errors.New("ledger production handlers are not integrated")
 		}

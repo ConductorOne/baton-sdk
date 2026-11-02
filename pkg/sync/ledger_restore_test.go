@@ -151,7 +151,7 @@ func TestLedgerRestoreRunsOnlyPendingContinuation(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	calls := 0
-	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
 		calls++
 		require.Equal(t, "remaining", action.PageToken)
 		require.True(t, action.TypeScopedPlanned)
@@ -159,7 +159,7 @@ func TestLedgerRestoreRunsOnlyPendingContinuation(t *testing.T) {
 		require.EqualValues(t, 12, s.run.completedActionsCount())
 		require.EqualValues(t, 2, s.stats.connectorCallStats()["ListResources"].Count)
 		require.Zero(t, s.listResourceActionsCompletedThisRun.Load())
-		return s.nextPageOrFinishAction(ctx, action, "")
+		return inv.stage(action, "", nil)
 	}
 	f.audit.enter(ledgerHandler)
 	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
@@ -246,12 +246,12 @@ func TestLedgerRestoreRepeatedChildIsNewWork(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
 	calls := 0
-	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
 		if action.Op == SyncResourceTypesOp {
-			return s.nextPageOrFinishAction(ctx, action, "", ledgerActionFromIdentity(child))
+			return inv.stage(action, "", []Action{ledgerActionFromIdentity(child)})
 		}
 		calls++
-		return s.nextPageOrFinishAction(ctx, action, "")
+		return inv.stage(action, "", nil)
 	}
 	_, err = s.parallelSync(t.Context(), t.Context(), nil)
 	require.NoError(t, err)

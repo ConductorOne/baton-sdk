@@ -22,7 +22,7 @@ type syncTestHooks struct {
 	ledgerCommitted func(c1zstore.LedgerRow)
 	ledgerStop      func(context.Context)
 	ledgerWalk      func(bool)
-	ledgerHandler   func(context.Context, *Action, *ledgerPage) error
+	ledgerHandler   func(context.Context, *ledgerInvocation, *Action, *ledgerPage) error
 	// ingestHaltHook, when non-nil, fires at named seams of the
 	// ingestion-invariant pass (see ingestInvariantHaltStages);
 	// returning an error fails the sync at exactly that boundary. The

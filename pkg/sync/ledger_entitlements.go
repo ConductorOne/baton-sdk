@@ -13,13 +13,12 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
-func (s *syncer) syncLedgerEntitlements(ctx context.Context, action *Action) error {
-	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	if !ok {
+func (s *syncer) syncLedgerEntitlements(ctx context.Context, inv *ledgerInvocation, action *Action) error {
+	if inv == nil {
 		return errors.New("entitlement ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { invocation.page.row.PageDuration = time.Since(start) }()
+	defer func() { inv.page.row.PageDuration = time.Since(start) }()
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -34,17 +33,17 @@ func (s *syncer) syncLedgerEntitlements(ctx context.Context, action *Action) err
 		if err != nil {
 			return err
 		}
-		if nextPageErr := s.nextPageOrFinishAction(ctx, action, nextPageToken, actions...); nextPageErr != nil {
+		if nextPageErr := inv.stage(action, nextPageToken, actions); nextPageErr != nil {
 			err = nextPageErr
 			return err
 		}
 		if plannedTypeScoped {
-			invocation.page.row.TypeScopedPlanned = true
+			inv.page.row.TypeScopedPlanned = true
 		}
 		return nil
 	}
 
-	err = s.collectLedgerEntitlements(ctx, action)
+	err = s.collectLedgerEntitlements(ctx, inv, action)
 	if err != nil {
 		return err
 	}
@@ -52,8 +51,7 @@ func (s *syncer) syncLedgerEntitlements(ctx context.Context, action *Action) err
 	return nil
 }
 
-func (s *syncer) collectLedgerEntitlements(ctx context.Context, action *Action) error {
-	invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+func (s *syncer) collectLedgerEntitlements(ctx context.Context, inv *ledgerInvocation, action *Action) error {
 	typeScoped := action.TypeScoped
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
@@ -81,25 +79,25 @@ func (s *syncer) collectLedgerEntitlements(ctx context.Context, action *Action) 
 		ActiveSyncId: s.getActiveSyncID(),
 		Annotations:  reqAnnos,
 	}.Build())
-	s.recordLedgerConnectorResponse(ctx, invocation, "list-entitlements", time.Since(start), resp.GetAnnotations())
-	recordLedgerConnectorError(invocation, err)
-	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
+	s.recordLedgerConnectorResponse(ctx, inv, "list-entitlements", time.Since(start), resp.GetAnnotations())
+	recordLedgerConnectorError(inv, err)
+	s.recordLedgerSessionUsage(inv, resp.GetAnnotations())
 	if err != nil {
 		return markActionListCall(err)
 	}
-	collection := ledgerCollection(invocation)
+	collection := ledgerCollection(inv)
 	recordLedgerList(collection, &collection.EntitlementsReceived, resp.GetList(), resp.GetNextPageToken())
-	entitlements, err := s.filterLedgerEntitlements(ctx, invocation, resp.GetList())
+	entitlements, err := s.filterLedgerEntitlements(ctx, inv, resp.GetList())
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
 	}
-	err = invocation.page.writer.PutEntitlements(ctx, entitlements...)
+	err = inv.page.writer.PutEntitlements(ctx, entitlements...)
 	if err != nil {
 		return err
 	}
 
 	progressAction := *action
-	invocation.afterCommit = append(invocation.afterCommit, func() {
+	inv.afterCommit = append(inv.afterCommit, func() {
 		s.handleProgress(ctx, &progressAction, len(entitlements))
 		progressIncrement, countOnly := collectionProgressIncrement(&progressAction, len(entitlements), resp.GetNextPageToken() != "")
 		if countOnly {
@@ -114,7 +112,7 @@ func (s *syncer) collectLedgerEntitlements(ctx context.Context, action *Action) 
 	if err != nil {
 		return err
 	}
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
+	return inv.stage(action, resp.GetNextPageToken(), spawned)
 }
 
 func (s *syncer) filterLedgerEntitlements(ctx context.Context, invocation *ledgerInvocation, values []*v2.Entitlement) ([]*v2.Entitlement, error) {

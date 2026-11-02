@@ -22,9 +22,9 @@ func TestSyncParallelFiltersSpawnedActionsFromOtherOperations(t *testing.T) {
 	parent := ledgerIdentity(batch[0])
 
 	var calls atomic.Int32
-	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), batch, func(ctx context.Context, action *Action) error {
+	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), batch, func(ctx context.Context, inv *ledgerInvocation, action *Action) error {
 		calls.Add(1)
-		return s.nextPageOrFinishAction(ctx, action, "", Action{Op: SyncEntitlementsOp, ResourceID: "group-1"})
+		return inv.stage(action, "", []Action{Action{Op: SyncEntitlementsOp, ResourceID: "group-1"}})
 	})
 	require.NoError(t, err)
 	require.Empty(t, warnings)
@@ -52,7 +52,7 @@ func TestSyncParallelEmptyBatchWithIdleWorkers(t *testing.T) {
 	seedLedgerTestRun(t, s, nil)
 
 	var calls atomic.Int32
-	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), nil, func(context.Context, *Action) error {
+	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), nil, func(context.Context, *ledgerInvocation, *Action) error {
 		calls.Add(1)
 		return errors.New("empty batch invoked worker function")
 	})
@@ -75,12 +75,12 @@ func TestSyncParallelAggregatesWarningAndContinues(t *testing.T) {
 	}
 
 	var calls atomic.Int32
-	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), batch, func(ctx context.Context, action *Action) error {
+	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), batch, func(ctx context.Context, inv *ledgerInvocation, action *Action) error {
 		calls.Add(1)
 		if action.ResourceID == "missing" {
 			return status.Error(codes.NotFound, "resource disappeared")
 		}
-		return s.nextPageOrFinishAction(ctx, action, "")
+		return inv.stage(action, "", nil)
 	})
 	require.NoError(t, err)
 	require.Len(t, warnings, 1)
@@ -113,7 +113,7 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 	origin := ledgerIdentity(batch[0])
 
 	var calls atomic.Int32
-	_, err := s.syncParallel(ctx, newTestRetryer(ctx), batch, func(ctx context.Context, action *Action) error {
+	_, err := s.syncParallel(ctx, newTestRetryer(ctx), batch, func(ctx context.Context, inv *ledgerInvocation, action *Action) error {
 		if calls.Add(1) > 1 {
 			return errors.New("test safety stop: duplicate within one response was accepted")
 		}
@@ -124,7 +124,7 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 			PageToken:      "dup-child",
 			Spawned:        true,
 		}
-		return s.nextPageOrFinishAction(ctx, action, "next", child, child)
+		return inv.stage(action, "next", []Action{child, child})
 	})
 	require.ErrorContains(t, err, "duplicate or cyclic spawned cursor")
 	require.EqualValues(t, 1, calls.Load())
@@ -167,12 +167,12 @@ func TestContinuationReconvergenceFinishesParent(t *testing.T) {
 	require.NotEmpty(t, walkerID)
 
 	processed := map[string]int{}
-	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), batch, func(ctx context.Context, action *Action) error {
+	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), batch, func(ctx context.Context, inv *ledgerInvocation, action *Action) error {
 		processed[action.PageToken]++
 		if action.PageToken == "walker" {
-			return s.nextPageOrFinishAction(ctx, action, "held-token")
+			return inv.stage(action, "held-token", nil)
 		}
-		return s.nextPageOrFinishAction(ctx, action, "")
+		return inv.stage(action, "", nil)
 	})
 	require.NoError(t, err)
 	require.Empty(t, warnings)

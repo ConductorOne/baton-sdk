@@ -17,13 +17,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (s *syncer) syncLedgerStaticEntitlements(ctx context.Context, action *Action) error {
-	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	if !ok {
+func (s *syncer) syncLedgerStaticEntitlements(ctx context.Context, inv *ledgerInvocation, action *Action) error {
+	if inv == nil {
 		return errors.New("static entitlement ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { invocation.page.row.PageDuration = time.Since(start) }()
+	defer func() { inv.page.row.PageDuration = time.Since(start) }()
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncStaticEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -31,14 +30,14 @@ func (s *syncer) syncLedgerStaticEntitlements(ctx context.Context, action *Actio
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID != "" {
-		return s.collectLedgerStaticEntitlements(ctx, action)
+		return s.collectLedgerStaticEntitlements(ctx, inv, action)
 	}
 
 	ctxzap.Extract(ctx).Info("Syncing static entitlements...")
 	s.handleInitialActionForStep(ctx, *action)
 
 	actions := make([]Action, 0)
-	for rts, err := range s.listLedgerStaticResourceTypes(ctx, invocation) {
+	for rts, err := range s.listLedgerStaticResourceTypes(ctx, inv) {
 		if err != nil {
 			return err
 		}
@@ -47,11 +46,10 @@ func (s *syncer) syncLedgerStaticEntitlements(ctx context.Context, action *Actio
 		}
 	}
 
-	return s.nextPageOrFinishAction(ctx, action, "", actions...)
+	return inv.stage(action, "", actions)
 }
 
-func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, action *Action) error {
-	invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, inv *ledgerInvocation, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncStaticEntitlementsForResource")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -62,22 +60,22 @@ func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, action *Ac
 		PageToken:      action.PageToken,
 		ActiveSyncId:   s.getActiveSyncID(),
 	}.Build())
-	s.recordLedgerConnectorResponse(ctx, invocation, "list-static-entitlements", time.Since(start), resp.GetAnnotations())
-	recordLedgerConnectorError(invocation, err)
-	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
+	s.recordLedgerConnectorResponse(ctx, inv, "list-static-entitlements", time.Since(start), resp.GetAnnotations())
+	recordLedgerConnectorError(inv, err)
+	s.recordLedgerSessionUsage(inv, resp.GetAnnotations())
 	if err != nil {
 		_, restarts := pagination.RestartActionFromError(err)
 		const prefixError = `unable to resolve \"type.googleapis.com/c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\": \"not found\"","errorType":"prefixError"`
 		if !restarts && strings.Contains(err.Error(), prefixError) {
 			l := ctxzap.Extract(ctx)
 			l.Info("ignoring prefixError when calling ListStaticEntitlements", zap.Error(err))
-			return s.nextPageOrFinishAction(ctx, action, "")
+			return inv.stage(action, "", nil)
 		}
 
 		return markActionListCall(err)
 	}
 
-	collection := ledgerCollection(invocation)
+	collection := ledgerCollection(inv)
 	recordLedgerList(collection, &collection.EntitlementsReceived, resp.GetList(), resp.GetNextPageToken())
 	identity, err := json.Marshal(ledgerIdentity(action))
 	if err != nil {
@@ -99,9 +97,9 @@ func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, action *Ac
 	}
 
 	progressAction := *action
-	invocation.afterCommit = append(invocation.afterCommit, func() { s.handleProgress(ctx, &progressAction, len(resp.GetList())) })
+	inv.afterCommit = append(inv.afterCommit, func() { s.handleProgress(ctx, &progressAction, len(resp.GetList())) })
 
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), children...)
+	return inv.stage(action, resp.GetNextPageToken(), children)
 }
 
 func (s *syncer) listLedgerStaticResourceTypes(ctx context.Context, invocation *ledgerInvocation) iter.Seq2[[]*v2.ResourceType, error] {

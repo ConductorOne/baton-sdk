@@ -13,23 +13,22 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (s *syncer) syncLedgerResources(ctx context.Context, action *Action) error {
+func (s *syncer) syncLedgerResources(ctx context.Context, inv *ledgerInvocation, action *Action) error {
+	if inv == nil {
+		return errors.New("resource ledger handler requires an open page")
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncResources")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
-	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	if !ok {
-		return errors.New("resource ledger handler requires an open page")
-	}
 	start := time.Now()
-	defer func() { invocation.page.row.PageDuration = time.Since(start) }()
+	defer func() { inv.page.row.PageDuration = time.Since(start) }()
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" {
 		if action.PageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing resources...")
 			s.handleInitialActionForStep(ctx, *action)
-			invocation.afterCommit = append(invocation.afterCommit, func() { s.resourcesPhaseRanHere = true })
+			inv.afterCommit = append(inv.afterCommit, func() { s.resourcesPhaseRanHere = true })
 		}
 
 		resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
@@ -51,14 +50,13 @@ func (s *syncer) syncLedgerResources(ctx context.Context, action *Action) error 
 			actions = append(actions, newAction)
 		}
 
-		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
+		return inv.stage(action, resp.GetNextPageToken(), actions)
 	}
 
-	return s.collectLedgerResources(ctx, action)
+	return s.collectLedgerResources(ctx, inv, action)
 }
 
-func (s *syncer) collectLedgerResources(ctx context.Context, action *Action) error {
-	invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+func (s *syncer) collectLedgerResources(ctx context.Context, inv *ledgerInvocation, action *Action) error {
 	var children []Action
 	req := v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: action.ResourceTypeID,
@@ -74,16 +72,16 @@ func (s *syncer) collectLedgerResources(ctx context.Context, action *Action) err
 
 	start := time.Now()
 	resp, err := s.connector.ListResources(ctx, req)
-	s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Since(start), resp.GetAnnotations())
-	recordLedgerConnectorError(invocation, err)
-	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
+	s.recordLedgerConnectorResponse(ctx, inv, "list-resources", time.Since(start), resp.GetAnnotations())
+	recordLedgerConnectorError(inv, err)
+	s.recordLedgerSessionUsage(inv, resp.GetAnnotations())
 	if err != nil {
 		return markActionListCall(err)
 	}
 
-	collection := ledgerCollection(invocation)
+	collection := ledgerCollection(inv)
 	recordLedgerList(collection, &collection.ResourcesReceived, resp.GetList(), resp.GetNextPageToken())
-	resources, err := s.filterLedgerResources(invocation, resp.GetList())
+	resources, err := s.filterLedgerResources(inv, resp.GetList())
 	if err != nil {
 		return err
 	}
@@ -128,21 +126,21 @@ func (s *syncer) collectLedgerResources(ctx context.Context, action *Action) err
 	}
 
 	if len(bulkPutResources) > 0 {
-		err = invocation.page.writer.PutResources(ctx, bulkPutResources...)
+		err = inv.page.writer.PutResources(ctx, bulkPutResources...)
 		if err != nil {
 			return err
 		}
 	}
 
 	progressAction := *action
-	invocation.afterCommit = append(invocation.afterCommit, func() {
+	inv.afterCommit = append(inv.afterCommit, func() {
 		s.handleProgress(ctx, &progressAction, len(resp.GetList()))
 		s.counts.AddResources(action.ResourceTypeID, len(resp.GetList()))
 		if resp.GetNextPageToken() == "" {
 			s.counts.LogResourcesProgress(ctx, action.ResourceTypeID)
 		}
 	})
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), children...)
+	return inv.stage(action, resp.GetNextPageToken(), children)
 }
 
 func (s *syncer) filterLedgerResources(invocation *ledgerInvocation, values []*v2.Resource) ([]*v2.Resource, error) {

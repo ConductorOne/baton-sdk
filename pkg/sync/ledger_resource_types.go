@@ -46,20 +46,19 @@ func (s *syncer) validateSelectedResourceTypes(ctx context.Context, staged []*v2
 	return nil
 }
 
-func (s *syncer) syncLedgerResourceTypes(ctx context.Context, action *Action) error {
+func (s *syncer) syncLedgerResourceTypes(ctx context.Context, inv *ledgerInvocation, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncResourceTypes")
 	uotel.SetSyncIdentityAttrs(ctx, span)
-	err := s.collectLedgerResourceTypes(ctx, action)
+	err := s.collectLedgerResourceTypes(ctx, inv, action)
 	uotel.EndSpanWithError(span, err)
 	return err
 }
 
-func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action) error {
-	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	if !ok {
+func (s *syncer) collectLedgerResourceTypes(ctx context.Context, inv *ledgerInvocation, action *Action) error {
+	if inv == nil {
 		return errors.New("resource-type ledger handler requires an open page")
 	}
-	page := invocation.page
+	page := inv.page
 	pageStart := time.Now()
 	defer func() { page.row.PageDuration = time.Since(pageStart) }()
 	if action.PageToken == "" {
@@ -71,12 +70,12 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 		PageToken: action.PageToken, ActiveSyncId: s.getActiveSyncID(),
 	}.Build())
 	elapsed := time.Since(start)
-	s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", elapsed, resp.GetAnnotations())
-	recordLedgerConnectorError(invocation, err)
+	s.recordLedgerConnectorResponse(ctx, inv, "list-resource-types", elapsed, resp.GetAnnotations())
+	recordLedgerConnectorError(inv, err)
 	if err != nil {
 		return markActionListCall(err)
 	}
-	collection := ledgerCollection(invocation)
+	collection := ledgerCollection(inv)
 	recordLedgerList(collection, &collection.ResourceTypesReceived, resp.GetList(), resp.GetNextPageToken())
 	selection := make(map[string]bool, len(s.cfg.syncResourceTypes))
 	for _, id := range s.cfg.syncResourceTypes {
@@ -111,7 +110,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 	page.observations.Counters = map[string]uint64{"ingest.invalid_resource_types_observed": invalid}
 
 	progressAction := *action
-	invocation.afterCommit = append(invocation.afterCommit, func() {
+	inv.afterCommit = append(inv.afterCommit, func() {
 		s.ingestFilterStats.invalidResourceTypesObserved.Add(invalid)
 		s.counts.AddResourceTypes(len(selected))
 		s.handleProgress(ctx, &progressAction, len(selected))
@@ -119,7 +118,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 			s.counts.LogResourceTypesProgress(ctx)
 		}
 	})
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+	return inv.stage(action, resp.GetNextPageToken(), nil)
 }
 
 func (s *syncer) recordLedgerConnectorResponse(ctx context.Context, invocation *ledgerInvocation, method string, elapsed time.Duration, annos []*anypb.Any) {

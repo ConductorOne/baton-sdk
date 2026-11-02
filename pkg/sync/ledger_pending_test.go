@@ -84,7 +84,7 @@ func TestPendingSyncBoundsExecutionWindow(t *testing.T) {
 	s := created.(*syncer)
 	var mu native_sync.Mutex
 	processed, peak := 0, 0
-	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
 		s.run.mu.RLock()
 		resident := len(s.run.actions)
 		s.run.mu.RUnlock()
@@ -92,7 +92,7 @@ func TestPendingSyncBoundsExecutionWindow(t *testing.T) {
 		processed++
 		peak = max(peak, resident)
 		mu.Unlock()
-		return s.nextPageOrFinishAction(ctx, action, "")
+		return inv.stage(action, "", nil)
 	}
 	require.NoError(t, s.Sync(t.Context()))
 	require.Equal(t, count, processed)
@@ -128,7 +128,7 @@ func TestPendingSyncSpilledChildrenKeepOrder(t *testing.T) {
 			var mu native_sync.Mutex
 			var order []string
 			peak := 0
-			s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+			s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
 				s.run.mu.RLock()
 				resident := len(s.run.actions)
 				s.run.mu.RUnlock()
@@ -152,12 +152,12 @@ func TestPendingSyncSpilledChildrenKeepOrder(t *testing.T) {
 					for i := range spawned {
 						spawned[i] = Action{Op: SyncResourcesOp, ResourceTypeID: "group", ResourceID: fmt.Sprintf("child-%04d", page*children+i)}
 					}
-					return s.nextPageOrFinishAction(ctx, action, next, spawned...)
+					return inv.stage(action, next, spawned)
 				}
 				mu.Lock()
 				order = append(order, action.ResourceID)
 				mu.Unlock()
-				return s.nextPageOrFinishAction(ctx, action, "")
+				return inv.stage(action, "", nil)
 			}
 			require.NoError(t, s.Sync(t.Context()))
 			verifyQueueAudit(t, audit)
@@ -237,9 +237,9 @@ func TestPendingRefillFailureLeavesChildrenForColdResume(t *testing.T) {
 	require.NoError(t, err)
 	s := created.(*syncer)
 	s.caps.pageLedger = pendingRefillFailure{f.ledger}
-	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+	s.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
 		require.Equal(t, "root", action.ResourceID)
-		return s.nextPageOrFinishAction(ctx, action, "", Action{Op: SyncResourcesOp, ResourceTypeID: "group", ResourceID: "child"})
+		return inv.stage(action, "", []Action{Action{Op: SyncResourcesOp, ResourceTypeID: "group", ResourceID: "child"}})
 	}
 	require.ErrorIs(t, s.Sync(t.Context()), errLedgerInjectedPage)
 	work, initialized, err := f.ledger.PendingWork(t.Context(), 0, 64)
@@ -253,10 +253,10 @@ func TestPendingRefillFailureLeavesChildrenForColdResume(t *testing.T) {
 	require.NoError(t, err)
 	resumed := created.(*syncer)
 	calls := 0
-	resumed.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+	resumed.testHooks.ledgerHandler = func(ctx context.Context, inv *ledgerInvocation, action *Action, _ *ledgerPage) error {
 		calls++
 		require.Equal(t, "child", action.ResourceID)
-		return resumed.nextPageOrFinishAction(ctx, action, "")
+		return inv.stage(action, "", nil)
 	}
 	require.NoError(t, resumed.Sync(t.Context()))
 	require.Equal(t, 1, calls)
