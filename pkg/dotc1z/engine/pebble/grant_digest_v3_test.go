@@ -250,14 +250,14 @@ func TestGrantDigestAccumulatorAddRecordMatchesSealedRoots(t *testing.T) {
 	for entID, grants := range entGrants {
 		putEnt(t, e, ctx, entID)
 		for _, g := range grants {
-			require.NoError(t, e.PutGrantRecords(ctx, V2GrantToV3("", g)))
+			require.NoError(t, e.records.PutGrantRecords(ctx, V2GrantToV3("", g)))
 		}
 	}
 	sealGrantDigests(t, e)
 
 	perEnt := map[string]*GrantDigestAccumulator{}
 	var global GrantDigestAccumulator
-	require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		key := r.GetEntitlement().GetEntitlementId()
 		if perEnt[key] == nil {
 			perEnt[key] = &GrantDigestAccumulator{}

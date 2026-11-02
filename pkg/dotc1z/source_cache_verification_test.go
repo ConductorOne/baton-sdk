@@ -117,7 +117,7 @@ func sourceCacheVerificationSemanticSnapshot(
 	var bounds [][2][]byte
 	switch kind {
 	case sourcecache.RowKindResources:
-		require.NoError(t, s.engine.IterateResources(t.Context(), func(rec *v3.ResourceRecord) bool {
+		require.NoError(t, s.engine.Records().IterateResources(t.Context(), func(rec *v3.ResourceRecord) bool {
 			if rec.GetSourceScopeKey() != scope {
 				return true
 			}
@@ -133,7 +133,7 @@ func sourceCacheVerificationSemanticSnapshot(
 			{enginepebble.ResourceByParentLowerBound(), enginepebble.ResourceByParentUpperBound()},
 		}
 	case sourcecache.RowKindEntitlements:
-		require.NoError(t, s.engine.IterateEntitlements(t.Context(), func(rec *v3.EntitlementRecord) bool {
+		require.NoError(t, s.engine.Records().IterateEntitlements(t.Context(), func(rec *v3.EntitlementRecord) bool {
 			if rec.GetSourceScopeKey() != scope {
 				return true
 			}
@@ -148,7 +148,7 @@ func sourceCacheVerificationSemanticSnapshot(
 			{enginepebble.EntitlementBySourceScopeLowerBound(), enginepebble.EntitlementBySourceScopeUpperBound()},
 		}
 	case sourcecache.RowKindGrants:
-		require.NoError(t, s.engine.IterateGrants(t.Context(), func(rec *v3.GrantRecord) bool {
+		require.NoError(t, s.engine.Records().IterateGrants(t.Context(), func(rec *v3.GrantRecord) bool {
 			if rec.GetSourceScopeKey() != scope {
 				return true
 			}
@@ -266,21 +266,21 @@ func countSourceCacheVerificationRowsInScope(
 	count := 0
 	switch kind {
 	case sourcecache.RowKindResources:
-		require.NoError(t, engine.IterateResources(t.Context(), func(rec *v3.ResourceRecord) bool {
+		require.NoError(t, engine.Records().IterateResources(t.Context(), func(rec *v3.ResourceRecord) bool {
 			if rec.GetSourceScopeKey() == scope {
 				count++
 			}
 			return true
 		}))
 	case sourcecache.RowKindEntitlements:
-		require.NoError(t, engine.IterateEntitlements(t.Context(), func(rec *v3.EntitlementRecord) bool {
+		require.NoError(t, engine.Records().IterateEntitlements(t.Context(), func(rec *v3.EntitlementRecord) bool {
 			if rec.GetSourceScopeKey() == scope {
 				count++
 			}
 			return true
 		}))
 	case sourcecache.RowKindGrants:
-		require.NoError(t, engine.IterateGrants(t.Context(), func(rec *v3.GrantRecord) bool {
+		require.NoError(t, engine.Records().IterateGrants(t.Context(), func(rec *v3.GrantRecord) bool {
 			if rec.GetSourceScopeKey() == scope {
 				count++
 			}
@@ -416,11 +416,11 @@ func TestVerificationPureReplayReplacesOccupiedScope(t *testing.T) {
 
 	_, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindGrants, "scope-a")
 	require.NoError(t, err)
-	_, err = cur.engine.GetGrantRecord(t.Context(), copied.GetId())
+	_, err = cur.engine.Records().GetGrantRecord(t.Context(), copied.GetId())
 	require.NoError(t, err, "source row must be present")
-	_, err = cur.engine.GetGrantRecord(t.Context(), obsolete.GetId())
+	_, err = cur.engine.Records().GetGrantRecord(t.Context(), obsolete.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound, "destination-only target-scope row must be removed")
-	_, err = cur.engine.GetGrantRecord(t.Context(), decoy.GetId())
+	_, err = cur.engine.Records().GetGrantRecord(t.Context(), decoy.GetId())
 	require.NoError(t, err, "neighbor scope must remain unchanged")
 	require.Equal(t, 2, countSourceCacheVerificationKeys(
 		t,
@@ -462,11 +462,11 @@ func TestVerificationPureReplayReplacesOccupiedScopeResourcesAndEntitlements(t *
 
 		_, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindResources, "scope-a")
 		require.NoError(t, err)
-		_, err = cur.engine.GetResourceRecord(t.Context(), "user", "source")
+		_, err = cur.engine.Records().GetResourceRecord(t.Context(), "user", "source")
 		require.NoError(t, err)
-		_, err = cur.engine.GetResourceRecord(t.Context(), "user", "obsolete")
+		_, err = cur.engine.Records().GetResourceRecord(t.Context(), "user", "obsolete")
 		require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
-		_, err = cur.engine.GetResourceRecord(t.Context(), "user", "decoy")
+		_, err = cur.engine.Records().GetResourceRecord(t.Context(), "user", "decoy")
 		require.NoError(t, err)
 		require.Equal(t, 2, countSourceCacheVerificationKeys(
 			t,
@@ -500,11 +500,11 @@ func TestVerificationPureReplayReplacesOccupiedScopeResourcesAndEntitlements(t *
 
 		_, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindEntitlements, "scope-a")
 		require.NoError(t, err)
-		_, err = cur.engine.GetEntitlementRecord(t.Context(), "source")
+		_, err = cur.engine.Records().GetEntitlementRecord(t.Context(), "source")
 		require.NoError(t, err)
-		_, err = cur.engine.GetEntitlementRecord(t.Context(), "obsolete")
+		_, err = cur.engine.Records().GetEntitlementRecord(t.Context(), "obsolete")
 		require.Error(t, err)
-		_, err = cur.engine.GetEntitlementRecord(t.Context(), "decoy")
+		_, err = cur.engine.Records().GetEntitlementRecord(t.Context(), "decoy")
 		require.NoError(t, err)
 		require.Equal(t, 2, countSourceCacheVerificationKeys(
 			t,
@@ -565,7 +565,7 @@ func TestVerificationZeroRowReplayReplacementPersistsAfterResume(t *testing.T) {
 	defer func() { require.NoError(t, reopened.Close(ctx)) }()
 	reopenedEngine, ok := enginepebble.AsEngine(reopened)
 	require.True(t, ok)
-	_, err = reopenedEngine.GetGrantRecord(ctx, grant.GetId())
+	_, err = reopenedEngine.Records().GetGrantRecord(ctx, grant.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound, "cleared destination row returned after close/reopen")
 }
 
@@ -630,9 +630,9 @@ func TestVerificationReplayErrorAfterCommittedClearPersistsAfterResume(t *testin
 	defer func() { require.NoError(t, reopened.Close(ctx)) }()
 	reopenedEngine, ok := enginepebble.AsEngine(reopened)
 	require.True(t, ok)
-	_, err = reopenedEngine.GetGrantRecord(ctx, obsolete.GetId())
+	_, err = reopenedEngine.Records().GetGrantRecord(ctx, obsolete.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound, "committed destination clear was not persisted")
-	_, err = reopenedEngine.GetGrantRecord(ctx, sourceGrant.GetId())
+	_, err = reopenedEngine.Records().GetGrantRecord(ctx, sourceGrant.GetId())
 	require.NoError(t, err, "committed replay row was not persisted after wrapper error")
 }
 
@@ -846,7 +846,7 @@ func TestVerificationCanonicalTombstonesRejectAtomically(t *testing.T) {
 			[]string{resourceBID, "not-a-resource-bid"},
 		)
 		require.Error(t, err)
-		_, getErr := s.engine.GetResourceRecord(t.Context(), "user", "alice")
+		_, getErr := s.engine.Records().GetResourceRecord(t.Context(), "user", "alice")
 		require.NoError(t, getErr, "mixed valid+invalid tombstones must apply nothing")
 		require.Equal(t, before, sourceCacheVerificationEngineDigest(t, s.engine))
 	})
@@ -865,7 +865,7 @@ func TestVerificationCanonicalTombstonesRejectAtomically(t *testing.T) {
 			ExternalId: "ambiguous",
 			Resource:   v3.ResourceRef_builder{ResourceTypeId: "team", ResourceId: "blue"}.Build(),
 		}.Build()
-		require.NoError(t, s.engine.PutEntitlementRecords(t.Context(), valid, ambiguousA, ambiguousB))
+		require.NoError(t, s.engine.Records().PutEntitlementRecords(t.Context(), valid, ambiguousA, ambiguousB))
 		before := sourceCacheVerificationEngineDigest(t, s.engine)
 
 		err := s.cache.DeleteSourceCacheRows(
@@ -875,7 +875,7 @@ func TestVerificationCanonicalTombstonesRejectAtomically(t *testing.T) {
 			[]string{"valid", "ambiguous"},
 		)
 		require.Error(t, err)
-		_, getErr := s.engine.GetEntitlementRecord(t.Context(), "valid")
+		_, getErr := s.engine.Records().GetEntitlementRecord(t.Context(), "valid")
 		require.NoError(t, getErr, "mixed valid+ambiguous tombstones must apply nothing")
 		require.Equal(t, before, sourceCacheVerificationEngineDigest(t, s.engine))
 	})
@@ -884,7 +884,7 @@ func TestVerificationCanonicalTombstonesRejectAtomically(t *testing.T) {
 		s := newSourceCacheVerificationStore(t)
 		valid := putVerificationGrant(t, s, "scope-a", "valid", "alice")
 		const ambiguousID = "ambiguous:user:erin"
-		require.NoError(t, s.engine.PutEntitlementRecords(t.Context(),
+		require.NoError(t, s.engine.Records().PutEntitlementRecords(t.Context(),
 			v3.EntitlementRecord_builder{
 				ExternalId: "ambiguous",
 				Resource:   v3.ResourceRef_builder{ResourceTypeId: "team", ResourceId: "red"}.Build(),
@@ -894,7 +894,7 @@ func TestVerificationCanonicalTombstonesRejectAtomically(t *testing.T) {
 				Resource:   v3.ResourceRef_builder{ResourceTypeId: "team", ResourceId: "blue"}.Build(),
 			}.Build(),
 		))
-		require.NoError(t, s.engine.PutGrantRecords(t.Context(),
+		require.NoError(t, s.engine.Records().PutGrantRecords(t.Context(),
 			v3.GrantRecord_builder{
 				ExternalId: ambiguousID,
 				Entitlement: v3.EntitlementRef_builder{
@@ -923,7 +923,7 @@ func TestVerificationCanonicalTombstonesRejectAtomically(t *testing.T) {
 			[]string{valid.GetId(), ambiguousID},
 		)
 		require.Error(t, err)
-		_, getErr := s.engine.GetGrantRecord(t.Context(), valid.GetId())
+		_, getErr := s.engine.Records().GetGrantRecord(t.Context(), valid.GetId())
 		require.NoError(t, getErr, "mixed valid+ambiguous tombstones must apply nothing")
 		require.Equal(t, before, sourceCacheVerificationEngineDigest(t, s.engine))
 	})
@@ -1071,7 +1071,7 @@ func TestVerificationReplayPreservesSourceAndTimestamps(t *testing.T) {
 	// Snapshot AFTER the sealing EndSync: the seal itself stamps the
 	// manifest row count (CO-014); the assertions below pin that REPLAY
 	// leaves the sealed source untouched.
-	beforeRow, err := prev.engine.GetGrantRecord(t.Context(), grant.GetId())
+	beforeRow, err := prev.engine.Records().GetGrantRecord(t.Context(), grant.GetId())
 	require.NoError(t, err)
 	beforeEntry, err := prev.engine.GetSourceCacheEntry(t.Context(), string(sourcecache.RowKindGrants), "scope-a")
 	require.NoError(t, err)
@@ -1080,11 +1080,11 @@ func TestVerificationReplayPreservesSourceAndTimestamps(t *testing.T) {
 	_, err = cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindGrants, "scope-a")
 	require.NoError(t, err)
 
-	afterSourceRow, err := prev.engine.GetGrantRecord(t.Context(), grant.GetId())
+	afterSourceRow, err := prev.engine.Records().GetGrantRecord(t.Context(), grant.GetId())
 	require.NoError(t, err)
 	afterSourceEntry, err := prev.engine.GetSourceCacheEntry(t.Context(), string(sourcecache.RowKindGrants), "scope-a")
 	require.NoError(t, err)
-	replayedRow, err := cur.engine.GetGrantRecord(t.Context(), grant.GetId())
+	replayedRow, err := cur.engine.Records().GetGrantRecord(t.Context(), grant.GetId())
 	require.NoError(t, err)
 	require.True(t, proto.Equal(beforeRow, afterSourceRow), "replay mutated the source row")
 	require.True(t, proto.Equal(beforeEntry, afterSourceEntry), "replay mutated the source manifest")
@@ -1207,12 +1207,12 @@ func TestVerificationConcurrentDuplicateReplay(t *testing.T) {
 	))
 
 	var rows int
-	require.NoError(t, cur.engine.IterateGrants(t.Context(), func(*v3.GrantRecord) bool {
+	require.NoError(t, cur.engine.Records().IterateGrants(t.Context(), func(*v3.GrantRecord) bool {
 		rows++
 		return true
 	}))
 	require.Equal(t, 1, rows)
-	_, err := cur.engine.GetGrantRecord(t.Context(), grant.GetId())
+	_, err := cur.engine.Records().GetGrantRecord(t.Context(), grant.GetId())
 	require.NoError(t, err)
 	direct := newSourceCacheVerificationStore(t)
 	putVerificationGrant(t, direct, "scope-a", "member", "alice")
@@ -1262,7 +1262,7 @@ func TestVerificationReplaySourceSurvivesReadOnlyReopen(t *testing.T) {
 	res, err := cur.cache.ReplaySourceCache(ctx, reopened, sourcecache.RowKindGrants, "scope-a")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), res.Rows)
-	_, err = cur.engine.GetGrantRecord(ctx, grant.GetId())
+	_, err = cur.engine.Records().GetGrantRecord(ctx, grant.GetId())
 	require.NoError(t, err)
 	afterBytes, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -1530,13 +1530,13 @@ func TestVerificationHostileScopeEncodingCorpus(t *testing.T) {
 		res, err := cur.cache.ReplaySourceCache(t.Context(), prev.store, sourcecache.RowKindGrants, scope)
 		require.NoError(t, err)
 		require.Equal(t, int64(1), res.Rows)
-		_, err = cur.engine.GetGrantRecord(t.Context(), grants[i].GetId())
+		_, err = cur.engine.Records().GetGrantRecord(t.Context(), grants[i].GetId())
 		require.NoError(t, err)
 		for j, decoy := range grants {
 			if i == j {
 				continue
 			}
-			_, err = cur.engine.GetGrantRecord(t.Context(), decoy.GetId())
+			_, err = cur.engine.Records().GetGrantRecord(t.Context(), decoy.GetId())
 			require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
 		}
 	}
@@ -1620,18 +1620,18 @@ func TestVerificationHostileIDEncodingCorpus(t *testing.T) {
 				for j := i + 1; j < len(canonicalIDs); j++ {
 					switch kind {
 					case sourcecache.RowKindResources:
-						_, err = cur.engine.GetResourceRecord(t.Context(), "hostile", canonicalRowIDs[j])
+						_, err = cur.engine.Records().GetResourceRecord(t.Context(), "hostile", canonicalRowIDs[j])
 					case sourcecache.RowKindEntitlements:
-						_, err = cur.engine.GetEntitlementRecord(t.Context(), canonicalRowIDs[j])
+						_, err = cur.engine.Records().GetEntitlementRecord(t.Context(), canonicalRowIDs[j])
 					case sourcecache.RowKindGrants:
-						_, err = cur.engine.GetGrantRecord(t.Context(), canonicalIDs[j])
+						_, err = cur.engine.Records().GetGrantRecord(t.Context(), canonicalIDs[j])
 					}
 					require.NoError(t, err, "tombstone for hostile ID %q removed neighbor %q",
 						canonicalRowIDs[i], canonicalRowIDs[j])
 				}
 			}
 			if kind == sourcecache.RowKindResources {
-				_, err = cur.engine.GetResourceRecord(t.Context(), "hostile", "")
+				_, err = cur.engine.Records().GetResourceRecord(t.Context(), "hostile", "")
 				require.NoError(t, err, "resource with an empty opaque ID should survive unavailable BID tombstones")
 			}
 		})
@@ -1759,9 +1759,9 @@ func TestVerificationCanonicalTombstoneIdempotencyMatrix(t *testing.T) {
 		ids := []string{targetID, targetID, absentID}
 		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindResources, "scope-a", ids))
 		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindResources, "scope-a", ids))
-		_, err = s.engine.GetResourceRecord(t.Context(), "user", "target")
+		_, err = s.engine.Records().GetResourceRecord(t.Context(), "user", "target")
 		require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
-		_, err = s.engine.GetResourceRecord(t.Context(), "user", "survivor")
+		_, err = s.engine.Records().GetResourceRecord(t.Context(), "user", "survivor")
 		require.NoError(t, err)
 	})
 
@@ -1776,9 +1776,9 @@ func TestVerificationCanonicalTombstoneIdempotencyMatrix(t *testing.T) {
 		ids := []string{"target", "target", "absent"}
 		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindEntitlements, "scope-a", ids))
 		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindEntitlements, "scope-a", ids))
-		_, err := s.engine.GetEntitlementRecord(t.Context(), "target")
+		_, err := s.engine.Records().GetEntitlementRecord(t.Context(), "target")
 		require.Error(t, err)
-		_, err = s.engine.GetEntitlementRecord(t.Context(), "survivor")
+		_, err = s.engine.Records().GetEntitlementRecord(t.Context(), "survivor")
 		require.NoError(t, err)
 	})
 
@@ -1790,9 +1790,9 @@ func TestVerificationCanonicalTombstoneIdempotencyMatrix(t *testing.T) {
 		ids := []string{target.GetId(), target.GetId(), absent.GetId()}
 		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindGrants, "scope-a", ids))
 		require.NoError(t, s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindGrants, "scope-a", ids))
-		_, err := s.engine.GetGrantRecord(t.Context(), target.GetId())
+		_, err := s.engine.Records().GetGrantRecord(t.Context(), target.GetId())
 		require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
-		_, err = s.engine.GetGrantRecord(t.Context(), survivor.GetId())
+		_, err = s.engine.Records().GetGrantRecord(t.Context(), survivor.GetId())
 		require.NoError(t, err)
 	})
 }
@@ -1825,18 +1825,18 @@ func TestVerificationGrantOverlayTombstoneOrderingModel(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleted,
 		"the overlapping canonical target was already absent; only the principal-only row remains to delete")
-	_, err = s.engine.GetGrantRecord(t.Context(), canonicalTarget.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), canonicalTarget.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
-	_, err = s.engine.GetGrantRecord(t.Context(), principalTarget.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), principalTarget.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
-	_, err = s.engine.GetGrantRecord(t.Context(), survivor.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), survivor.GetId())
 	require.NoError(t, err)
-	_, err = s.engine.GetGrantRecord(t.Context(), scopeDecoy.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), scopeDecoy.GetId())
 	require.NoError(t, err)
 
 	// A later page may re-add a tombstoned identity.
 	require.NoError(t, s.store.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), canonicalTarget))
-	_, err = s.engine.GetGrantRecord(t.Context(), canonicalTarget.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), canonicalTarget.GetId())
 	require.NoError(t, err)
 
 	// A still-later tombstone wins again.
@@ -1846,11 +1846,11 @@ func TestVerificationGrantOverlayTombstoneOrderingModel(t *testing.T) {
 		"scope-a",
 		[]string{canonicalTarget.GetId()},
 	))
-	_, err = s.engine.GetGrantRecord(t.Context(), canonicalTarget.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), canonicalTarget.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
-	_, err = s.engine.GetGrantRecord(t.Context(), survivor.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), survivor.GetId())
 	require.NoError(t, err)
-	_, err = s.engine.GetGrantRecord(t.Context(), scopeDecoy.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), scopeDecoy.GetId())
 	require.NoError(t, err)
 }
 
@@ -1893,13 +1893,13 @@ func TestVerificationResourceCombinedTombstoneComposition(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleted,
 		"the overlapping canonical target was already absent; only the selector-only row remains")
-	_, err = s.engine.GetResourceRecord(t.Context(), "user", "alice")
+	_, err = s.engine.Records().GetResourceRecord(t.Context(), "user", "alice")
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
-	_, err = s.engine.GetResourceRecord(t.Context(), "user", "bob")
+	_, err = s.engine.Records().GetResourceRecord(t.Context(), "user", "bob")
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
-	_, err = s.engine.GetResourceRecord(t.Context(), "user", "carol")
+	_, err = s.engine.Records().GetResourceRecord(t.Context(), "user", "carol")
 	require.NoError(t, err)
-	_, err = s.engine.GetResourceRecord(t.Context(), "service", "bob")
+	_, err = s.engine.Records().GetResourceRecord(t.Context(), "service", "bob")
 	require.NoError(t, err)
 	require.Equal(t, 2, countSourceCacheVerificationKeys(
 		t,
@@ -2255,11 +2255,11 @@ func TestVerificationScopedGrantIDDeletePreservesNonTombstonedRows(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleted)
 
-	_, err = s.engine.GetGrantRecord(t.Context(), doomed.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), doomed.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
-	_, err = s.engine.GetGrantRecord(t.Context(), survivor.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), survivor.GetId())
 	require.NoError(t, err, "a non-tombstoned row must survive the scoped delete")
-	_, err = s.engine.GetGrantRecord(t.Context(), bystander.GetId())
+	_, err = s.engine.Records().GetGrantRecord(t.Context(), bystander.GetId())
 	require.NoError(t, err, "a non-tombstoned row must survive the scoped delete")
 	require.Equal(t, 2, countSourceCacheVerificationRowsInScope(t, s.engine, sourcecache.RowKindGrants, "scope-a"))
 

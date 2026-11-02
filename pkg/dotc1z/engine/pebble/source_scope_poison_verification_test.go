@@ -120,7 +120,7 @@ func TestVerificationPoisonCrossScopeRestampOrders(t *testing.T) {
 				if step.scope != "" {
 					putCtx = sourcecache.WithScope(ctx, step.scope)
 				}
-				require.NoError(t, prev.PutGrants(putCtx, scGrant("member", step.row, false)))
+				require.NoError(t, prev.records.PutGrants(putCtx, scGrant("member", step.row, false)))
 			}
 
 			sealScopes := make([]string, 0, len(tc.poisoned)+len(tc.clean))
@@ -224,7 +224,7 @@ func TestVerificationPoisonCrossScopeCanonicalTombstone(t *testing.T) {
 			require.NoError(t, err)
 			doomed := scGrant("member", "alice", false)
 			kept := scGrant("member", "bob", false)
-			require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"), doomed, kept))
+			require.NoError(t, prev.records.PutGrants(sourcecache.WithScope(ctx, "scope-a"), doomed, kept))
 			require.NoError(t, prev.Expansion().PebbleEngine().DeleteGrantRecordsBounded(ctx, []string{doomed.GetId()}, tc.actingScope))
 			sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindGrants, "scope-a")
 
@@ -253,7 +253,7 @@ func TestVerificationPoisonScopedTombstonesDoNotSelfPoison(t *testing.T) {
 		prev := newAdapter(t)
 		_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
+		require.NoError(t, prev.records.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
 			scGrant("member", "alice", false), scGrant("member", "bob", false)))
 		deleted, err := prev.Expansion().PebbleEngine().DeleteGrantsByPrincipalsInScope(ctx, "scope-a", map[string]struct{}{"alice": {}})
 		require.NoError(t, err)
@@ -274,7 +274,7 @@ func TestVerificationPoisonScopedTombstonesDoNotSelfPoison(t *testing.T) {
 		require.NoError(t, err)
 		u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
 		u2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build()}.Build()
-		require.NoError(t, prev.PutResources(sourcecache.WithScope(ctx, "scope-a"), u1, u2))
+		require.NoError(t, prev.records.PutResources(sourcecache.WithScope(ctx, "scope-a"), u1, u2))
 		deleted, err := prev.Expansion().PebbleEngine().DeleteResourcesByIDsInScope(ctx, "scope-a", map[string]struct{}{"u1": {}})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), deleted)
@@ -311,17 +311,17 @@ func TestVerificationPoisonReconciliationShapeRefusesReplay(t *testing.T) {
 		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
 	}.Build()
 	ent := v2.Entitlement_builder{Id: "group:g1:member", Resource: group}.Build()
-	require.NoError(t, prev.PutResources(scoped, group))
-	require.NoError(t, prev.PutEntitlements(scoped, ent))
+	require.NoError(t, prev.records.PutResources(scoped, group))
+	require.NoError(t, prev.records.PutEntitlements(scoped, ent))
 	placeholderAlice := scGrant("member", "placeholder-alice", false)
 	placeholderBob := scGrant("member", "placeholder-bob", false)
-	require.NoError(t, prev.PutGrants(scoped, placeholderAlice, placeholderBob))
+	require.NoError(t, prev.records.PutGrants(scoped, placeholderAlice, placeholderBob))
 
 	// Reconciliation's shape: delete the placeholders by identity with no
 	// acting scope, then write derived re-issued grants unscoped.
-	require.NoError(t, prev.Expansion().PebbleEngine().DeleteGrantRecord(ctx, placeholderAlice.GetId()))
-	require.NoError(t, prev.Expansion().PebbleEngine().DeleteGrantRecord(ctx, placeholderBob.GetId()))
-	require.NoError(t, prev.PutGrants(ctx,
+	require.NoError(t, prev.Expansion().PebbleEngine().records.DeleteGrantRecord(ctx, placeholderAlice.GetId()))
+	require.NoError(t, prev.Expansion().PebbleEngine().records.DeleteGrantRecord(ctx, placeholderBob.GetId()))
+	require.NoError(t, prev.records.PutGrants(ctx,
 		scGrant("member", "matched-alice", false), scGrant("member", "matched-bob", false)))
 
 	sealReplaySourceMulti(ctx, t, prev.Expansion().PebbleEngine(), map[sourcecache.RowKind][]string{
@@ -366,9 +366,9 @@ func TestVerificationPoisonSurvivesReopenAndInvalidationDropsIt(t *testing.T) {
 	a := NewAdapter(e)
 	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-a"), scGrant("member", "r1", false)))
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-a"), scGrant("member", "r1", false)))
 	// Cross-scope restamp: poisons scope-a.
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-b"), scGrant("member", "r1", false)))
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-b"), scGrant("member", "r1", false)))
 	sealReplaySource(ctx, t, e, sourcecache.RowKindGrants, "scope-a", "scope-b")
 	require.NoError(t, e.Close())
 	closed = true
@@ -417,9 +417,9 @@ func TestVerificationPoisonEventsAreLogged(t *testing.T) {
 	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	// One batch restamps TWO of scope-a's rows: one poison event, one line.
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
 		scGrant("member", "r1", false), scGrant("member", "r2", false)))
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-b"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-b"),
 		scGrant("member", "r1", false), scGrant("member", "r2", false)))
 
 	entries := logs.FilterFieldKey("scope_key").All()
@@ -434,7 +434,7 @@ func TestVerificationPoisonEventsAreLogged(t *testing.T) {
 	// the durable marker.
 	injected := errors.New("injected commit failure")
 	e.db.SetRecordCommitTestHook(func() error { return injected })
-	err = a.PutGrants(sourcecache.WithScope(ctx, "scope-c"),
+	err = a.records.PutGrants(sourcecache.WithScope(ctx, "scope-c"),
 		scGrant("member", "r1", false))
 	require.ErrorIs(t, err, injected)
 	e.db.SetRecordCommitTestHook(nil)
@@ -448,9 +448,9 @@ func TestVerificationPoisonEventsAreLogged(t *testing.T) {
 	// batch-level dedup set is gone) poisons scope-a again via a new
 	// row's a -> b restamp. The marker write is idempotent; the observer
 	// must not log a second line for the same (kind, scope).
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
 		scGrant("member", "r3", false)))
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-b"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-b"),
 		scGrant("member", "r3", false)))
 	poisoned, err = e.SourceCachePoisoned(ctx, string(sourcecache.RowKindGrants), "scope-a")
 	require.NoError(t, err)
@@ -480,16 +480,16 @@ func TestVerificationPoisonLogSuppressionCap(t *testing.T) {
 	require.NoError(t, err)
 
 	// Under the cap: scope-a's poison logs its scope line and fills the set.
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
 		scGrant("member", "r1", false)))
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-b"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-b"),
 		scGrant("member", "r1", false)))
 	require.Len(t, logs.FilterFieldKey("scope_key").All(), 1)
 
 	// At the cap, first UNSEEN scope: one suppression notice, no scope line.
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-c"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-c"),
 		scGrant("member", "r2", false)))
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-d"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-d"),
 		scGrant("member", "r2", false)))
 	require.Len(t, logs.FilterFieldKey("scope_key").All(), 1,
 		"a scope poisoned past the cap must not log a scope line")
@@ -497,17 +497,17 @@ func TestVerificationPoisonLogSuppressionCap(t *testing.T) {
 		"crossing the cap must log the suppression notice")
 
 	// Second unseen scope: the notice must not repeat.
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-e"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-e"),
 		scGrant("member", "r3", false)))
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-f"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-f"),
 		scGrant("member", "r3", false)))
 	require.Len(t, logs.FilterFieldKey("bound").All(), 1,
 		"the suppression notice must fire exactly once per open")
 
 	// Already-seen scope past the cap: still deduplicated silently.
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
 		scGrant("member", "r4", false)))
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-b"),
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-b"),
 		scGrant("member", "r4", false)))
 	require.Len(t, logs.FilterFieldKey("scope_key").All(), 1)
 	require.Len(t, logs.FilterFieldKey("bound").All(), 1)

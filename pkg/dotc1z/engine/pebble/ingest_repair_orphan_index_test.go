@@ -121,7 +121,7 @@ func TestHealOrphanPrincipalIndexEntriesKeepsLiveRows(t *testing.T) {
 	require.NoError(t, err)
 	e := a.Expansion().PebbleEngine()
 
-	require.NoError(t, a.PutGrants(ctx, mkV2Grant("", "ent-live", "user", "victim")))
+	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("", "ent-live", "user", "victim")))
 	plantOrphanPrincipalIndexEntry(t, e, "victim", "ghost-ent")
 	require.Equal(t, 2, countPrincipalIndexEntries(t, e, "user", "victim"))
 
@@ -130,7 +130,7 @@ func TestHealOrphanPrincipalIndexEntriesKeepsLiveRows(t *testing.T) {
 	require.Equal(t, int64(1), healed, "exactly the orphan heals; the re-probe must keep the live row's entry")
 
 	var ents []string
-	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "victim", func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "victim", func(r *v3.GrantRecord) bool {
 		ents = append(ents, r.GetEntitlement().GetEntitlementId())
 		return true
 	}))
@@ -237,7 +237,7 @@ func TestDanglingPrincipalSweepKeepsMixedPopulations(t *testing.T) {
 	// all-orphan shape; a mixed principal's orphan is a documented
 	// residual until the drop pass reworks this in a later PR).
 	g := mkV2Grant("", "ent-a", "user", "mixed")
-	require.NoError(t, a.PutGrants(ctx, g))
+	require.NoError(t, a.records.PutGrants(ctx, g))
 	plantOrphanPrincipalIndexEntry(t, e, "mixed", "stranded")
 	require.Equal(t, 2, countPrincipalIndexEntries(t, e, "user", "mixed"))
 
@@ -256,7 +256,7 @@ func TestDanglingPrincipalSweepKeepsMixedPopulations(t *testing.T) {
 
 	// The live entry still serves reads after the sweep.
 	var ents []string
-	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "mixed", func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "mixed", func(r *v3.GrantRecord) bool {
 		ents = append(ents, r.GetEntitlement().GetEntitlementId())
 		return true
 	}))

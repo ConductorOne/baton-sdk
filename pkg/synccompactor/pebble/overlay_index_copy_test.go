@@ -172,7 +172,7 @@ func writeIndexCopySource(t *testing.T, ctx context.Context, path string, spec i
 	syncID, err := w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	ts := timestamppb.New(spec.discovered)
-	require.NoError(t, eng.PutResourceTypeRecords(ctx,
+	require.NoError(t, eng.Records().PutResourceTypeRecords(ctx,
 		v3.ResourceTypeRecord_builder{ExternalId: "user", DisplayName: "User", DiscoveredAt: ts}.Build(),
 		v3.ResourceTypeRecord_builder{ExternalId: "group", DisplayName: "Group", DiscoveredAt: ts}.Build(),
 	))
@@ -184,21 +184,21 @@ func writeIndexCopySource(t *testing.T, ctx context.Context, path string, spec i
 		}
 		resources = append(resources, b.Build())
 	}
-	require.NoError(t, eng.PutResourceRecords(ctx, resources...))
+	require.NoError(t, eng.Records().PutResourceRecords(ctx, resources...))
 	seenEnt := map[string]bool{}
 	for _, g := range spec.grants {
 		if seenEnt[g.entitlement] {
 			continue
 		}
 		seenEnt[g.entitlement] = true
-		require.NoError(t, eng.PutEntitlementRecords(ctx, v3.EntitlementRecord_builder{
+		require.NoError(t, eng.Records().PutEntitlementRecords(ctx, v3.EntitlementRecord_builder{
 			ExternalId:   g.entitlement,
 			Resource:     v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "engineering"}.Build(),
 			DiscoveredAt: ts,
 		}.Build()))
 	}
 	for _, g := range spec.grants {
-		require.NoError(t, eng.PutGrantRecords(ctx, v3.GrantRecord_builder{
+		require.NoError(t, eng.Records().PutGrantRecords(ctx, v3.GrantRecord_builder{
 			ExternalId: g.id,
 			Entitlement: v3.EntitlementRef_builder{
 				ResourceTypeId: "group",
@@ -225,15 +225,15 @@ func assertIndexesMatchDerived(t *testing.T, ctx context.Context, dest *enginepk
 		derived = append(derived, append([]byte(nil), key...))
 		return nil
 	}
-	require.NoError(t, dest.IterateResources(ctx, func(r *v3.ResourceRecord) bool {
+	require.NoError(t, dest.Records().IterateResources(ctx, func(r *v3.ResourceRecord) bool {
 		require.NoError(t, enginepkg.ForEachResourceIndexKey(r, collect))
 		return true
 	}))
-	require.NoError(t, dest.IterateEntitlements(ctx, func(e *v3.EntitlementRecord) bool {
+	require.NoError(t, dest.Records().IterateEntitlements(ctx, func(e *v3.EntitlementRecord) bool {
 		require.NoError(t, enginepkg.ForEachEntitlementIndexKey(e, collect))
 		return true
 	}))
-	require.NoError(t, dest.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.Records().IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		require.NoError(t, enginepkg.ForEachGrantIndexKey(g, collect))
 		return true
 	}))

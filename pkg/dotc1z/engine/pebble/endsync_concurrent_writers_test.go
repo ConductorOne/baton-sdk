@@ -70,7 +70,7 @@ func TestEndSyncConcurrentWritersNeverMissByPrincipal(t *testing.T) {
 					err = a.Grants().StoreExpandedGrants(ctx, g)
 				} else {
 					// Inline regime.
-					err = a.PutGrants(ctx, g)
+					err = a.records.PutGrants(ctx, g)
 				}
 				if err != nil {
 					// The only legal refusals are the seal boundary
@@ -110,7 +110,7 @@ func TestEndSyncConcurrentWritersNeverMissByPrincipal(t *testing.T) {
 	for w := 0; w < workers; w++ {
 		principal := fmt.Sprintf("user%02d", w)
 		set := map[string]bool{}
-		require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", principal, func(r *v3.GrantRecord) bool {
+		require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", principal, func(r *v3.GrantRecord) bool {
 			set[r.GetEntitlement().GetEntitlementId()] = true
 			return true
 		}))

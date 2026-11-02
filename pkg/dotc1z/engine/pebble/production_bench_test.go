@@ -165,7 +165,7 @@ func BenchmarkPebbleAdapterWriteGrant(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := a.PutGrants(ctx, mkV2Grant(
+		if err := a.Records().PutGrants(ctx, mkV2Grant(
 			fmt.Sprintf("grant-%08d", i),
 			fmt.Sprintf("entitlement-%04d", i%100),
 			"user",

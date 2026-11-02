@@ -336,13 +336,13 @@ func TestOverlayResumedReplaceRawEdge(t *testing.T) {
 	require.NotContains(t, grants, "g-1-repl", "tie replacement should be filtered")
 	// The replaced record's index entries must follow the new value.
 	var p0Grants []string
-	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "g-principal-0", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.Records().IterateGrantsByPrincipal(ctx, "user", "g-principal-0", func(g *v3.GrantRecord) bool {
 		p0Grants = append(p0Grants, g.GetExternalId())
 		return true
 	}))
 	require.Equal(t, []string{"g-0-repl"}, p0Grants, "by_principal(g-principal-0)")
 	var staleG0 bool
-	require.NoError(t, dest.IterateGrantsByPrincipal(ctx, "user", "g-principal-0", func(g *v3.GrantRecord) bool {
+	require.NoError(t, dest.Records().IterateGrantsByPrincipal(ctx, "user", "g-principal-0", func(g *v3.GrantRecord) bool {
 		if g.GetExternalId() == "g-0" {
 			staleG0 = true
 		}

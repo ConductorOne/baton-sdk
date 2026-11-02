@@ -58,10 +58,10 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 		}.Build(),
 	}.Build()
 
-	require.NoErrorf(t, e.PutGrantRecords(ctx, gPending, gProcessed, gPlain), "PutGrantRecords")
+	require.NoErrorf(t, e.records.PutGrantRecords(ctx, gPending, gProcessed, gPlain), "PutGrantRecords")
 
 	seen := []string{}
-	require.NoErrorf(t, e.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
+	require.NoErrorf(t, e.records.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
 		seen = append(seen, r.GetExternalId())
 		return true
 	}), "IterateGrantsByNeedsExpansion")
@@ -82,9 +82,9 @@ func TestPendingExpansionIndexRoundtrip(t *testing.T) {
 		}.Build(),
 		NeedsExpansion: false,
 	}.Build()
-	require.NoErrorf(t, e.PutGrantRecord(ctx, gPendingDone), "PutGrantRecord (flip)")
+	require.NoErrorf(t, e.records.PutGrantRecord(ctx, gPendingDone), "PutGrantRecord (flip)")
 	seen = seen[:0]
-	require.NoErrorf(t, e.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
+	require.NoErrorf(t, e.records.IterateGrantsByNeedsExpansion(ctx, func(r *v3.GrantRecord) bool {
 		seen = append(seen, r.GetExternalId())
 		return true
 	}), "IterateGrantsByNeedsExpansion (post-flip)")
@@ -113,7 +113,7 @@ func TestPebbleGrantStorePendingExpansionPage(t *testing.T) {
 		}.Build(),
 		NeedsExpansion: true,
 	}.Build()
-	require.NoErrorf(t, a.PutGrantRecord(ctx, rec), "PutGrantRecord")
+	require.NoErrorf(t, a.records.PutGrantRecord(ctx, rec), "PutGrantRecord")
 
 	rows, _, err := a.Grants().PendingExpansionPage(ctx, "")
 	require.NoErrorf(t, err, "PendingExpansionPage")

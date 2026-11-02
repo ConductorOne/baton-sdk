@@ -76,8 +76,8 @@ func TestIndexedPayloadStoreLifecycle(t *testing.T) {
 	require.NoErrorf(t, err, "second sync %s missing after indexed round trips", second)
 	_, err = eng.SyncRuns().GetSyncRunRecord(ctx, first)
 	require.Errorf(t, err, "first sync %s should have been replaced by the second", first)
-	_, err = eng.GetResourceRecord(ctx, "group", "group-1")
+	_, err = eng.Records().GetResourceRecord(ctx, "group", "group-1")
 	require.NoErrorf(t, err, "second sync's resource missing")
-	_, err = eng.GetResourceRecord(ctx, "user", "user-1")
+	_, err = eng.Records().GetResourceRecord(ctx, "user", "user-1")
 	require.Errorf(t, err, "first sync's resource should be gone after replacement")
 }

@@ -90,7 +90,7 @@ func sealedGrantDigestEngine(t *testing.T, entID string, n int, opts ...Option) 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err, "StartNewSync")
 	putEnt(t, e, ctx, entID)
-	require.NoError(t, e.PutGrantRecords(ctx, makeTestGrants(entID, n)...), "PutGrantRecords")
+	require.NoError(t, e.records.PutGrantRecords(ctx, makeTestGrants(entID, n)...), "PutGrantRecords")
 	require.NoError(t, a.EndSync(ctx), "EndSync")
 	return e, filepath.Join(dir, "db"), syncID
 }
@@ -436,7 +436,7 @@ func TestGrantDigestABIStampOrphanIgnored(t *testing.T) {
 	_, err = a2.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	putEnt(t, e2, ctx, entID)
-	require.NoError(t, e2.PutGrantRecords(ctx, makeTestGrants(entID, n)...))
+	require.NoError(t, e2.records.PutGrantRecords(ctx, makeTestGrants(entID, n)...))
 	require.NoError(t, a2.EndSync(ctx))
 
 	root, ok, err := e2.Digests().GetGrantDigestGlobalRoot(ctx)
@@ -534,7 +534,7 @@ func TestGrantDigestABIOracleCoversImmutableAndDirectSources(t *testing.T) {
 	})
 
 	plain = append(plain, immutable, directSource)
-	require.NoError(t, e.PutGrantRecords(ctx, plain...), "PutGrantRecords")
+	require.NoError(t, e.records.PutGrantRecords(ctx, plain...), "PutGrantRecords")
 
 	synthRecords := []synthesizedGrantRecord{
 		{
@@ -555,7 +555,7 @@ func TestGrantDigestABIOracleCoversImmutableAndDirectSources(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, e.PutSynthesizedGrantContributions(ctx, synthRecords), "PutSynthesizedGrantContributions")
+	require.NoError(t, e.records.PutSynthesizedGrantContributions(ctx, synthRecords), "PutSynthesizedGrantContributions")
 
 	sealGrantDigests(t, e)
 

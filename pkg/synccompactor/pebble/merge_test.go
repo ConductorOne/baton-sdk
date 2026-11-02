@@ -47,10 +47,10 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 
 	// src1 (applied first): shared key @older + a unique key.
 	require.NoError(t, src1.SetCurrentSync(ctx, syncA))
-	require.NoError(t, src1.PutGrantRecords(ctx, grantAt(syncA, "g-shared", older), grantAt(syncA, "g-only1", older)))
+	require.NoError(t, src1.Records().PutGrantRecords(ctx, grantAt(syncA, "g-shared", older), grantAt(syncA, "g-only1", older)))
 	// src2 (applied second): shared key @newer (must win) + a unique key.
 	require.NoError(t, src2.SetCurrentSync(ctx, syncB))
-	require.NoError(t, src2.PutGrantRecords(ctx, grantAt(syncB, "g-shared", newer), grantAt(syncB, "g-only2", newer)))
+	require.NoError(t, src2.Records().PutGrantRecords(ctx, grantAt(syncB, "g-shared", newer), grantAt(syncB, "g-only2", newer)))
 
 	// No SetCurrentSync here: MergeInto must bind the dest engine to
 	// destSyncID itself (record values carry no sync_id, so a stale
@@ -69,7 +69,7 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 	// Iterating under destSync proves every survivor is re-keyed there,
 	// and g-shared kept the newer discovered_at.
 	seen := map[string]*v3.GrantRecord{}
-	require.NoError(t, dst.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoError(t, dst.Records().IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		seen[r.GetExternalId()] = r
 		return true
 	}), "IterateGrants")
@@ -104,7 +104,7 @@ func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
 	at := time.Unix(1000, 0).UTC()
 
 	require.NoError(t, src.SetCurrentSync(ctx, syncID))
-	require.NoError(t, src.PutGrantRecords(ctx, grantAt(syncID, "g1", at)))
+	require.NoError(t, src.Records().PutGrantRecords(ctx, grantAt(syncID, "g1", at)))
 
 	// First merge: a genuinely new grant is admitted.
 	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src, SyncID: syncID}}, destSync)
@@ -131,7 +131,7 @@ func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
 	newer := time.Unix(2000, 0).UTC()
 	src2, _ := newEngine(t, "gw-src2")
 	require.NoError(t, src2.SetCurrentSync(ctx, syncID))
-	require.NoError(t, src2.PutGrantRecords(ctx, grantAt(syncID, "g1", newer)))
+	require.NoError(t, src2.Records().PutGrantRecords(ctx, grantAt(syncID, "g1", newer)))
 	stats4, err := MergeInto(ctx, dst, []SourceSync{{Engine: src2, SyncID: syncID}}, destSync)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, stats4.GrantWrites, "a strictly-newer override counts as a grant write")
@@ -158,9 +158,9 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	g2.SetExternalId("from-src2")
 
 	_ = src1.SetCurrentSync(ctx, syncA)
-	require.NoError(t, src1.PutGrantRecords(ctx, g1))
+	require.NoError(t, src1.Records().PutGrantRecords(ctx, g1))
 	_ = src2.SetCurrentSync(ctx, syncB)
-	require.NoError(t, src2.PutGrantRecords(ctx, g2))
+	require.NoError(t, src2.Records().PutGrantRecords(ctx, g2))
 	// src1 applied first → incumbent wins the tie. MergeInto binds the
 	// dest sync itself.
 	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync)
@@ -170,7 +170,7 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	require.Zero(t, stats.DeadBytes, "FoldStats.DeadBytes (tie keeps incumbent)")
 
 	var winner string
-	require.NoError(t, dst.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoError(t, dst.Records().IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		winner = r.GetExternalId()
 		return true
 	}))
@@ -210,19 +210,19 @@ func seedBase(t *testing.T, ctx context.Context, name string, rs recordSet) (*en
 
 func assertFoldWinners(t *testing.T, ctx context.Context, eng *enginepkg.Engine, rtDN, resDN, entDN, grantPrincipal string) {
 	t.Helper()
-	rt, err := eng.GetResourceTypeRecord(ctx, "rt-1")
+	rt, err := eng.Records().GetResourceTypeRecord(ctx, "rt-1")
 	require.NoError(t, err)
 	require.Equal(t, rtDN, rt.GetDisplayName(), "resource_type winner")
-	res, err := eng.GetResourceRecord(ctx, "user", "u1")
+	res, err := eng.Records().GetResourceRecord(ctx, "user", "u1")
 	require.NoError(t, err)
 	require.Equal(t, resDN, res.GetDisplayName(), "resource winner")
-	ent, err := eng.GetEntitlementRecord(ctx, "e-1")
+	ent, err := eng.Records().GetEntitlementRecord(ctx, "e-1")
 	require.NoError(t, err)
 	require.Equal(t, entDN, ent.GetDisplayName(), "entitlement winner")
 	// Grants carry connector-custom external ids in these fixtures, so
 	// address the row by refs via the by_principal index.
 	var g *v3.GrantRecord
-	require.NoError(t, eng.IterateGrantsByPrincipal(ctx, "user", grantPrincipal, func(r *v3.GrantRecord) bool {
+	require.NoError(t, eng.Records().IterateGrantsByPrincipal(ctx, "user", grantPrincipal, func(r *v3.GrantRecord) bool {
 		g = r
 		return false
 	}))

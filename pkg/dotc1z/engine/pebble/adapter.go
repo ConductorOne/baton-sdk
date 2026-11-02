@@ -582,13 +582,13 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 // read+arena-private-write access patterns. Each worker writes to a
 // disjoint range of the records slice and uses its own arena, so no
 // shared mutable state across workers.
-func (e *Engine) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
-	syncID := e.CurrentSyncID()
+func (r *Records) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	records := translateGrantsForPut(ctx, syncID, grants)
-	if err := e.PutGrantRecords(ctx, records...); err != nil {
+	if err := r.PutGrantRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutGrants: %w", err)
 	}
 	return nil
@@ -616,13 +616,13 @@ func stampSourceScope[T any](ctx context.Context, records []T, set func(T, strin
 // sync must be fresh, and the caller MUST guarantee each external_id appears at
 // most once across the whole sync (not just within this batch). Live connector
 // writes should use PutGrants.
-func (e *Engine) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error {
-	syncID := e.CurrentSyncID()
+func (r *Records) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error {
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	records := translateGrants(syncID, grants)
-	if err := e.UnsafePutUniqueGrantRecords(ctx, records...); err != nil {
+	if err := r.UnsafePutUniqueGrantRecords(ctx, records...); err != nil {
 		return fmt.Errorf("UnsafePutUniqueGrants: %w", err)
 	}
 	return nil
@@ -720,13 +720,13 @@ func translateGrantsSerial(syncID string, grants []*v2.Grant, discoveredAt []*ti
 
 // PutResourceTypes writes a batch of resource types in a single
 // Pebble batch.
-func (e *Engine) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) error {
-	syncID := e.CurrentSyncID()
+func (r *Records) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) error {
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	records := translateResourceTypesForPut(syncID, rts)
-	if err := e.PutResourceTypeRecords(ctx, records...); err != nil {
+	if err := r.PutResourceTypeRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutResourceTypes: %w", err)
 	}
 	return nil
@@ -752,13 +752,13 @@ func translateResourceTypesForPut(syncID string, rts []*v2.ResourceType) []*v3.R
 }
 
 // PutResources writes a batch of resources in a single Pebble batch.
-func (e *Engine) PutResources(ctx context.Context, resources ...*v2.Resource) error {
-	syncID := e.CurrentSyncID()
+func (r *Records) PutResources(ctx context.Context, resources ...*v2.Resource) error {
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	records := translateResourcesForPut(ctx, syncID, resources)
-	if err := e.PutResourceRecords(ctx, records...); err != nil {
+	if err := r.PutResourceRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutResources: %w", err)
 	}
 	return nil
@@ -785,13 +785,13 @@ func translateResourcesForPut(ctx context.Context, syncID string, resources []*v
 }
 
 // PutEntitlements writes a batch of entitlements in a single Pebble batch.
-func (e *Engine) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
-	syncID := e.CurrentSyncID()
+func (r *Records) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	records := translateEntitlementsForPut(ctx, syncID, entitlements)
-	if err := e.PutEntitlementRecords(ctx, records...); err != nil {
+	if err := r.PutEntitlementRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutEntitlements: %w", err)
 	}
 	return nil
@@ -820,12 +820,12 @@ func translateEntitlementsForPut(ctx context.Context, syncID string, entitlement
 // DeleteGrant removes a grant by its raw public id, resolved through the
 // bare-id lookup edge. Callers holding the full grant should prefer
 // DeleteGrantByRefs, which needs no id-string resolution.
-func (e *Engine) DeleteGrant(ctx context.Context, grantID string) error {
-	syncID := e.CurrentSyncID()
+func (r *Records) DeleteGrant(ctx context.Context, grantID string) error {
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
-	return e.DeleteGrantRecord(ctx, grantID)
+	return r.DeleteGrantRecord(ctx, grantID)
 }
 
 // DeleteGrantByRefs removes a grant addressed by the structured refs of the
@@ -835,8 +835,8 @@ func (e *Engine) DeleteGrant(ctx context.Context, grantID string) error {
 // interactive/CLI edges (see lookup.go). A grant whose refs cannot derive
 // an identity could not have been stored in the first place, so there is
 // nothing a string could correctly address here.
-func (e *Engine) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
-	syncID := e.CurrentSyncID()
+func (r *Records) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -844,7 +844,7 @@ func (e *Engine) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
 	if _, err := grantIdentityFromRecord(rec); err != nil {
 		return fmt.Errorf("DeleteGrantByRefs: grant %q: %w", grant.GetId(), err)
 	}
-	return e.DeleteGrantByIdentityRefs(ctx, rec)
+	return r.DeleteGrantByIdentityRefs(ctx, rec)
 }
 
 // DeleteGrantsByRefs is the bulk sibling of DeleteGrantByRefs: same exact,
@@ -857,11 +857,11 @@ func (e *Engine) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
 // source slices (and unmarshals GrantExpandable) per grant, and holding N of
 // those alive alongside N identities would be the largest allocation in a
 // 90k-grant delete.
-func (e *Engine) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
+func (r *Records) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
 	if len(grants) == 0 {
 		return nil
 	}
-	syncID := e.CurrentSyncID()
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -873,15 +873,15 @@ func (e *Engine) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) er
 		}
 		ids = append(ids, id)
 	}
-	return e.deleteGrantsByIdentities(ctx, grantDeleteBatchChunk, ids)
+	return r.deleteGrantsByIdentities(ctx, grantDeleteBatchChunk, ids)
 }
 
 // PutAsset writes a single asset row. assetRef carries the
 // (resource_type, resource_id) pair we use as the external_id —
 // joined with a "/" separator since the engine's AssetRecord PK is
 // (sync_id, external_id).
-func (e *Engine) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
-	syncID := e.CurrentSyncID()
+func (r *Records) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -899,7 +899,7 @@ func (e *Engine) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTyp
 		Data:         data,
 		DiscoveredAt: timestamppb.Now(),
 	}.Build()
-	return e.PutAssetRecord(ctx, rec)
+	return r.PutAssetRecord(ctx, rec)
 }
 
 // Cleanup on the bare Engine is a no-op. The real Pebble
@@ -921,15 +921,15 @@ func (e *Engine) Cleanup(ctx context.Context) error { return nil }
 // GetAsset returns the (content_type, data-reader) for the given
 // asset. The returned reader is backed by a bytes.Reader over the
 // fully-materialized blob.
-func (e *Engine) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequest) (string, io.Reader, error) {
-	syncID := e.CurrentSyncID()
+func (r *Records) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequest) (string, io.Reader, error) {
+	syncID := r.e.CurrentSyncID()
 	if syncID == "" {
 		return "", nil, ErrNoCurrentSync
 	}
 	if req == nil || req.GetAsset() == nil {
 		return "", nil, errors.New("GetAsset: nil request")
 	}
-	rec, err := e.GetAssetRecord(ctx, req.GetAsset().GetId())
+	rec, err := r.GetAssetRecord(ctx, req.GetAsset().GetId())
 	if err != nil {
 		return "", nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -953,8 +953,8 @@ func (e *Engine) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetReque
 //     grants.resource_id / resource_type_id (the entitlement's
 //     resource columns). Callers who want to filter by principal
 //     should use ListGrantsForPrincipal instead.
-func (e *Engine) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
-	syncID, err := e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
+func (r *Records) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
+	syncID, err := r.e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -965,11 +965,11 @@ func (e *Engine) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrants
 	cursor := req.GetPageToken()
 	var records []*v3.GrantRecord
 	var nextCursor string
-	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		records, nextCursor, err = e.PaginateGrantsByEntitlementResource(ctx,
-			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
+	if rec2 := req.GetResource(); rec2 != nil && rec2.GetId() != nil {
+		records, nextCursor, err = r.PaginateGrantsByEntitlementResource(ctx,
+			rec2.GetId().GetResourceType(), rec2.GetId().GetResource(), cursor, limit)
 	} else {
-		records, nextCursor, err = e.PaginateGrants(ctx, cursor, limit)
+		records, nextCursor, err = r.PaginateGrants(ctx, cursor, limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -994,8 +994,8 @@ func (e *Engine) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrants
 // only resource_type_id is set, we still iterate the full primary
 // range and post-filter — adding a by_resource_type index is a
 // future-work item if this path becomes hot.
-func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
-	syncID, err := e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
+func (r *Records) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
+	syncID, err := r.e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -1007,9 +1007,9 @@ func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceList
 	var records []*v3.ResourceRecord
 	var next string
 	if parent := req.GetParentResourceId(); parent.GetResource() != "" {
-		records, next, err = e.paginateResourcesByParent(ctx, parent.GetResourceType(), parent.GetResource(), rt, req.GetPageToken(), limit)
+		records, next, err = r.paginateResourcesByParent(ctx, parent.GetResourceType(), parent.GetResource(), rt, req.GetPageToken(), limit)
 	} else {
-		records, next, err = e.paginateResources(ctx, rt, req.GetPageToken(), limit)
+		records, next, err = r.paginateResources(ctx, rt, req.GetPageToken(), limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -1026,8 +1026,8 @@ func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceList
 
 // ListResourceTypes returns up to page_size resource_types. Pagination
 // matches SQLite (see ListGrants).
-func (e *Engine) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	syncID, err := e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
+func (r *Records) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
+	syncID, err := r.e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -1035,7 +1035,7 @@ func (e *Engine) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSer
 		return nil, ErrNoCurrentSync
 	}
 	limit := clampPageSize(req.GetPageSize())
-	records, nextCursor, err := e.PaginateResourceTypes(ctx, req.GetPageToken(), limit)
+	records, nextCursor, err := r.PaginateResourceTypes(ctx, req.GetPageToken(), limit)
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -1052,8 +1052,8 @@ func (e *Engine) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSer
 // ListEntitlements returns up to page_size entitlements, optionally
 // filtered by Resource (resource_type_id, resource_id). Pagination
 // matches SQLite (see ListGrants).
-func (e *Engine) ListEntitlements(ctx context.Context, req *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	syncID, err := e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
+func (r *Records) ListEntitlements(ctx context.Context, req *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
+	syncID, err := r.e.resolveActiveSync(ctx, req.GetActiveSyncId(), req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -1064,11 +1064,11 @@ func (e *Engine) ListEntitlements(ctx context.Context, req *v2.EntitlementsServi
 	cursor := req.GetPageToken()
 	var records []*v3.EntitlementRecord
 	var nextCursor string
-	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		records, nextCursor, err = e.PaginateEntitlementsByResource(ctx,
-			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
+	if rec2 := req.GetResource(); rec2 != nil && rec2.GetId() != nil {
+		records, nextCursor, err = r.PaginateEntitlementsByResource(ctx,
+			rec2.GetId().GetResourceType(), rec2.GetId().GetResource(), cursor, limit)
 	} else {
-		records, nextCursor, err = e.PaginateEntitlements(ctx, cursor, limit)
+		records, nextCursor, err = r.PaginateEntitlements(ctx, cursor, limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -1087,7 +1087,7 @@ func (e *Engine) ListEntitlements(ctx context.Context, req *v2.EntitlementsServi
 // ListEntitlements that some connectors expose for static (compile-
 // time-known) entitlements. C1File returns an empty list; the
 // Pebble adapter mirrors that contract.
-func (e *Engine) ListStaticEntitlements(
+func (r *Records) ListStaticEntitlements(
 	_ context.Context,
 	_ *v2.EntitlementsServiceListStaticEntitlementsRequest,
 ) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
@@ -1100,20 +1100,20 @@ func (e *Engine) ListStaticEntitlements(
 // === reader_v2 surface ===
 
 // GetGrant fetches a single grant by ID.
-func (e *Engine) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
+func (r *Records) GetGrant(ctx context.Context, req *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
 	// Resolve the sync like the other grant readers (annotation → current
 	// binding → latest-finished record) rather than gating on the in-memory
 	// CurrentSyncID alone: a sealed c1z reopened without a re-bind still has
 	// its sync_id persisted in the SyncRunRecord, and this honors a
 	// request-annotation sync_id the way SQLite's GetGrant does.
-	syncID, err := e.resolveActiveSyncForReader(ctx, req.GetAnnotations())
+	syncID, err := r.e.resolveActiveSyncForReader(ctx, req.GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	rec, err := e.GetGrantRecord(ctx, req.GetGrantId())
+	rec, err := r.GetGrantRecord(ctx, req.GetGrantId())
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}

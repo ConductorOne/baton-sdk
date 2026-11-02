@@ -34,14 +34,14 @@ func TestGetGrantResolvesSyncAfterEndSync(t *testing.T) {
 		}.Build(),
 		Principal: v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "alice"}.Build(),
 	}.Build()
-	require.NoError(t, e.PutGrantRecord(ctx, rec))
+	require.NoError(t, e.records.PutGrantRecord(ctx, rec))
 	require.NoError(t, e.EndSync(ctx))
 
 	// The binding is cleared by EndSync; the sync_id is still on disk.
 	require.Empty(t, e.CurrentSyncID(), "EndSync should clear the in-memory binding")
 
 	// v2 GetGrant resolves from the persisted sync record.
-	v2Resp, err := e.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "g-1"}.Build())
+	v2Resp, err := e.records.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: "g-1"}.Build())
 	require.NoError(t, err, "v2 GetGrant must resolve the sync from the persisted record after EndSync")
 	require.Equal(t, "g-1", v2Resp.GetGrant().GetId())
 

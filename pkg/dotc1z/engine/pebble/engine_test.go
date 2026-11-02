@@ -116,7 +116,7 @@ func TestEngineCurrentDBSizeBytes(t *testing.T) {
 	syncID := ksuid.New().String()
 	require.NoError(t, e.bindCurrentSync(syncID))
 	for i := 0; i < 50; i++ {
-		err := e.PutGrantRecord(ctx, makeGrant(syncID, ksuid.New().String(), "github-read", ksuid.New().String()))
+		err := e.records.PutGrantRecord(ctx, makeGrant(syncID, ksuid.New().String(), "github-read", ksuid.New().String()))
 		require.NoError(t, err, "PutGrantRecord")
 	}
 
@@ -137,7 +137,7 @@ func TestPutGetGrantRecord(t *testing.T) {
 	// Custom stored external id: addressable only by identity, not by the
 	// concat id string (which no longer equals the stored public id).
 	r := makeGrant(syncID, "grant-1", "github-read", "alice")
-	require.NoError(t, e.PutGrantRecord(ctx, r), "Put")
+	require.NoError(t, e.records.PutGrantRecord(ctx, r), "Put")
 	got, err := testGrantByIdentity(ctx, e, "github-read", "user", "alice")
 	require.NoError(t, err, "get by identity")
 	require.Equal(t, "grant-1", got.GetExternalId(), "external_id")
@@ -145,8 +145,8 @@ func TestPutGetGrantRecord(t *testing.T) {
 	// SDK-shaped external id (the concat): addressable by bare id string.
 	sdkID := canonicalTestGrantID("github-write", "user", "alice")
 	r2 := makeGrant(syncID, sdkID, "github-write", "alice")
-	require.NoError(t, e.PutGrantRecord(ctx, r2), "Put sdk-shaped")
-	got2, err := e.GetGrantRecord(ctx, sdkID)
+	require.NoError(t, e.records.PutGrantRecord(ctx, r2), "Put sdk-shaped")
+	got2, err := e.records.GetGrantRecord(ctx, sdkID)
 	require.NoError(t, err, "Get")
 	require.Equal(t, sdkID, got2.GetExternalId(), "external_id")
 	require.Equal(t, canonicalTestEntID("github-write"), got2.GetEntitlement().GetEntitlementId(), "entitlement")
@@ -166,11 +166,11 @@ func TestIterateGrantsBySync(t *testing.T) {
 			"github-read",
 			ksuid.New().String(),
 		)
-		require.NoError(t, e.PutGrantRecord(ctx, r))
+		require.NoError(t, e.records.PutGrantRecord(ctx, r))
 	}
 
 	count := 0
-	err := e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	err := e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		count++
 		return true
 	})
@@ -187,20 +187,20 @@ func TestIterateByEntitlement(t *testing.T) {
 	// 5 grants on entitlement A, 3 on entitlement B.
 	for i := 0; i < 5; i++ {
 		r := makeGrant(syncID, ksuid.New().String(), "ent-A", ksuid.New().String())
-		require.NoError(t, e.PutGrantRecord(ctx, r))
+		require.NoError(t, e.records.PutGrantRecord(ctx, r))
 	}
 	for i := 0; i < 3; i++ {
 		r := makeGrant(syncID, ksuid.New().String(), "ent-B", ksuid.New().String())
-		require.NoError(t, e.PutGrantRecord(ctx, r))
+		require.NoError(t, e.records.PutGrantRecord(ctx, r))
 	}
 
 	var a, b int
-	err := e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(r *v3.GrantRecord) bool {
+	err := e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-A"), func(r *v3.GrantRecord) bool {
 		a++
 		return true
 	})
 	require.NoError(t, err)
-	err = e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-B"), func(r *v3.GrantRecord) bool {
+	err = e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-B"), func(r *v3.GrantRecord) bool {
 		b++
 		return true
 	})
@@ -221,20 +221,20 @@ func TestIterateByPrincipal(t *testing.T) {
 	// 4 grants for alice on different entitlements, 2 for bob.
 	for i := 0; i < 4; i++ {
 		r := makeGrant(syncID, ksuid.New().String(), ksuid.New().String(), alicePrincipal)
-		require.NoError(t, e.PutGrantRecord(ctx, r))
+		require.NoError(t, e.records.PutGrantRecord(ctx, r))
 	}
 	for i := 0; i < 2; i++ {
 		r := makeGrant(syncID, ksuid.New().String(), ksuid.New().String(), bobPrincipal)
-		require.NoError(t, e.PutGrantRecord(ctx, r))
+		require.NoError(t, e.records.PutGrantRecord(ctx, r))
 	}
 
 	var a, b int
-	err := e.IterateGrantsByPrincipal(ctx, "user", alicePrincipal, func(r *v3.GrantRecord) bool {
+	err := e.records.IterateGrantsByPrincipal(ctx, "user", alicePrincipal, func(r *v3.GrantRecord) bool {
 		a++
 		return true
 	})
 	require.NoError(t, err)
-	err = e.IterateGrantsByPrincipal(ctx, "user", bobPrincipal, func(r *v3.GrantRecord) bool {
+	err = e.records.IterateGrantsByPrincipal(ctx, "user", bobPrincipal, func(r *v3.GrantRecord) bool {
 		b++
 		return true
 	})
@@ -250,16 +250,16 @@ func TestDeleteGrantRecord(t *testing.T) {
 	require.NoError(t, e.bindCurrentSync(syncID))
 
 	r := makeGrant(syncID, canonicalTestGrantID("ent-X", "user", "user-X"), "ent-X", "user-X")
-	require.NoError(t, e.PutGrantRecord(ctx, r))
+	require.NoError(t, e.records.PutGrantRecord(ctx, r))
 
 	// Delete it. Both the primary and the index entries should go.
-	require.NoError(t, e.DeleteGrantRecord(ctx, canonicalTestGrantID("ent-X", "user", "user-X")))
+	require.NoError(t, e.records.DeleteGrantRecord(ctx, canonicalTestGrantID("ent-X", "user", "user-X")))
 
-	_, err := e.GetGrantRecord(ctx, canonicalTestGrantID("ent-X", "user", "user-X"))
+	_, err := e.records.GetGrantRecord(ctx, canonicalTestGrantID("ent-X", "user", "user-X"))
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	count := 0
-	err = e.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-X"), func(*v3.GrantRecord) bool {
+	err = e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID("ent-X"), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})
@@ -273,7 +273,7 @@ func TestCheckpointToReadOnly(t *testing.T) {
 	syncID := ksuid.New().String()
 	require.NoError(t, e.bindCurrentSync(syncID))
 	r := makeGrant(syncID, canonicalTestGrantID("e1", "user", "p1"), "e1", "p1")
-	require.NoError(t, e.PutGrantRecord(ctx, r))
+	require.NoError(t, e.records.PutGrantRecord(ctx, r))
 	require.NoError(t, e.Close())
 
 	dbDir := filepath.Join(dir, "db")
@@ -288,7 +288,7 @@ func TestCheckpointToReadOnly(t *testing.T) {
 	e2, err := Open(ctx, ckDir, WithReadOnly(true))
 	require.NoError(t, err, "reopen checkpoint")
 	defer e2.Close()
-	got, err := e2.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
+	got, err := e2.records.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
 	require.NoError(t, err, "checkpoint Get")
 	require.Equal(t, canonicalTestEntID("e1"), got.GetEntitlement().GetEntitlementId(), "checkpoint Get returned wrong entitlement")
 }
@@ -300,7 +300,7 @@ func TestCheckpointTo(t *testing.T) {
 	require.NoError(t, e.bindCurrentSync(syncID))
 
 	r := makeGrant(syncID, canonicalTestGrantID("e1", "user", "p1"), "e1", "p1")
-	require.NoError(t, e.PutGrantRecord(ctx, r))
+	require.NoError(t, e.records.PutGrantRecord(ctx, r))
 
 	ckDir := filepath.Join(dir, "checkpoint")
 	require.NoError(t, e.CheckpointTo(ctx, ckDir), "CheckpointTo")
@@ -309,13 +309,13 @@ func TestCheckpointTo(t *testing.T) {
 	e2, err := Open(ctx, ckDir, WithReadOnly(true))
 	require.NoError(t, err, "reopen checkpoint")
 	defer e2.Close()
-	got, err := e2.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
+	got, err := e2.records.GetGrantRecord(ctx, canonicalTestGrantID("e1", "user", "p1"))
 	require.NoError(t, err)
 
 	require.Equal(t, canonicalTestEntID("e1"), got.GetEntitlement().GetEntitlementId(), "checkpoint Get returned wrong entitlement")
 
 	r2 := makeGrant(syncID, "g2", "e2", "p2")
-	err = e.PutGrantRecord(ctx, r2)
+	err = e.records.PutGrantRecord(ctx, r2)
 	require.NoError(t, err, "expected Put after CheckpointTo to succeed")
 }
 
@@ -330,7 +330,7 @@ func TestSaveDoesNotCloseOnError(t *testing.T) {
 	require.Error(t, err, "expected Save error")
 
 	r := makeGrant(syncID, "after-save", "e1", "p1")
-	err = e.PutGrantRecord(ctx, r)
+	err = e.records.PutGrantRecord(ctx, r)
 	require.NoError(t, err, "expected Put after failed Save to succeed")
 }
 
@@ -354,7 +354,7 @@ func TestConcurrentGrantOverwriteIndexes(t *testing.T) {
 		go func(entID string) {
 			defer wg.Done()
 			<-start
-			errs <- e.PutGrantRecord(ctx, makeGrant(syncID, "same-grant", entID, "principal"))
+			errs <- e.records.PutGrantRecord(ctx, makeGrant(syncID, "same-grant", entID, "principal"))
 		}(entID)
 	}
 	close(start)
@@ -366,7 +366,7 @@ func TestConcurrentGrantOverwriteIndexes(t *testing.T) {
 
 	counts := map[string]int{"old": 0, "final": 0}
 	for entID := range counts {
-		err := e.IterateGrantsByEntitlement(ctx, canonicalTestEntID(entID), func(*v3.GrantRecord) bool {
+		err := e.records.IterateGrantsByEntitlement(ctx, canonicalTestEntID(entID), func(*v3.GrantRecord) bool {
 			counts[entID]++
 			return true
 		})
@@ -385,9 +385,9 @@ func TestEmptySyncIDFallsBackToCurrent(t *testing.T) {
 	// Put with explicit sync id...
 	sdkID := canonicalTestGrantID("e1", "user", "p1")
 	r := makeGrant(syncID, sdkID, "e1", "p1")
-	require.NoError(t, e.PutGrantRecord(ctx, r))
+	require.NoError(t, e.records.PutGrantRecord(ctx, r))
 	// ...and Get with empty sync id (should use the engine's current).
-	got, err := e.GetGrantRecord(ctx, sdkID)
+	got, err := e.records.GetGrantRecord(ctx, sdkID)
 	require.NoError(t, err, "Get with empty syncID")
 	require.Equal(t, sdkID, got.GetExternalId(), "unexpected: %v", got)
 }
@@ -399,6 +399,6 @@ func TestWriteWithNoCurrentSyncFails(t *testing.T) {
 	// write must be refused rather than landing without a sync run.
 	// (Reads do not gate on the binding — an empty store simply
 	// returns not-found.)
-	err := e.PutGrantRecord(ctx, makeGrant("", "anything", "e1", "p1"))
+	err := e.records.PutGrantRecord(ctx, makeGrant("", "anything", "e1", "p1"))
 	require.ErrorIs(t, err, ErrNoCurrentSync, "expected ErrNoCurrentSync, got %v", err)
 }

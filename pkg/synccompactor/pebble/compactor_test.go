@@ -46,7 +46,7 @@ func grant(syncID, externalID, entID, principalID string) *v3.GrantRecord {
 func countGrants(t *testing.T, e *enginepkg.Engine, syncID string) int {
 	t.Helper()
 	count := 0
-	err := e.IterateGrants(context.Background(), func(*v3.GrantRecord) bool {
+	err := e.Records().IterateGrants(context.Background(), func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})
@@ -67,7 +67,7 @@ func TestCompactBasicRoundtrip(t *testing.T) {
 	// 200 grants in source under syncID.
 	for i := 0; i < 200; i++ {
 		r := grant(syncID, ksuid.New().String(), "ent-A", ksuid.New().String())
-		require.NoError(t, src.PutGrantRecord(ctx, r))
+		require.NoError(t, src.Records().PutGrantRecord(ctx, r))
 	}
 
 	c, err := NewCompactor(dst, t.TempDir())
@@ -90,14 +90,14 @@ func TestCompactReplacesExisting(t *testing.T) {
 	// Seed dst with 500 stale grants under syncID.
 	for i := 0; i < 500; i++ {
 		r := grant(syncID, ksuid.New().String(), "stale-ent", ksuid.New().String())
-		require.NoError(t, dst.PutGrantRecord(ctx, r))
+		require.NoError(t, dst.Records().PutGrantRecord(ctx, r))
 	}
 	require.Equal(t, 500, countGrants(t, dst, syncID), "seed dst")
 
 	// Put 50 fresh grants into src — none overlap external_id with dst.
 	for i := 0; i < 50; i++ {
 		r := grant(syncID, ksuid.New().String(), "fresh-ent", ksuid.New().String())
-		require.NoError(t, src.PutGrantRecord(ctx, r))
+		require.NoError(t, src.Records().PutGrantRecord(ctx, r))
 	}
 
 	c, err := NewCompactor(dst, t.TempDir())
@@ -111,14 +111,14 @@ func TestCompactReplacesExisting(t *testing.T) {
 
 	// Also verify by_entitlement index — stale-ent should have 0 entries.
 	staleCount := 0
-	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "app:github:stale-ent", func(*v3.GrantRecord) bool {
+	require.NoError(t, dst.Records().IterateGrantsByEntitlement(ctx, "app:github:stale-ent", func(*v3.GrantRecord) bool {
 		staleCount++
 		return true
 	}))
 	require.Equal(t, 0, staleCount, "stale-ent index (compact should have excised them)")
 
 	freshCount := 0
-	require.NoError(t, dst.IterateGrantsByEntitlement(ctx, "app:github:fresh-ent", func(*v3.GrantRecord) bool {
+	require.NoError(t, dst.Records().IterateGrantsByEntitlement(ctx, "app:github:fresh-ent", func(*v3.GrantRecord) bool {
 		freshCount++
 		return true
 	}))
@@ -136,39 +136,39 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 		require.NoError(t, e.SetCurrentSync(ctx, syncID))
 	}
 
-	require.NoError(t, dst.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
+	require.NoError(t, dst.Records().PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
 		ExternalId: "rt-stale", DisplayName: "stale",
 	}.Build()))
-	require.NoError(t, dst.PutResourceRecord(ctx, v3.ResourceRecord_builder{
+	require.NoError(t, dst.Records().PutResourceRecord(ctx, v3.ResourceRecord_builder{
 		ResourceTypeId: "user", ResourceId: "stale-child",
 		Parent: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
 	}.Build()))
-	require.NoError(t, dst.PutEntitlementRecord(ctx, v3.EntitlementRecord_builder{
+	require.NoError(t, dst.Records().PutEntitlementRecord(ctx, v3.EntitlementRecord_builder{
 		ExternalId: "ent-stale",
 		Resource:   v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
 	}.Build()))
-	require.NoError(t, dst.PutAssetRecord(ctx, v3.AssetRecord_builder{
+	require.NoError(t, dst.Records().PutAssetRecord(ctx, v3.AssetRecord_builder{
 		SyncId: syncID, ExternalId: "asset-stale", Data: []byte("stale"),
 	}.Build()))
 	require.NoError(t, dst.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId: syncID, Type: v3.SyncType_SYNC_TYPE_FULL, SyncToken: "stale",
 	}.Build()))
 
-	require.NoError(t, src.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
+	require.NoError(t, src.Records().PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
 		ExternalId: "rt-fresh", DisplayName: "fresh",
 	}.Build()))
-	require.NoError(t, src.PutResourceRecord(ctx, v3.ResourceRecord_builder{
+	require.NoError(t, src.Records().PutResourceRecord(ctx, v3.ResourceRecord_builder{
 		ResourceTypeId: "group", ResourceId: "admins",
 	}.Build()))
-	require.NoError(t, src.PutResourceRecord(ctx, v3.ResourceRecord_builder{
+	require.NoError(t, src.Records().PutResourceRecord(ctx, v3.ResourceRecord_builder{
 		ResourceTypeId: "user", ResourceId: "fresh-child",
 		Parent: v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
 	}.Build()))
-	require.NoError(t, src.PutEntitlementRecord(ctx, v3.EntitlementRecord_builder{
+	require.NoError(t, src.Records().PutEntitlementRecord(ctx, v3.EntitlementRecord_builder{
 		ExternalId: "ent-fresh",
 		Resource:   v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "admins"}.Build(),
 	}.Build()))
-	require.NoError(t, src.PutAssetRecord(ctx, v3.AssetRecord_builder{
+	require.NoError(t, src.Records().PutAssetRecord(ctx, v3.AssetRecord_builder{
 		SyncId: syncID, ExternalId: "asset-fresh", Data: []byte("fresh"),
 	}.Build()))
 	require.NoError(t, src.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
@@ -180,16 +180,16 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	require.NoError(t, c.Compact(ctx, src, syncID), "Compact")
 
 	rtCount := 0
-	require.NoError(t, dst.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
+	require.NoError(t, dst.Records().IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool {
 		rtCount++
 		return true
 	}))
 	require.Equal(t, 1, rtCount, "resource_types")
-	_, err = dst.GetResourceTypeRecord(ctx, "rt-stale")
+	_, err = dst.Records().GetResourceTypeRecord(ctx, "rt-stale")
 	require.Error(t, err, "stale resource type survived compaction")
 
 	childCount := 0
-	require.NoError(t, dst.IterateResourcesByParent(ctx, "group", "admins", func(r *v3.ResourceRecord) bool {
+	require.NoError(t, dst.Records().IterateResourcesByParent(ctx, "group", "admins", func(r *v3.ResourceRecord) bool {
 		require.Equal(t, "fresh-child", r.GetResourceId(), "unexpected child resource")
 		childCount++
 		return true
@@ -197,7 +197,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	require.Equal(t, 1, childCount, "child resources")
 
 	entCount := 0
-	require.NoError(t, dst.IterateEntitlementsByResource(ctx, "group", "admins", func(r *v3.EntitlementRecord) bool {
+	require.NoError(t, dst.Records().IterateEntitlementsByResource(ctx, "group", "admins", func(r *v3.EntitlementRecord) bool {
 		require.Equal(t, "ent-fresh", r.GetExternalId(), "unexpected entitlement")
 		entCount++
 		return true
@@ -205,7 +205,7 @@ func TestCompactReplacesAllImplementedBuckets(t *testing.T) {
 	require.Equal(t, 1, entCount, "entitlements")
 
 	assetCount := 0
-	require.NoError(t, dst.IterateAssets(ctx, func(r *v3.AssetRecord) bool {
+	require.NoError(t, dst.Records().IterateAssets(ctx, func(r *v3.AssetRecord) bool {
 		require.Equal(t, "asset-fresh", r.GetExternalId(), "unexpected asset")
 		require.Equal(t, "fresh", string(r.GetData()), "unexpected asset data")
 		assetCount++
@@ -235,14 +235,14 @@ func TestCompactReplacesDestData(t *testing.T) {
 	require.NoError(t, dst.SetCurrentSync(ctx, syncID))
 	for i := 0; i < 100; i++ {
 		r := grant(syncID, ksuid.New().String(), "ent-old", ksuid.New().String())
-		require.NoError(t, dst.PutGrantRecord(ctx, r))
+		require.NoError(t, dst.Records().PutGrantRecord(ctx, r))
 	}
 
 	// src has 25 (different) grants.
 	require.NoError(t, src.SetCurrentSync(ctx, syncID))
 	for i := 0; i < 25; i++ {
 		r := grant(syncID, ksuid.New().String(), "ent-new", ksuid.New().String())
-		require.NoError(t, src.PutGrantRecord(ctx, r))
+		require.NoError(t, src.Records().PutGrantRecord(ctx, r))
 	}
 
 	c, err := NewCompactor(dst, t.TempDir())
@@ -264,7 +264,7 @@ func TestCompactEmptySource(t *testing.T) {
 	// Seed dst with grants we expect to be wiped.
 	for i := 0; i < 20; i++ {
 		r := grant(syncID, ksuid.New().String(), "ent", ksuid.New().String())
-		require.NoError(t, dst.PutGrantRecord(ctx, r))
+		require.NoError(t, dst.Records().PutGrantRecord(ctx, r))
 	}
 
 	c, err := NewCompactor(dst, t.TempDir())

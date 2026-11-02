@@ -79,7 +79,7 @@ func TestIngestScansVisitEachGroupOnce(t *testing.T) {
 		}.Build()
 	}
 	// "app:github:member" is stored stripped, "raw-opaque-ent" opaque.
-	require.NoError(t, a.PutGrants(ctx,
+	require.NoError(t, a.records.PutGrants(ctx,
 		grant("app:github:member", "alice"),
 		grant("app:github:member", "bob"),
 		grant("raw-opaque-ent", "alice"),
@@ -108,7 +108,7 @@ func TestIngestScansVisitEachGroupOnce(t *testing.T) {
 	}))
 	require.Equal(t, []string{"raw-opaque-ent", "app:github:member"}, dangling)
 
-	require.NoError(t, a.PutEntitlements(ctx,
+	require.NoError(t, a.records.PutEntitlements(ctx,
 		v2.Entitlement_builder{Id: "app:github:member", Resource: resource}.Build(),
 		v2.Entitlement_builder{Id: "raw-opaque-ent", Resource: resource}.Build(),
 	))

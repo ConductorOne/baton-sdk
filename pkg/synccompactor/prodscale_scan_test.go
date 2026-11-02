@@ -74,7 +74,7 @@ func TestProdScaleScanVsFoldDebt(t *testing.T) {
 
 		start := time.Now()
 		count := 0
-		require.NoError(t, eng.IterateGrants(ctx, func(*v3.GrantRecord) bool {
+		require.NoError(t, eng.Records().IterateGrants(ctx, func(*v3.GrantRecord) bool {
 			count++
 			return true
 		}))

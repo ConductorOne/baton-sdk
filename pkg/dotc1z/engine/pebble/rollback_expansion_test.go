@@ -63,7 +63,7 @@ func finishedSyncWithGrants(t *testing.T, e *Engine, grants ...*v3.GrantRecord) 
 	ctx := t.Context()
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.PutGrantRecords(ctx, grants...))
+	require.NoError(t, e.records.PutGrantRecords(ctx, grants...))
 	require.NoError(t, e.EndSync(ctx))
 	return syncID
 }
@@ -85,7 +85,7 @@ func grantKeyspace(t *testing.T, e *Engine) map[string]string {
 func grantRecordsByExternalID(t *testing.T, e *Engine) map[string]*v3.GrantRecord {
 	t.Helper()
 	out := map[string]*v3.GrantRecord{}
-	require.NoError(t, e.IterateGrants(t.Context(), func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrants(t.Context(), func(r *v3.GrantRecord) bool {
 		out[r.GetExternalId()] = r
 		return true
 	}))
@@ -112,7 +112,7 @@ func requireGrantIndexAgreement(t *testing.T, e *Engine) {
 	t.Helper()
 	wantPrincipal := map[string]bool{}
 	wantNeedsExpansion := map[string]bool{}
-	require.NoError(t, e.IterateGrants(t.Context(), func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrants(t.Context(), func(r *v3.GrantRecord) bool {
 		id, err := grantIdentityFromRecord(r)
 		require.NoError(t, err)
 		wantPrincipal[string(encodeGrantByPrincipalIdentityIndexKey(id))] = true
@@ -261,7 +261,7 @@ func TestRollbackExpansionLedgerPhases(t *testing.T) {
 				ctx := t.Context()
 				e, _ := newTestEngine(t)
 				syncID, _ := buildLedgerState(t, e, tc.state)
-				require.NoError(t, e.PutGrantRecords(ctx, rollbackClassificationGrants()...))
+				require.NoError(t, e.records.PutGrantRecords(ctx, rollbackClassificationGrants()...))
 				if tc.beginPass {
 					require.NoError(t, e.Ledger().BeginPass(ctx, []c1zstore.LedgerWork{expansionSeed()}, nil))
 				}
@@ -304,7 +304,7 @@ func TestRollbackExpansionRefusesUnfinishedLegacyCheckpoint(t *testing.T) {
 	e, _ := newTestEngine(t)
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.PutGrantRecords(ctx, rollbackClassificationGrants()...))
+	require.NoError(t, e.records.PutGrantRecords(ctx, rollbackClassificationGrants()...))
 	require.NoError(t, e.CheckpointSync(ctx, "legacy-token"))
 
 	for _, dryRun := range []bool{true, false} {

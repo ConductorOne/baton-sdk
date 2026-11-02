@@ -69,16 +69,16 @@ func winGrant(externalID, principal string, at time.Time) *v3.GrantRecord {
 func populateEngine(t *testing.T, ctx context.Context, eng *enginepkg.Engine, rs recordSet) {
 	t.Helper()
 	if len(rs.rts) > 0 {
-		require.NoError(t, eng.PutResourceTypeRecords(ctx, rs.rts...))
+		require.NoError(t, eng.Records().PutResourceTypeRecords(ctx, rs.rts...))
 	}
 	if len(rs.rs) > 0 {
-		require.NoError(t, eng.PutResourceRecords(ctx, rs.rs...))
+		require.NoError(t, eng.Records().PutResourceRecords(ctx, rs.rs...))
 	}
 	if len(rs.es) > 0 {
-		require.NoError(t, eng.PutEntitlementRecords(ctx, rs.es...))
+		require.NoError(t, eng.Records().PutEntitlementRecords(ctx, rs.es...))
 	}
 	if len(rs.gs) > 0 {
-		require.NoError(t, eng.PutGrantRecords(ctx, rs.gs...))
+		require.NoError(t, eng.Records().PutGrantRecords(ctx, rs.gs...))
 	}
 }
 
@@ -126,19 +126,19 @@ func collectWinners(t *testing.T, ctx context.Context, eng *enginepkg.Engine) wi
 		entitlements:  map[string]string{},
 		grants:        map[string]string{},
 	}
-	require.NoError(t, eng.IterateResourceTypes(ctx, func(r *v3.ResourceTypeRecord) bool {
+	require.NoError(t, eng.Records().IterateResourceTypes(ctx, func(r *v3.ResourceTypeRecord) bool {
 		w.resourceTypes[r.GetExternalId()] = r.GetDisplayName()
 		return true
 	}))
-	require.NoError(t, eng.IterateResources(ctx, func(r *v3.ResourceRecord) bool {
+	require.NoError(t, eng.Records().IterateResources(ctx, func(r *v3.ResourceRecord) bool {
 		w.resources[r.GetResourceId()] = r.GetDisplayName()
 		return true
 	}))
-	require.NoError(t, eng.IterateEntitlements(ctx, func(e *v3.EntitlementRecord) bool {
+	require.NoError(t, eng.Records().IterateEntitlements(ctx, func(e *v3.EntitlementRecord) bool {
 		w.entitlements[e.GetExternalId()] = e.GetDisplayName()
 		return true
 	}))
-	require.NoError(t, eng.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+	require.NoError(t, eng.Records().IterateGrants(ctx, func(g *v3.GrantRecord) bool {
 		w.grants[g.GetExternalId()] = g.GetPrincipal().GetResourceId()
 		return true
 	}))
