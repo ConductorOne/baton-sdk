@@ -55,16 +55,16 @@ type ledgerPage struct {
 	restart *restartRequest
 }
 
-func (page *ledgerPage) recordDuration(start time.Time) {
-	page.row.PageDuration = time.Since(start)
+func (p *ledgerPage) recordDuration(start time.Time) {
+	p.row.PageDuration = time.Since(start)
 }
 
-func (page *ledgerPage) markTypeScopedPlanned() {
-	page.row.TypeScopedPlanned = true
+func (p *ledgerPage) markTypeScopedPlanned() {
+	p.row.TypeScopedPlanned = true
 }
 
-func (page *ledgerPage) addObservations(c c1zstore.LedgerCounters) {
-	page.observations = addLedgerCounters(page.observations, c)
+func (p *ledgerPage) addObservations(c c1zstore.LedgerCounters) {
+	p.observations = addLedgerCounters(p.observations, c)
 }
 
 func (p *ledgerPage) stage(action *Action, next string, children []Action) error {

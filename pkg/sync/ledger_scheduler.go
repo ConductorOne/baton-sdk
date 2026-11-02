@@ -20,12 +20,6 @@ func (e ledgerPageWriteError) GRPCStatus() *status.Status {
 	return status.New(codes.Internal, e.cause.Error())
 }
 
-type ledgerInvocation struct {
-	attempts *ledgerAttempts
-	worker   int
-	action   *Action
-}
-
 type ledgerTransitionCommit struct {
 	commit  func() error
 	warning bool
@@ -67,15 +61,14 @@ func (s *syncer) invokeActionPage(
 		attempts = &ledgerAttempts{}
 	}
 	attempts.selectPage(ledgerIdentity(action))
-	invocation := &ledgerInvocation{action: action, attempts: attempts, worker: worker}
 	var opened *ledgerPage
 	var warning error
 	var handlerFailure error
 	_, err := s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
 		opened = page
-		page.action = invocation.action
-		page.attempts = invocation.attempts
-		page.worker = invocation.worker
+		page.action = action
+		page.attempts = attempts
+		page.worker = worker
 		page.row.WorkID = action.WorkID
 		page.row.WorkRevision = action.WorkRevision
 		ledgerCollection(page)
