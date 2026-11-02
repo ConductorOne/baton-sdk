@@ -21,7 +21,7 @@ func (s *syncer) syncLedgerResources(ctx context.Context, page *ledgerPage, acti
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
 	start := time.Now()
-	defer func() { page.row.PageDuration = time.Since(start) }()
+	defer page.recordDuration(start)
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" {

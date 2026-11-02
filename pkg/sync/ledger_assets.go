@@ -121,7 +121,7 @@ func (s *syncer) syncLedgerAssets(ctx context.Context, page *ledgerPage, action 
 		return errors.New("asset ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { page.row.PageDuration = time.Since(start) }()
+	defer page.recordDuration(start)
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncAssets")
 	uotel.SetSyncIdentityAttrs(ctx, span)

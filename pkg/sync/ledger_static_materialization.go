@@ -33,7 +33,7 @@ func (s *syncer) materializeLedgerStaticEntitlements(ctx context.Context, page *
 		return errors.New("static materialization requires an open ledger page")
 	}
 	started := time.Now()
-	defer func() { page.row.PageDuration = time.Since(started) }()
+	defer page.recordDuration(started)
 	var cursor staticMaterializationCursor
 	if err := json.Unmarshal([]byte(action.PageToken), &cursor); err != nil {
 		return err

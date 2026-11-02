@@ -59,7 +59,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, page *ledgerPag
 		return errors.New("resource-type ledger handler requires an open page")
 	}
 	pageStart := time.Now()
-	defer func() { page.row.PageDuration = time.Since(pageStart) }()
+	defer page.recordDuration(pageStart)
 	if action.PageToken == "" {
 		ctxzap.Extract(ctx).Info("Syncing resource types...")
 		s.handleInitialActionForStep(ctx, *action)

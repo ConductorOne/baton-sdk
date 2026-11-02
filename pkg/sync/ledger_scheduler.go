@@ -80,7 +80,9 @@ func (s *syncer) invokeActionPage(
 		page.row.WorkRevision = action.WorkRevision
 		ledgerCollection(page)
 		page.row.Spawned = action.Spawned
-		page.row.TypeScopedPlanned = action.TypeScopedPlanned
+		if action.TypeScopedPlanned {
+			page.markTypeScopedPlanned()
+		}
 		var err error
 		switch {
 		case s.testHooks.ledgerHandler != nil:
@@ -133,7 +135,7 @@ func (s *syncer) invokeActionPage(
 		if err := page.writer.SetPendingWork(s.pendingForAction(action), childKeys...); err != nil {
 			return err
 		}
-		page.observations = addLedgerCounters(page.observations, page.connectorObservations)
+		page.addObservations(page.connectorObservations)
 		attempts.snapshot(&page.row)
 		return nil
 	}, func(page *ledgerPage, commit func() error) error {

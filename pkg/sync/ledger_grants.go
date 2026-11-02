@@ -23,7 +23,7 @@ func (s *syncer) syncLedgerGrants(ctx context.Context, page *ledgerPage, action 
 		return errors.New("grant ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { page.row.PageDuration = time.Since(start) }()
+	defer page.recordDuration(start)
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrants")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -43,7 +43,7 @@ func (s *syncer) syncLedgerGrants(ctx context.Context, page *ledgerPage, action 
 			return err
 		}
 		if plannedTypeScoped {
-			page.row.TypeScopedPlanned = true
+			page.markTypeScopedPlanned()
 		}
 		return nil
 	}
@@ -263,7 +263,7 @@ func (s *syncer) stageLedgerFilterStats(page *ledgerPage, stats *ingestFilterSta
 	collection := ledgerCollection(page)
 	collection.GrantsExcludedByType += q.GrantsDropped
 	collection.DerivedResourcesExcludedByType += q.GrantResourcesDropped
-	page.observations = addLedgerCounters(page.observations, ledgerIngestCounters(q))
+	page.addObservations(ledgerIngestCounters(q))
 	page.afterCommit = append(page.afterCommit, func() {
 		s.ingestFilterStats.entitlementsDropped.Add(q.EntitlementsDropped)
 		s.ingestFilterStats.grantsDropped.Add(q.GrantsDropped)

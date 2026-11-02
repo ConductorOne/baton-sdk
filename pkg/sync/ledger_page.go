@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
@@ -52,6 +53,18 @@ type ledgerPage struct {
 	connectorObservations c1zstore.LedgerCounters
 	// Set when the page is a connector-signaled restart (stageActionRestart).
 	restart *restartRequest
+}
+
+func (page *ledgerPage) recordDuration(start time.Time) {
+	page.row.PageDuration = time.Since(start)
+}
+
+func (page *ledgerPage) markTypeScopedPlanned() {
+	page.row.TypeScopedPlanned = true
+}
+
+func (page *ledgerPage) addObservations(c c1zstore.LedgerCounters) {
+	page.observations = addLedgerCounters(page.observations, c)
 }
 
 func (p *ledgerPage) stage(action *Action, next string, children []Action) error {

@@ -22,7 +22,7 @@ func (s *syncer) syncLedgerStaticEntitlements(ctx context.Context, page *ledgerP
 		return errors.New("static entitlement ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { page.row.PageDuration = time.Since(start) }()
+	defer page.recordDuration(start)
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncStaticEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)

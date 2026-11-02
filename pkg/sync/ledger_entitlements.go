@@ -18,7 +18,7 @@ func (s *syncer) syncLedgerEntitlements(ctx context.Context, page *ledgerPage, a
 		return errors.New("entitlement ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { page.row.PageDuration = time.Since(start) }()
+	defer page.recordDuration(start)
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -38,7 +38,7 @@ func (s *syncer) syncLedgerEntitlements(ctx context.Context, page *ledgerPage, a
 			return err
 		}
 		if plannedTypeScoped {
-			page.row.TypeScopedPlanned = true
+			page.markTypeScopedPlanned()
 		}
 		return nil
 	}

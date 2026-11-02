@@ -57,7 +57,7 @@ func (s *syncer) syncLedgerTargetedResource(ctx context.Context, page *ledgerPag
 		return errors.New("targeted resource ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { page.row.PageDuration = time.Since(start) }()
+	defer page.recordDuration(start)
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncTargetedResource")
 	uotel.SetSyncIdentityAttrs(ctx, span)
