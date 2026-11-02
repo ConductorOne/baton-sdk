@@ -128,6 +128,7 @@ func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncT
 		ParentSyncId: parentSyncID,
 		StartedAt:    timestamppb.New(time.Now()),
 	}.Build()
+	rec.SetConnectorVersion(e.opts.connectorVersion)
 	if err := e.syncRuns.PutSyncRunRecord(ctx, rec); err != nil {
 		e.clearCurrentSync()
 		return "", err
@@ -174,21 +175,41 @@ func (e *Engine) ResumeSync(ctx context.Context, syncType connectorstore.SyncTyp
 //     ResetForNewSync and resetting the FSM to InitOp), so any sync
 //     exceeding one window never finished.
 //
+// Either candidate is resumed only if resumableByVersion accepts it: a
+// sync another connector version started is abandoned, and the new sync
+// wipes it.
+//
 // Only when nothing is resumable do we start a new sync.
 func (e *Engine) StartOrResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, bool, error) {
 	if syncID != "" {
-		if _, err := e.syncRuns.GetSyncRunRecord(ctx, syncID); err == nil {
+		if rec, err := e.syncRuns.GetSyncRunRecord(ctx, syncID); err == nil && e.resumableByVersion(ctx, rec) {
 			id, err := e.ResumeSync(ctx, syncType, syncID)
 			return id, false, err
 		}
 	} else if rec, err := e.syncRuns.LatestUnfinishedSyncRecord(ctx, syncTypeFilterFromConnectorstore(syncType)); err != nil {
 		return "", false, err
-	} else if rec != nil {
+	} else if rec != nil && e.resumableByVersion(ctx, rec) {
 		id, err := e.ResumeSync(ctx, syncType, rec.GetSyncId())
 		return id, false, err
 	}
 	id, err := e.StartNewSync(ctx, syncType, "")
 	return id, true, err
+}
+
+// resumableByVersion reports whether rec was started by the connector
+// version this engine was opened with (WithConnectorVersion). An empty
+// version on either side matches. A mismatch is logged, since the
+// caller then discards the sync's progress.
+func (e *Engine) resumableByVersion(ctx context.Context, rec *v3.SyncRunRecord) bool {
+	want, got := e.opts.connectorVersion, rec.GetConnectorVersion()
+	if want == "" || got == "" || want == got {
+		return true
+	}
+	ctxzap.Extract(ctx).Warn("pebble: not resuming a sync started by a different connector version; starting a new sync",
+		zap.String("sync_id", rec.GetSyncId()),
+		zap.String("sync_connector_version", got),
+		zap.String("connector_version", want))
+	return false
 }
 
 // SetCurrentSync rebinds the engine's current sync without creating a

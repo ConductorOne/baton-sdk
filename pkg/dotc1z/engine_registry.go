@@ -33,6 +33,10 @@ type StoreOptions struct {
 	// Inverted so the zero value keeps the build on (current behavior).
 	DisableGrantDigestIndex bool
 
+	// ConnectorVersion names the connector release driving the sync.
+	// See WithConnectorVersion.
+	ConnectorVersion string
+
 	Engine c1zstore.Engine
 
 	// PayloadEncoding selects the v3 envelope payload framing for
@@ -181,6 +185,7 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 		SyncLimit:               options.syncLimit,
 		SkipCleanup:             options.skipCleanup,
 		DisableGrantDigestIndex: options.disableGrantDigestIndex,
+		ConnectorVersion:        options.connectorVersion,
 		Engine:                  options.engine,
 		PayloadEncoding:         options.payloadEncoding,
 		DecoderPool:             options.decoderPool,
