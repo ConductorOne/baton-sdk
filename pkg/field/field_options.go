@@ -82,6 +82,24 @@ func WithDefaultValueFunc(f func() any) fieldOption {
 	}
 }
 
+func WithTags[T ~string](tags []T) fieldOption {
+	return func(o SchemaField) SchemaField {
+		strs := make([]string, len(tags))
+		for i, t := range tags {
+			strs[i] = string(t)
+		}
+		o.Tags = strs
+		return o
+	}
+}
+
+func WithContentType(contentType string) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.ContentType = contentType
+		return o
+	}
+}
+
 // WithSuggestedValue sets a value that is only surfaced in the exported config
 // schema, i.e. pre-populated in the c1 GUI when configuring a NEW connector.
 //
