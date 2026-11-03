@@ -46,7 +46,7 @@ func grantDiscoveredAt(t *testing.T, ctx context.Context, path, syncID, grantID 
 	// One grant per principal in these fixtures (entitlement is always
 	// "member"), so the principal scan identifies the row exactly.
 	var rec *v3.GrantRecord
-	require.NoError(t, eng.IterateGrantsByPrincipal(ctx, "user", compactFixturePrincipalID(grantID), func(r *v3.GrantRecord) bool {
+	require.NoError(t, eng.Records().IterateGrantsByPrincipal(ctx, "user", compactFixturePrincipalID(grantID), func(r *v3.GrantRecord) bool {
 		rec = r
 		return false
 	}))
@@ -151,7 +151,7 @@ func TestCompactPebbleFoldMintsFreshSync(t *testing.T) {
 	defer statsW.Close(ctx)
 	statsEng, ok := enginepkg.AsEngine(statsW)
 	require.True(t, ok)
-	rec, err := statsEng.GetSyncRunRecord(ctx, out.SyncID)
+	rec, err := statsEng.SyncRuns().GetSyncRunRecord(ctx, out.SyncID)
 	require.NoError(t, err)
 	require.Empty(t, rec.GetParentSyncId(), "folded sync must not carry a parent link to the overwritten base sync")
 	require.Empty(t, rec.GetIngestInvariantGeneration(), "folded sync must not inherit the base verification generation")

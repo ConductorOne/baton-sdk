@@ -44,7 +44,7 @@ func TestSecurity_ListSyncsBoundedAgainstHostileSyncRunCardinality(t *testing.T)
 			ExternalId: fmt.Sprintf("g-%06d", i),
 		}).Build())
 	}
-	require.NoError(t, e.PutGrantRecords(ctx, grants...))
+	require.NoError(t, e.records.PutGrantRecords(ctx, grants...))
 
 	db := e.db.UnsafeForTesting()
 	// Plant K bogus sync-run rows under the range prefix but NOT at the

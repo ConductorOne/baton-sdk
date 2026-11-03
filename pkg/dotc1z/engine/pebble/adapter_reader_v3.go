@@ -40,7 +40,7 @@ func (r engineV3Grants) GetGrant(
 	if syncID == "" {
 		return nil, ErrNoCurrentSync
 	}
-	rec, err := r.e.GetGrantRecord(ctx, req.GetGrantId())
+	rec, err := r.e.records.GetGrantRecord(ctx, req.GetGrantId())
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -54,7 +54,7 @@ func (r engineV3Grants) ListGrantsForEntitlement(
 	ctx context.Context,
 	req *reader_v3.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v3.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	records, next, err := r.e.listGrantsForEntitlement(ctx, req)
+	records, next, err := r.e.records.listGrantsForEntitlement(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (r engineV3Grants) ListGrantsForResourceType(
 	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
-	records, next, err := e.PaginateGrantsByPrincipalResourceType(ctx, rtFilter, cursor, limit)
+	records, next, err := e.records.PaginateGrantsByPrincipalResourceType(ctx, rtFilter, cursor, limit)
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -132,7 +132,7 @@ func (r engineV3Grants) ListGrantsForPrincipal(
 	if ent := req.GetEntitlement(); ent != nil && ent.GetId() != "" {
 		// Entitlement + principal is the full primary grant key, so this
 		// is a point lookup rather than a filtered by_principal scan.
-		entIdentity, err := e.entitlementIdentityForRequest(ctx, ent)
+		entIdentity, err := e.records.entitlementIdentityForRequest(ctx, ent)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				// Unknown entitlement → no grants, matching the legacy
@@ -141,13 +141,13 @@ func (r engineV3Grants) ListGrantsForPrincipal(
 			}
 			return nil, err
 		}
-		records, next, err = e.PaginateGrantsByEntitlementPrincipal(ctx,
+		records, next, err = e.records.PaginateGrantsByEntitlementPrincipal(ctx,
 			entIdentity, principal.GetResourceType(), principal.GetResource(), cursor, limit)
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 		}
 	} else {
-		records, next, err = e.PaginateGrantsByPrincipal(ctx,
+		records, next, err = e.records.PaginateGrantsByPrincipal(ctx,
 			principal.GetResourceType(), principal.GetResource(), cursor, limit)
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)

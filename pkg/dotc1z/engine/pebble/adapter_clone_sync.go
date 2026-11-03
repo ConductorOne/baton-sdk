@@ -70,7 +70,7 @@ func cloneSync(
 		resolved = latest
 	}
 
-	srcRun, err := e.GetSyncRunRecord(ctx, resolved)
+	srcRun, err := e.syncRuns.GetSyncRunRecord(ctx, resolved)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return status.Errorf(codes.NotFound, "clone-sync: sync %q not found", resolved)

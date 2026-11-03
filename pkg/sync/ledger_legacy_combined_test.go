@@ -128,7 +128,7 @@ func readLegacyCombinedResult(t *testing.T, path string, current bool) legacyCom
 	}
 	require.NotEmpty(t, result.data)
 	if current {
-		record, err := f.engine.GetSyncRunRecord(t.Context(), run.ID)
+		record, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), run.ID)
 		require.NoError(t, err)
 		require.Empty(t, record.GetSyncToken())
 		facts, err := f.ledger.LedgerFacts(t.Context())
@@ -146,7 +146,7 @@ func readLegacyCombinedResult(t *testing.T, path string, current bool) legacyCom
 func bindLegacyCombinedSync(t *testing.T, f *ledgerFixture) {
 	t.Helper()
 	var ids []string
-	require.NoError(t, f.engine.IterateAllSyncRuns(t.Context(), func(record *v3.SyncRunRecord) bool {
+	require.NoError(t, f.engine.SyncRuns().IterateAllSyncRuns(t.Context(), func(record *v3.SyncRunRecord) bool {
 		ids = append(ids, record.GetSyncId())
 		return true
 	}))

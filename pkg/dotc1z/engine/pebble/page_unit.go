@@ -253,7 +253,7 @@ func (u *pageUnit) resourceRecord(ctx context.Context, resourceTypeID, resourceI
 	if i, ok := u.resourceIdx[resourceBufKey{resourceTypeID, resourceID}]; ok {
 		return u.resources[i], nil
 	}
-	return u.l.e.GetResourceRecord(ctx, resourceTypeID, resourceID)
+	return u.l.e.records.GetResourceRecord(ctx, resourceTypeID, resourceID)
 }
 
 // A record whose refs derive no identity could not have been stored, so it
@@ -437,9 +437,9 @@ func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v
 	}
 	indices := u.entitlementIdx[externalID]
 	if len(indices) == 0 {
-		return u.l.e.GetEntitlementRecord(ctx, externalID)
+		return u.l.e.records.GetEntitlementRecord(ctx, externalID)
 	}
-	stored, err := u.l.e.entitlementIdentitiesForExternalID(ctx, externalID)
+	stored, err := u.l.e.records.entitlementIdentitiesForExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +465,7 @@ func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v
 }
 
 func (u *pageUnit) entitlementIdentities(ctx context.Context, externalID string) ([]entitlementIdentity, error) {
-	stored, err := u.l.e.entitlementIdentitiesForExternalID(ctx, externalID)
+	stored, err := u.l.e.records.entitlementIdentitiesForExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -566,9 +566,9 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err != nil {
 			return err
 		}
-		stageResources := l.e.stageResourceRecords
-		stageEntitlements := l.e.stageEntitlementRecords
-		stageGrants := l.e.stageGrantRecords
+		stageResources := l.e.records.stageResourceRecords
+		stageEntitlements := l.e.records.stageEntitlementRecords
+		stageGrants := l.e.records.stageGrantRecords
 		if u.trustedImport {
 			stageResources = stageTrustedResourceRecords
 			stageEntitlements = stageTrustedEntitlementRecords
@@ -601,7 +601,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 			}
 		}
 		for _, id := range u.grantDeletes {
-			if _, err := l.e.stageGrantDeleteIfPresentLocked(batch, id); err != nil {
+			if _, err := l.e.records.stageGrantDeleteIfPresentLocked(batch, id); err != nil {
 				return err
 			}
 		}
@@ -644,7 +644,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		}
 		l.inFlight.Store(true)
 		if len(u.entitlements) > 0 {
-			l.e.noteEntitlementKeyspaceWrite()
+			l.e.records.noteEntitlementKeyspaceWrite()
 		}
 		return nil
 	})

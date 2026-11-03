@@ -41,7 +41,7 @@ func TestResumeSyncRestoresCheckpointStep(t *testing.T) {
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
+	require.NoError(t, a.records.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
 	require.NoError(t, a.CheckpointSync(ctx, fsmCursor))
 	// No EndSync: the sync is still in progress when the window expires.
 
@@ -73,7 +73,7 @@ func TestStartOrResumeSyncRestoresCheckpointStep(t *testing.T) {
 
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, a.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
+	require.NoError(t, a.records.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
 	require.NoError(t, a.CheckpointSync(ctx, fsmCursor))
 
 	// New activity window / process.

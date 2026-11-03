@@ -94,7 +94,7 @@ func TestToPebbleDiscoveredAtIsAbsoluteInstant(t *testing.T) {
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 	engine, ok := pebble.AsEngine(store)
 	require.True(t, ok)
-	iter, err := engine.NewIter(nil)
+	iter, err := engine.Expansion().NewIter(nil)
 	require.NoError(t, err)
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {

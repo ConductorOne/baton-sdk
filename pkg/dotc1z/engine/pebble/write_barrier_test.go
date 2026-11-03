@@ -87,7 +87,7 @@ func TestWritesAfterCloseReturnErrEngineClosing(t *testing.T) {
 	notReturned(t, closed, "Close")
 	queued := make(chan error, 1)
 	go func() {
-		queued <- e.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
+		queued <- e.records.PutResourceTypeRecord(ctx, v3.ResourceTypeRecord_builder{
 			ExternalId: "queued", DiscoveredAt: timestamppb.Now(),
 		}.Build())
 	}()
@@ -100,7 +100,7 @@ func TestWritesAfterCloseReturnErrEngineClosing(t *testing.T) {
 
 	rt := v3.ResourceTypeRecord_builder{ExternalId: "late", DiscoveredAt: timestamppb.Now()}.Build()
 	for name, err := range map[string]error{
-		"PutResourceTypeRecord": e.PutResourceTypeRecord(ctx, rt),
+		"PutResourceTypeRecord": e.records.PutResourceTypeRecord(ctx, rt),
 		"withWriteAllowSealed":  e.withWriteAllowSealed(func() error { return errors.New("ran") }),
 		"CheckpointTo":          e.CheckpointTo(ctx, "late-ckpt"),
 		"Flush":                 e.Flush(ctx),
@@ -108,8 +108,8 @@ func TestWritesAfterCloseReturnErrEngineClosing(t *testing.T) {
 	} {
 		require.ErrorIs(t, err, ErrEngineClosing, name)
 	}
-	_, err = e.BeginSynthesizedGrantLayer(ctx)
+	_, err = e.records.BeginSynthesizedGrantLayer(ctx)
 	require.ErrorIs(t, err, ErrEngineClosing, "BeginSynthesizedGrantLayer")
-	require.NoError(t, e.AbortSynthesizedGrantLayer(ctx), "Abort touches no DB and stays callable")
+	require.NoError(t, e.records.AbortSynthesizedGrantLayer(ctx), "Abort touches no DB and stays callable")
 	require.NoError(t, e.Close(), "second Close")
 }

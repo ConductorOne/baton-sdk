@@ -72,7 +72,7 @@ func TestPebbleExpansionUsesSynthesizedFastPath(t *testing.T) {
 
 	eng, ok := enginepebble.AsEngine(store)
 	require.True(t, ok)
-	stats := eng.ExpandWritePathStats()
+	stats := eng.Expansion().ExpandWritePathStats()
 	require.Greater(t, stats.SynthesizedRows, int64(0), "expected synthesized fast path rows")
 	require.Greater(t, stats.SynthesizedCalls, int64(0), "expected synthesized fast path calls")
 	require.Equal(t, int64(0), stats.ExpandedRows, "no base-update rows expected in this fixture")
@@ -116,7 +116,7 @@ func TestPebbleExpansionSplitsSynthesizedAndUpdatePaths(t *testing.T) {
 
 	eng, ok := enginepebble.AsEngine(store)
 	require.True(t, ok)
-	stats := eng.ExpandWritePathStats()
+	stats := eng.Expansion().ExpandWritePathStats()
 	require.Greater(t, stats.SynthesizedRows, int64(0), "alice should synthesize")
 	require.Greater(t, stats.ExpandedRows, int64(0), "bob base grant should update")
 }

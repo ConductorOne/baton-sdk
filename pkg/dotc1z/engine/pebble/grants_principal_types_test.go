@@ -74,7 +74,7 @@ func newPrincipalTypesFixture(ctx context.Context, tb testing.TB, seed int64, pe
 			all = append(all, rec)
 		}
 	}
-	require.NoError(tb, e.PutGrantRecords(ctx, all...))
+	require.NoError(tb, e.records.PutGrantRecords(ctx, all...))
 	provider, ok := any(e).(connectorstore.V3GrantReaderProvider)
 	require.True(tb, ok)
 	f.v3reader = provider.V3GrantReader()
@@ -86,7 +86,7 @@ func newPrincipalTypesFixture(ctx context.Context, tb testing.TB, seed int64, pe
 func oracleListGrantsForEntitlement(
 	ctx context.Context, e *Engine, ent *v2.Entitlement, principalID *v2.ResourceId, rts []string, token string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
-	entIdentity, err := e.entitlementIdentityForRequest(ctx, ent)
+	entIdentity, err := e.records.entitlementIdentityForRequest(ctx, ent)
 	if err != nil {
 		return nil, "", err
 	}
@@ -104,7 +104,7 @@ func oracleListGrantsForEntitlement(
 	if principalID == nil {
 		return oraclePaginateGrantsByEntitlement(ctx, e, entIdentity, token, limit, keep)
 	}
-	records, next, err := e.PaginateGrantsByEntitlementPrincipal(ctx, entIdentity, principalID.GetResourceType(), principalID.GetResource(), token, limit)
+	records, next, err := e.records.PaginateGrantsByEntitlementPrincipal(ctx, entIdentity, principalID.GetResourceType(), principalID.GetResource(), token, limit)
 	if err != nil {
 		return nil, "", err
 	}
@@ -183,7 +183,7 @@ func (f *principalTypesFixture) listNew(ctx context.Context, useV3 bool, r princ
 		}.Build())
 		return resp.GetList(), resp.GetNextPageToken(), err
 	}
-	resp, err := f.e.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+	resp, err := f.e.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: r.ent, PrincipalId: r.principalID, PrincipalResourceTypeIds: r.rts, PageSize: r.pageSize(), PageToken: token,
 	}.Build())
 	if err != nil {
@@ -402,7 +402,7 @@ func setupPrincipalTypesBench(b *testing.B, total, types int) (*Engine, *v2.Enti
 			DiscoveredAt: timestamppb.New(time.Unix(1_700_000_000, 0)),
 		}.Build())
 		if len(batch) == cap(batch) || i == total-1 {
-			require.NoError(b, e.PutGrantRecords(ctx, batch...))
+			require.NoError(b, e.records.PutGrantRecords(ctx, batch...))
 			batch = batch[:0]
 		}
 	}
@@ -446,7 +446,7 @@ func BenchmarkListGrantsForEntitlementPrincipalTypes(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			drainBench(b, func(token string) ([]*v3.GrantRecord, string, error) {
-				resp, err := e.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				resp, err := e.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 					Entitlement: ent, PrincipalResourceTypeIds: rts, PageSize: 1000, PageToken: token,
 				}.Build())
 				if err != nil {

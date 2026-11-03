@@ -252,7 +252,7 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 								missing++
 							}
 							for record := range 2 {
-								value, err := f.engine.GetResourceRecord(t.Context(), id.ResourceTypeID, fmt.Sprintf("%012d", global*2+record))
+								value, err := f.engine.Records().GetResourceRecord(t.Context(), id.ResourceTypeID, fmt.Sprintf("%012d", global*2+record))
 								if found || connector.finished || legacyPage {
 									require.NoError(t, err)
 									require.NotNil(t, value)

@@ -53,7 +53,7 @@ func TestStoreExpandedGrantsPreservesDiscoveredAt(t *testing.T) {
 		NeedsExpansion: true,
 		DiscoveredAt:   seeded,
 	}.Build()
-	require.NoError(t, e.PutGrantRecord(ctx, seed))
+	require.NoError(t, e.records.PutGrantRecord(ctx, seed))
 
 	// The expander rewrites the grant (no GrantExpandable annotation —
 	// it's been stripped) via the same external_id.
@@ -99,7 +99,7 @@ func TestStoreExpandedGrantsBackfillsNilDiscoveredAt(t *testing.T) {
 		}.Build(),
 	}.Build()
 	require.Nil(t, seed.GetDiscoveredAt())
-	require.NoError(t, e.PutGrantRecord(ctx, seed))
+	require.NoError(t, e.records.PutGrantRecord(ctx, seed))
 
 	app := v2.Resource_builder{
 		Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),

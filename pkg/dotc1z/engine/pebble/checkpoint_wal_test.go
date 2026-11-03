@@ -27,7 +27,7 @@ func TestCheckpointWALsAreEmpty(t *testing.T) {
 	eng, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
 	require.NoError(t, eng.MarkFreshSync(syncID))
-	require.NoError(t, eng.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoError(t, eng.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId:    syncID,
 		Type:      v3.SyncType_SYNC_TYPE_FULL,
 		StartedAt: timestamppb.Now(),
@@ -46,7 +46,7 @@ func TestCheckpointWALsAreEmpty(t *testing.T) {
 			DiscoveredAt: timestamppb.Now(),
 		}.Build())
 	}
-	require.NoError(t, eng.PutGrantRecords(ctx, grants...))
+	require.NoError(t, eng.records.PutGrantRecords(ctx, grants...))
 	require.NoError(t, eng.FinishSync(ctx))
 
 	ckDir := filepath.Join(t.TempDir(), "checkpoint")
@@ -69,11 +69,11 @@ func TestCheckpointWALsAreEmpty(t *testing.T) {
 	reopened, err := Open(ctx, ckDir, WithReadOnly(true))
 	require.NoError(t, err, "Open checkpoint")
 	defer func() { _ = reopened.Close() }()
-	rec, err := reopened.GetSyncRunRecord(ctx, syncID)
+	rec, err := reopened.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err, "GetSyncRunRecord")
 	require.NotNil(t, rec.GetEndedAt(), "reopened sync run lost ended_at")
 	count := 0
-	err = reopened.IterateGrants(ctx, func(*v3.GrantRecord) bool {
+	err = reopened.records.IterateGrants(ctx, func(*v3.GrantRecord) bool {
 		count++
 		return true
 	})

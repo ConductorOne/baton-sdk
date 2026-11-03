@@ -46,7 +46,7 @@ func (e *Engine) restoreEndSyncStats(ctx context.Context, syncID string) error {
 		return err
 	}
 	if active || len(facts) != 0 {
-		e.setSyncStatsOverlay(syncID, syncStatsOverlay(c1zstore.LedgerSyncStats(facts, counters)))
+		e.syncRuns.setSyncStatsOverlay(syncID, syncStatsOverlay(c1zstore.LedgerSyncStats(facts, counters)))
 	}
 	return nil
 }
