@@ -97,7 +97,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, page *ledgerPag
 			collection.ResourceTypesExcludedBySelection++
 		}
 	}
-	if err := page.writer.PutResourceTypes(ctx, selected...); err != nil {
+	if err := page.PutResourceTypes(ctx, selected...); err != nil {
 		return err
 	}
 	if resp.GetNextPageToken() == "" {

@@ -43,7 +43,7 @@ func TestLedgerConnectorCallTotalsIncludeRetriedCalls(t *testing.T) {
 					if calls < 3 {
 						require.NoError(t, page.setFact("failed-attempt"))
 						page.observations.Counters = map[string]uint64{"failed-ingest": 7}
-						require.NoError(t, page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "failed"}.Build()))
+						require.NoError(t, page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "failed"}.Build()))
 						err := status.Error(codes.Unavailable, "retry")
 						recordLedgerConnectorError(page, err)
 						return err

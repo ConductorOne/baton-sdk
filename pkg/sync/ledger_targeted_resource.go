@@ -100,7 +100,7 @@ func (s *syncer) syncLedgerTargetedResource(ctx context.Context, page *ledgerPag
 	}
 	resource = resources[0]
 
-	if err := page.writer.PutResources(ctx, resource); err != nil {
+	if err := page.PutResources(ctx, resource); err != nil {
 		return err
 	}
 

@@ -50,7 +50,7 @@ func TestLedgerExistingSchedulerOperationBarrier(t *testing.T) {
 			} else {
 				grantStarted.Store(true)
 			}
-			if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
+			if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 				return err
 			}
 			return page.stage(action, "", nil)
@@ -101,7 +101,7 @@ func TestLedgerExistingSchedulerRejectsDuplicateBeforeCommit(t *testing.T) {
 	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
-		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()); err != nil {
+		if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()); err != nil {
 			return err
 		}
 		return page.stage(action, "", []Action{child, child})
@@ -169,7 +169,7 @@ func TestLedgerExistingSchedulerCommitFailureKeepsAction(t *testing.T) {
 	action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
 	seedLedgerTestRun(t, s, action)
 	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
-		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()); err != nil {
+		if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()); err != nil {
 			return err
 		}
 		return page.stage(action, "next", nil)

@@ -107,7 +107,7 @@ func TestLedgerCommitWakesWorkerWaitingForChildren(t *testing.T) {
 			seenMu.Lock()
 			workers[action.ResourceID] = page.worker
 			seenMu.Unlock()
-			if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
+			if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 				return err
 			}
 			if action.ResourceID == "parent" {
@@ -171,7 +171,7 @@ func TestLedgerCommitAcrossSiblingAbort(t *testing.T) {
 						defer close(failingReturned)
 						return injected
 					}
-					if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
+					if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 						return err
 					}
 					return page.stage(action, "", nil)
@@ -219,7 +219,7 @@ func TestLedgerCommitPublishesBeforeCancellation(t *testing.T) {
 		}
 	}}
 	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
-		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.PageToken + "x"}.Build()); err != nil {
+		if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.PageToken + "x"}.Build()); err != nil {
 			return err
 		}
 		return page.stage(action, "more", nil)

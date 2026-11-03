@@ -126,7 +126,7 @@ func (s *syncer) collectLedgerResources(ctx context.Context, page *ledgerPage, a
 	}
 
 	if len(bulkPutResources) > 0 {
-		err = page.writer.PutResources(ctx, bulkPutResources...)
+		err = page.PutResources(ctx, bulkPutResources...)
 		if err != nil {
 			return err
 		}

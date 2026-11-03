@@ -106,7 +106,7 @@ func (s *syncer) collectLedgerAssets(ctx context.Context, page *ledgerPage, acti
 				return fmt.Errorf("no metadata received, unable to store asset")
 			}
 
-			return page.writer.PutAsset(ctx, assetRef, metadata.GetContentType(), assetBytes.Bytes())
+			return page.PutAsset(ctx, assetRef, metadata.GetContentType(), assetBytes.Bytes())
 		}()
 		if err != nil {
 			return err

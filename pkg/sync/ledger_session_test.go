@@ -27,7 +27,7 @@ func TestLedgerSessionMutationsSurviveFailedPage(t *testing.T) {
 			id := c1zstore.LedgerActionIdentity{Op: SyncResourceTypesOp.String()}
 			f.audit.enter(ledgerHandler)
 			_, err = runtime.runPage(t.Context(), 0, id, func(ctx context.Context, page *ledgerPage) error {
-				require.NoError(t, page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()))
+				require.NoError(t, page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()))
 				switch method {
 				case "set":
 					require.NoError(t, session.Set(ctx, "seed", []byte("after"), opts...))

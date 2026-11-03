@@ -82,7 +82,7 @@ func (s *syncer) materializeLedgerStaticEntitlements(ctx context.Context, page *
 		values = append(values, &v2.Entitlement{Resource: resource, Id: entitlement.NewEntitlementID(resource, template.GetSlug()), DisplayName: display,
 			Description: description, GrantableTo: template.GetGrantableTo(), Annotations: annos, Slug: template.GetSlug(), Purpose: template.GetPurpose()})
 	}
-	if err := page.writer.PutEntitlements(ctx, values...); err != nil {
+	if err := page.PutEntitlements(ctx, values...); err != nil {
 		return err
 	}
 	token := ""

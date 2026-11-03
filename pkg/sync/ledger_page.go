@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -65,6 +66,30 @@ func (p *ledgerPage) markTypeScopedPlanned() {
 
 func (p *ledgerPage) addObservations(c c1zstore.LedgerCounters) {
 	p.observations = addLedgerCounters(p.observations, c)
+}
+
+func (p *ledgerPage) PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error {
+	return p.writer.PutResourceTypes(ctx, resourceTypes...)
+}
+
+func (p *ledgerPage) PutResources(ctx context.Context, resources ...*v2.Resource) error {
+	return p.writer.PutResources(ctx, resources...)
+}
+
+func (p *ledgerPage) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
+	return p.writer.PutEntitlements(ctx, entitlements...)
+}
+
+func (p *ledgerPage) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return p.writer.PutGrants(ctx, grants...)
+}
+
+func (p *ledgerPage) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
+	return p.writer.PutAsset(ctx, assetRef, contentType, data)
+}
+
+func (p *ledgerPage) GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error) {
+	return p.writer.GetResource(ctx, resourceTypeID, resourceID)
 }
 
 func (p *ledgerPage) stage(action *Action, next string, children []Action) error {

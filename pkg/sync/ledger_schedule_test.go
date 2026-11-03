@@ -25,7 +25,7 @@ func TestLedgerScheduleDrainsDiamondAndCycle(t *testing.T) {
 			graph := map[string][]string{"root": {"left", "right"}, "left": {"shared"}, "right": {"shared"}, "shared": {"root"}}
 			handler := func(ctx context.Context, page *ledgerPage, s *syncer, action *Action) error {
 				calls.Add(1)
-				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
+				if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 					return err
 				}
 				var children []c1zstore.LedgerChild
@@ -69,7 +69,7 @@ func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 	err = runLedgerSchedulerFixture(t, runtime, roots, 4, func(ctx context.Context, page *ledgerPage, s *syncer, action *Action) error {
 		active.Add(1)
 		defer active.Add(-1)
-		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
+		if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 			return err
 		}
 		return injected

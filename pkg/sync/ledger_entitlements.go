@@ -91,7 +91,7 @@ func (s *syncer) collectLedgerEntitlements(ctx context.Context, page *ledgerPage
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
 	}
-	err = page.writer.PutEntitlements(ctx, entitlements...)
+	err = page.PutEntitlements(ctx, entitlements...)
 	if err != nil {
 		return err
 	}

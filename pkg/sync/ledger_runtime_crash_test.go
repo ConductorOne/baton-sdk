@@ -67,7 +67,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 		f.audit.enter(ledgerHandler)
 		_, err = runtime.runPage(t.Context(), 0, id, func(ctx context.Context, page *ledgerPage) error {
 			require.NoError(t, page.writer.SetPendingWork(work[0]))
-			require.NoError(t, page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()))
+			require.NoError(t, page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()))
 			require.NoError(t, page.setFact("runtime-fact"))
 			page.observations.Counters = map[string]uint64{"pages": 1}
 			if cut == "page-handler" {

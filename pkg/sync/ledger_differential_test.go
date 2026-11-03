@@ -35,7 +35,7 @@ func TestLedgerDeterministicTimeFixture(t *testing.T) {
 			require.NoError(t, runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(
 				ctx context.Context, page *ledgerPage, s *syncer, action *Action,
 			) error {
-				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
+				if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
 					return err
 				}
 				return ledgerFixtureTransition(page, action, "")
@@ -76,7 +76,7 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 				stopped := fmt.Errorf("injected before commit of page %d", cut)
 				handler := func(ctx context.Context, page *ledgerPage, s *syncer, action *Action) error {
 					if action.Op == SyncResourceTypesOp {
-						if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
+						if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
 							return err
 						}
 						return ledgerFixtureTransition(page, action, "",
@@ -95,13 +95,13 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 					resource := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "type", Resource: name}.Build(), DisplayName: name}.Build()
 					entitlement := v2.Entitlement_builder{Id: "ent-" + name, Resource: resource, DisplayName: name}.Build()
 					grant := v2.Grant_builder{Id: "grant-" + name, Entitlement: entitlement, Principal: resource}.Build()
-					if err := page.writer.PutResources(ctx, resource); err != nil {
+					if err := page.PutResources(ctx, resource); err != nil {
 						return err
 					}
-					if err := page.writer.PutEntitlements(ctx, entitlement); err != nil {
+					if err := page.PutEntitlements(ctx, entitlement); err != nil {
 						return err
 					}
-					if err := page.writer.PutGrants(ctx, grant); err != nil {
+					if err := page.PutGrants(ctx, grant); err != nil {
 						return err
 					}
 					if err := page.setFact("observed-data"); err != nil {

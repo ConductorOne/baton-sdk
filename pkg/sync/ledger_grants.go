@@ -181,7 +181,7 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, page *ledgerPage, acti
 			continue
 		}
 		entitlementResource := grant.GetEntitlement().GetResource()
-		_, err := page.writer.GetResource(ctx, entitlementResource.GetId().GetResourceType(), entitlementResource.GetId().GetResource())
+		_, err := page.GetResource(ctx, entitlementResource.GetId().GetResourceType(), entitlementResource.GetId().GetResource())
 		if err != nil {
 			if status.Code(err) != codes.NotFound {
 				return err
@@ -214,7 +214,7 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, page *ledgerPage, acti
 		}
 	}
 
-	err = page.writer.PutGrants(ctx, grants...)
+	err = page.PutGrants(ctx, grants...)
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error putting grants: %w", err)
 	}
@@ -244,7 +244,7 @@ func (s *syncer) putLedgerResources(ctx context.Context, page *ledgerPage, resou
 	if err != nil {
 		return err
 	}
-	return page.writer.PutResources(ctx, resources...)
+	return page.PutResources(ctx, resources...)
 }
 
 func (s *syncer) stageLedgerFilterStats(page *ledgerPage, stats *ingestFilterStats) error {
