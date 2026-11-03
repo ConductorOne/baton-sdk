@@ -38,7 +38,7 @@ func TestSyncInvalidBindingDoesNotCollect(t *testing.T) {
 			raw, ok := engine.AsEngine(store)
 			require.True(t, ok)
 			snapshot := func() map[string]string {
-				it, err := raw.NewIter(nil)
+				it, err := raw.Expansion().NewIter(nil)
 				require.NoError(t, err)
 				defer func() { require.NoError(t, it.Close()) }()
 				rows := make(map[string]string)

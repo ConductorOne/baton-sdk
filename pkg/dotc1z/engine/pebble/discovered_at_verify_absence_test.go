@@ -43,12 +43,12 @@ func TestV3ReadAbsentDiscoveredAtReturnsNilNeverNow(t *testing.T) {
 		Principal: v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "alice"}.Build(),
 	}.Build()
 	require.Nil(t, rec.GetDiscoveredAt(), "fixture must start with nil discovered_at")
-	require.NoError(t, e.PutGrantRecord(ctx, rec))
+	require.NoError(t, e.records.PutGrantRecord(ctx, rec))
 
 	// V-20 PREMISE GATE: the RAW stored record genuinely lacks discovered_at.
 	// If a write path had silently stamped it, this fails and the reader
 	// assertions below would be vacuous.
-	raw, err := e.GetGrantRecord(ctx, "g-absent")
+	raw, err := e.records.GetGrantRecord(ctx, "g-absent")
 	require.NoError(t, err)
 	require.Nil(t, raw.GetDiscoveredAt(),
 		"V-20 premise: raw stored GrantRecord must genuinely lack discovered_at (absence case is real, not vacuous)")
@@ -82,7 +82,7 @@ func TestV3ReadAbsentDiscoveredAtReturnsNilNeverNow(t *testing.T) {
 	assertAbsent(t, lg.GetList()[0], "v3 ListGrantsForEntitlement")
 
 	// ListGrants (unfiltered, arena path with reconcileAbsentFields).
-	lgAll, err := e.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 100}.Build())
+	lgAll, err := e.records.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 100}.Build())
 	require.NoError(t, err)
 	require.Len(t, lgAll.GetList(), 1, "sanity: the grant is on the unfiltered list path too")
 }
@@ -129,7 +129,7 @@ func TestV3ReadCorruptRecordSurfacesErrorNeverSilentZero(t *testing.T) {
 	// Resolve the record's primary identity key and clobber its VALUE with
 	// bytes that fail proto decode. The key stays valid so the id-index still
 	// resolves and the read reaches the record decode.
-	recRaw, err := e.GetGrantRecord(ctx, "g-corrupt")
+	recRaw, err := e.records.GetGrantRecord(ctx, "g-corrupt")
 	require.NoError(t, err)
 	id, err := grantIdentityFromRecord(recRaw)
 	require.NoError(t, err)

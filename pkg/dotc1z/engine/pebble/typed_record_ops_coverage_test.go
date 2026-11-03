@@ -62,9 +62,9 @@ func TestPutSynthesizedGrantRecordsObligations(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
-	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{
+	require.NoError(t, e.records.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{
 		testGrantRecord("ent-A", "alice"),
 		testGrantRecord("ent-A", "bob"),
 	}))
@@ -78,7 +78,7 @@ func TestPutSynthesizedGrantRecordsObligations(t *testing.T) {
 	require.NoError(t, a.EndSync(ctx))
 	for _, p := range []string{"alice", "bob"} {
 		n := 0
-		require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", p, func(*v3.GrantRecord) bool {
+		require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", p, func(*v3.GrantRecord) bool {
 			n++
 			return true
 		}))
@@ -94,7 +94,7 @@ func TestPutSynthesizedGrantContributionsBatchObligations(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	dest := v3.EntitlementRef_builder{
 		ResourceTypeId: "app", ResourceId: "github", EntitlementId: "app:github:ent-A",
@@ -113,14 +113,14 @@ func TestPutSynthesizedGrantContributionsBatchObligations(t *testing.T) {
 	}
 	// Through the exported dispatcher so its counter bookkeeping and the
 	// batch body are both exercised.
-	require.NoError(t, e.PutSynthesizedGrantContributions(ctx, records))
+	require.NoError(t, e.records.PutSynthesizedGrantContributions(ctx, records))
 	require.True(t, e.db.DeferredIdxPending(), "contributions must arm the deferred rebuild marker")
 	require.Zero(t, countKeys(t, e, GrantBySourceScopeLowerBound()),
 		"synthetic contributions must remain outside source-cache scopes")
 
 	require.NoError(t, a.EndSync(ctx))
 	n := 0
-	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "carol", func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "carol", func(r *v3.GrantRecord) bool {
 		require.NotEmpty(t, r.GetSources(), "contribution sources must round-trip the wire append")
 		n++
 		return true
@@ -136,13 +136,13 @@ func TestUnsafePutUniqueGrantRecordsObligations(t *testing.T) {
 	a := newAdapter(t)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	expandable := testGrantRecord("ent-A", "alice")
 	expandable.SetNeedsExpansion(true)
 	expandable.SetSourceScopeKey("scope-a")
 	plain := testGrantRecord("ent-B", "bob")
-	require.NoError(t, e.UnsafePutUniqueGrantRecords(ctx, expandable, plain))
+	require.NoError(t, e.records.UnsafePutUniqueGrantRecords(ctx, expandable, plain))
 
 	require.Equal(t, 2, countKeys(t, e, encodeGrantPrefix()), "both rows must land")
 	require.Equal(t, 1, countKeys(t, e, encodeGrantByNeedsExpansionPrefix()),
@@ -158,14 +158,14 @@ func TestUnsafePutUniqueGrantRecordsObligations(t *testing.T) {
 	// freshness contract itself broke — the guard must refuse rather
 	// than silently tombstone a trusted import's digest keyspace.
 	e.db.SetGrantDigestsPresent(true)
-	require.ErrorContains(t, e.UnsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
+	require.ErrorContains(t, e.records.UnsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
 		"digest state present on a fresh sync")
 	e.db.SetGrantDigestsPresent(false)
 
 	// Non-fresh syncs are refused (SetCurrentSync clears freshness).
 	require.NoError(t, a.EndSync(ctx))
 	require.NoError(t, a.SetCurrentSync(ctx, syncID))
-	require.ErrorContains(t, e.UnsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
+	require.ErrorContains(t, e.records.UnsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
 		"sync is not fresh")
 }
 
@@ -183,15 +183,15 @@ func TestGrantDeleteMalformedValueStillCleansObligations(t *testing.T) {
 	a := newAdapter(t)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// A healthy grant first, sealed so digests exist; rebind for the
 	// post-seal mutation (the partial-sync shape where digests are
 	// present and the delete's invalidation obligation is live).
-	require.NoError(t, e.PutGrantRecords(ctx, testGrantRecord("ent-A", "alice")))
+	require.NoError(t, e.records.PutGrantRecords(ctx, testGrantRecord("ent-A", "alice")))
 	require.NoError(t, a.EndSync(ctx))
 	require.NoError(t, a.SetCurrentSync(ctx, syncID))
-	_, ok, err := e.GetGrantDigestGlobalRoot(ctx)
+	_, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.True(t, ok, "seal must build digests")
 
@@ -210,14 +210,14 @@ func TestGrantDeleteMalformedValueStillCleansObligations(t *testing.T) {
 	// value). Both index families and the digest root must be cleaned
 	// even though the value is garbage.
 	rec := testGrantRecord("ent-A", "alice")
-	require.NoError(t, e.DeleteGrantByIdentityRefs(ctx, rec))
+	require.NoError(t, e.records.DeleteGrantByIdentityRefs(ctx, rec))
 
 	_, closer, err := e.db.Get(key)
 	require.ErrorIs(t, err, pebble.ErrNotFound, "primary must be gone")
 	_ = closer
 	require.Equal(t, 0, countKeys(t, e, GrantByPrincipalLowerBound()), "by_principal must be cleaned from the key alone")
 	require.Equal(t, 0, countKeys(t, e, encodeGrantByNeedsExpansionPrefix()), "needs_expansion must be cleaned from the key alone")
-	_, ok, err = e.GetGrantDigestGlobalRoot(ctx)
+	_, ok, err = e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.False(t, ok, "digest must read as invalidated, never stale-but-present over a deleted row")
 }
@@ -232,7 +232,7 @@ func TestDeleteResourceRecordObligations(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	child := v3.ResourceRecord_builder{
 		ResourceTypeId: "group",
@@ -241,18 +241,18 @@ func TestDeleteResourceRecordObligations(t *testing.T) {
 			ResourceTypeId: "org", ResourceId: "parent-1",
 		}.Build(),
 	}.Build()
-	require.NoError(t, e.PutResourceRecords(ctx, child))
+	require.NoError(t, e.records.PutResourceRecords(ctx, child))
 
 	byParentPrefix := []byte{versionV3, typeIndex, idxResourceByParent}
 	require.Equal(t, 1, countKeys(t, e, byParentPrefix), "put must index the parent edge")
 
-	require.NoError(t, e.DeleteResourceRecord(ctx, "group", "child-1"))
+	require.NoError(t, e.records.DeleteResourceRecord(ctx, "group", "child-1"))
 	require.Equal(t, 0, countKeys(t, e, byParentPrefix), "delete must clean the parent edge")
-	_, err = e.GetResourceRecord(ctx, "group", "child-1")
+	_, err = e.records.GetResourceRecord(ctx, "group", "child-1")
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	// Non-existent delete: clean no-op.
-	require.NoError(t, e.DeleteResourceRecord(ctx, "group", "never-existed"))
+	require.NoError(t, e.records.DeleteResourceRecord(ctx, "group", "never-existed"))
 }
 
 // TestDeferredMarkerArmFailureRollsBackCAS pins the crash contract of
@@ -267,14 +267,14 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	injected := errNoRetryArmFailure
 	e.db.SetDeferredMarkerTestHooks(func() error { return injected }, nil)
 
 	// The deferred-regime write must FAIL when the marker can't arm —
 	// committing deferred rows without the durable marker is the lie.
-	err = e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")})
+	err = e.records.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")})
 	require.ErrorIs(t, err, injected, "deferred write must surface the arm failure")
 
 	// THE CONTRACT: flag rolled back, durable key absent — in agreement.
@@ -291,7 +291,7 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 	// Retry converges: with the fault gone, the same write arms the
 	// marker durably and lands.
 	e.db.SetDeferredMarkerTestHooks(nil, nil)
-	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
+	require.NoError(t, e.records.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
 	require.True(t, e.db.DeferredIdxPending())
 	_, closer, getErr = e.db.Get(rawdb.DeferredIdxPendingKey())
 	require.NoError(t, getErr, "the retried arm must persist the durable marker")
@@ -303,7 +303,7 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 	// resume arm, not here; this test stays in-process.)
 	require.NoError(t, a.EndSync(ctx))
 	n := 0
-	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool {
 		n++
 		return true
 	}))
@@ -324,10 +324,10 @@ func TestDeferredMarkerClearFailureKeepsAgreement(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// Deferred-regime write arms the marker.
-	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
+	require.NoError(t, e.records.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
 	require.True(t, e.db.DeferredIdxPending())
 
 	injected := errors.New("injected deferred-marker clear failure")
@@ -349,7 +349,7 @@ func TestDeferredMarkerClearFailureKeepsAgreement(t *testing.T) {
 	_, _, getErr = e.db.Get(rawdb.DeferredIdxPendingKey())
 	require.ErrorIs(t, getErr, pebble.ErrNotFound)
 	n := 0
-	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool {
 		n++
 		return true
 	}))

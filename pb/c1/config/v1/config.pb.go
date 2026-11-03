@@ -564,7 +564,8 @@ type Field struct {
 	// action return types, the connector must return the value as PlaintextData
 	// through ActionHandlerWithSecrets; it is omitted from the public response
 	// and returned as EncryptedData.
-	IsSecret    bool     `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
+	IsSecret bool `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
+	// Optional: the content type of the field. Only valid for StringField, StringSliceField, & StringMapField.
 	ContentType string   `protobuf:"bytes,8,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	Tags        []string `protobuf:"bytes,9,rep,name=tags,proto3" json:"tags,omitempty"`
 	// Types that are valid to be assigned to Field:
@@ -1126,7 +1127,8 @@ type Field_builder struct {
 	// action return types, the connector must return the value as PlaintextData
 	// through ActionHandlerWithSecrets; it is omitted from the public response
 	// and returned as EncryptedData.
-	IsSecret    bool
+	IsSecret bool
+	// Optional: the content type of the field. Only valid for StringField, StringSliceField, & StringMapField.
 	ContentType string
 	Tags        []string
 	// Fields of oneof Field:

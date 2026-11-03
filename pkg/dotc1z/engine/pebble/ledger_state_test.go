@@ -160,7 +160,7 @@ func TestLedgerTakeoverIsOneUnit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 
-	rec, err := e.GetSyncRunRecord(ctx, e.CurrentSyncID())
+	rec, err := e.SyncRuns().GetSyncRunRecord(ctx, e.CurrentSyncID())
 	require.NoError(t, err)
 	require.Equal(t, v3.SyncType_SYNC_TYPE_FULL, rec.GetType())
 	require.NotNil(t, rec.GetStartedAt())
@@ -332,7 +332,7 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 		Run:           fold,
 		IngestQuality: &c1zstore.IngestQuality{GrantsDropped: 1, SourceCacheReplayBlocked: true, ReasonFlags: 2},
 	}))
-	stats, err := e.readSyncStats(ctx, syncID)
+	stats, err := e.SyncRuns().readSyncStats(ctx, syncID)
 	require.NoError(t, err)
 	require.NotNil(t, stats)
 	require.EqualValues(t, 160, stats.GetStepDurationsMs()["list-grants"])
@@ -340,7 +340,7 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 	require.EqualValues(t, 30, stats.GetConnectorCallStats()["ListGrants"].GetMaxMs())
 	require.EqualValues(t, 1, stats.GetIngestQuality().GetGrantsDropped())
 	require.True(t, stats.GetIngestQuality().GetSourceCacheReplayBlocked())
-	sealed, err := e.GetSyncRunRecord(ctx, syncID)
+	sealed, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
 	require.Empty(t, sealed.GetSyncToken())
 	require.NotNil(t, sealed.GetEndedAt())

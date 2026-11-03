@@ -118,7 +118,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			require.NoError(t, err)
 			counters, err := recovered.Ledger().Counters(t.Context())
 			require.NoError(t, err)
-			types, err := recovered.ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
+			types, err := recovered.Records().ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
 			require.NoError(t, err)
 			_, hasFact := facts["runtime-fact"]
 			require.Equal(t, found, hasFact)
@@ -145,7 +145,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			if cut != "terminal-committed" && cut != "sealed" {
 				require.False(t, terminalFound)
 			}
-			record, err := recovered.GetSyncRunRecord(t.Context(), marker.SyncID)
+			record, err := recovered.SyncRuns().GetSyncRunRecord(t.Context(), marker.SyncID)
 			require.NoError(t, err)
 			require.Equal(t, cut == "sealed", record.GetEndedAt() != nil)
 			if cut == "sealed" {

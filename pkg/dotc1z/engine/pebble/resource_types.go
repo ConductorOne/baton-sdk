@@ -13,23 +13,23 @@ import (
 
 // PutResourceTypeRecord writes a resource_type record. No secondary
 // indexes, so this is a single-key write.
-func (e *Engine) PutResourceTypeRecord(ctx context.Context, r *v3.ResourceTypeRecord) error {
-	if r == nil {
+func (r *Records) PutResourceTypeRecord(ctx context.Context, rec *v3.ResourceTypeRecord) error {
+	if rec == nil {
 		return errors.New("PutResourceTypeRecord: nil record")
 	}
-	return e.PutResourceTypeRecords(ctx, r)
+	return r.PutResourceTypeRecords(ctx, rec)
 }
 
 // PutResourceTypeRecords writes N resource_types in one batch.
-func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.ResourceTypeRecord) error {
+func (r *Records) PutResourceTypeRecords(ctx context.Context, records ...*v3.ResourceTypeRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
-	return e.withWrite(func() error {
-		if err := e.requireCurrentSync(); err != nil {
+	return r.e.withWrite(func() error {
+		if err := r.e.requireCurrentSync(); err != nil {
 			return err
 		}
-		batch := e.db.NewRecordBatch()
+		batch := r.e.db.NewRecordBatch()
 		defer batch.Close()
 		if _, err := stageResourceTypeRecords(batch, records); err != nil {
 			return err
@@ -70,37 +70,37 @@ func stageResourceTypeRecords(batch *rawdb.RecordBatch, records []*v3.ResourceTy
 	return staged, nil
 }
 
-func (e *Engine) GetResourceTypeRecord(ctx context.Context, externalID string) (*v3.ResourceTypeRecord, error) {
+func (r *Records) GetResourceTypeRecord(ctx context.Context, externalID string) (*v3.ResourceTypeRecord, error) {
 	key := encodeResourceTypeKey(externalID)
-	val, closer, err := e.db.Get(key)
+	val, closer, err := r.e.db.Get(key)
 	if err != nil {
 		return nil, err
 	}
 	defer closer.Close()
-	r := &v3.ResourceTypeRecord{}
-	if err := unmarshalRecord(val, r); err != nil {
+	rec := &v3.ResourceTypeRecord{}
+	if err := unmarshalRecord(val, rec); err != nil {
 		return nil, fmt.Errorf("GetResourceTypeRecord: unmarshal: %w", err)
 	}
-	return r, nil
+	return rec, nil
 }
 
-func (e *Engine) DeleteResourceTypeRecord(ctx context.Context, externalID string) error {
-	return e.withWrite(func() error {
+func (r *Records) DeleteResourceTypeRecord(ctx context.Context, externalID string) error {
+	return r.e.withWrite(func() error {
 		// Record family, not engine-meta: resource types are record
 		// rows. A one-op RecordBatch commit is durability-identical to
 		// the old single Delete (the commit carries the write options).
-		batch := e.db.NewRecordBatch()
+		batch := r.e.db.NewRecordBatch()
 		defer batch.Close()
 		if err := batch.StageResourceTypeDelete(encodeResourceTypeKey(externalID)); err != nil {
 			return err
 		}
-		return batch.Commit(writeOpts(e.opts.durability))
+		return batch.Commit(writeOpts(r.e.opts.durability))
 	})
 }
 
-func (e *Engine) IterateResourceTypes(ctx context.Context, yield func(*v3.ResourceTypeRecord) bool) error {
+func (r *Records) IterateResourceTypes(ctx context.Context, yield func(*v3.ResourceTypeRecord) bool) error {
 	prefix := encodeResourceTypePrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := r.e.db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -109,11 +109,11 @@ func (e *Engine) IterateResourceTypes(ctx context.Context, yield func(*v3.Resour
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
-		r := &v3.ResourceTypeRecord{}
-		if err := unmarshalRecord(iter.Value(), r); err != nil {
+		rec := &v3.ResourceTypeRecord{}
+		if err := unmarshalRecord(iter.Value(), rec); err != nil {
 			return fmt.Errorf("iterate resource_types: %w", err)
 		}
-		if !yield(r) {
+		if !yield(rec) {
 			return nil
 		}
 	}

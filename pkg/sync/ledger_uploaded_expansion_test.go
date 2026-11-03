@@ -97,7 +97,7 @@ func TestLedgerUploadedUnexpandedSync(t *testing.T) {
 						}
 						require.ElementsMatch(t, expected, ids)
 						require.Equal(t, expectedCompleted, actualCompleted)
-						record, err := f.engine.GetSyncRunRecord(ctx, id)
+						record, err := f.engine.SyncRuns().GetSyncRunRecord(ctx, id)
 						require.NoError(t, err)
 						require.Equal(t, id, record.GetSyncId())
 						require.NotNil(t, record.GetEndedAt())

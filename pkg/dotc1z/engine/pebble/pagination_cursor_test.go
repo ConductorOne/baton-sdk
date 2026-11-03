@@ -36,7 +36,7 @@ func TestListResourcesTypeFilterPagination(t *testing.T) {
 			}.Build())
 		}
 	}
-	require.NoErrorf(t, a.PutResources(ctx, all...), "PutResources")
+	require.NoErrorf(t, a.records.PutResources(ctx, all...), "PutResources")
 
 	for _, byParent := range []bool{false, true} {
 		for _, rt := range []string{"user", "us"} {
@@ -52,7 +52,7 @@ func TestListResourcesTypeFilterPagination(t *testing.T) {
 				if byParent {
 					req.SetParentResourceId(parent)
 				}
-				resp, err := a.ListResources(ctx, req)
+				resp, err := a.records.ListResources(ctx, req)
 				require.NoErrorf(t, err, "ListResources")
 				for _, r := range resp.GetList() {
 					got = append(got, r.GetId().GetResource())
@@ -84,7 +84,7 @@ func TestListGrantsForEntitlementPostFilterDoesNotSkip(t *testing.T) {
 			mkV2Grant("g-grant-"+strconv.Itoa(i), "ent-A", "group", "g"+strconv.Itoa(i)),
 		)
 	}
-	require.NoErrorf(t, a.PutGrants(ctx, grants...), "PutGrants")
+	require.NoErrorf(t, a.records.PutGrants(ctx, grants...), "PutGrants")
 
 	seen := make(map[string]bool, total)
 	pageToken := ""
@@ -92,7 +92,7 @@ func TestListGrantsForEntitlementPostFilterDoesNotSkip(t *testing.T) {
 	for {
 		pages++
 		require.LessOrEqual(t, pages, 10, "ListGrantsForEntitlement did not terminate after %d pages", pages)
-		resp, err := a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		resp, err := a.records.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 			Entitlement: v2.Entitlement_builder{
 				Id: canonicalTestEntID("ent-A"),
 				Resource: v2.Resource_builder{
@@ -131,7 +131,7 @@ func TestListGrantsForResourceTypePostFilterDoesNotSkip(t *testing.T) {
 			mkV2Grant("g-grant-"+strconv.Itoa(i), "ent-A", "group", "g"+strconv.Itoa(i)),
 		)
 	}
-	require.NoErrorf(t, a.PutGrants(ctx, grants...), "PutGrants")
+	require.NoErrorf(t, a.records.PutGrants(ctx, grants...), "PutGrants")
 
 	seen := make(map[string]bool, total)
 	pageToken := ""
@@ -139,7 +139,7 @@ func TestListGrantsForResourceTypePostFilterDoesNotSkip(t *testing.T) {
 	for {
 		pages++
 		require.LessOrEqual(t, pages, 10, "ListGrantsForResourceType did not terminate after %d pages", pages)
-		resp, err := a.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
+		resp, err := a.records.ListGrantsForResourceType(ctx, reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest_builder{
 			ResourceTypeId: "user",
 			PageSize:       3,
 			PageToken:      pageToken,

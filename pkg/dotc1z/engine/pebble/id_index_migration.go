@@ -104,7 +104,7 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 	if err := e.recomputeStatsAfterIDIndexMigration(ctx); err != nil {
 		return err
 	}
-	e.noteEntitlementKeyspaceWrite()
+	e.records.noteEntitlementKeyspaceWrite()
 	if err := e.withWriteAllowSealed(func() error { return e.writeIDIndexFormat(idIndexFormatCurrent) }); err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 
 func (e *Engine) recomputeStatsAfterIDIndexMigration(ctx context.Context) error {
 	var syncID string
-	err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+	err := e.syncRuns.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
 		syncID = r.GetSyncId()
 		return false
 	})
@@ -130,7 +130,7 @@ func (e *Engine) recomputeStatsAfterIDIndexMigration(ctx context.Context) error 
 	if syncID == "" {
 		return nil
 	}
-	if err := e.PersistSyncStats(ctx, syncID); err != nil {
+	if err := e.syncRuns.PersistSyncStats(ctx, syncID); err != nil {
 		return fmt.Errorf("id-index migration: recompute sync stats: %w", err)
 	}
 	return nil

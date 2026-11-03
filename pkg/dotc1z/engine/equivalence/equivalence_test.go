@@ -23,6 +23,40 @@ func openPebble(t *testing.T) *enginepkg.Engine {
 	return e
 }
 
+type pebbleReference struct{ e *enginepkg.Engine }
+
+func (p pebbleReference) SetCurrentSync(ctx context.Context, syncID string) error {
+	return p.e.SetCurrentSync(ctx, syncID)
+}
+
+func (p pebbleReference) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
+	return p.e.Records().PutGrantRecord(ctx, r)
+}
+
+func (p pebbleReference) GetGrantRecord(ctx context.Context, externalID string) (*v3.GrantRecord, error) {
+	return p.e.Records().GetGrantRecord(ctx, externalID)
+}
+
+func (p pebbleReference) DeleteGrantRecord(ctx context.Context, externalID string) error {
+	return p.e.Records().DeleteGrantRecord(ctx, externalID)
+}
+
+func (p pebbleReference) IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) bool) error {
+	return p.e.Records().IterateGrants(ctx, yield)
+}
+
+func (p pebbleReference) IterateGrantsByEntitlement(
+	ctx context.Context, entitlementID string, yield func(*v3.GrantRecord) bool,
+) error {
+	return p.e.Records().IterateGrantsByEntitlement(ctx, entitlementID, yield)
+}
+
+func (p pebbleReference) IterateGrantsByPrincipal(
+	ctx context.Context, principalRT, principalID string, yield func(*v3.GrantRecord) bool,
+) error {
+	return p.e.Records().IterateGrantsByPrincipal(ctx, principalRT, principalID, yield)
+}
+
 func mkGrant(syncID, externalID, entID, principalRT, principalID string) *v3.GrantRecord {
 	// SDK-shaped raw ids: entitlement id carries the rt:rid: prefix and the
 	// grant external id is the raw concat NewGrantID emits.
@@ -89,7 +123,7 @@ func TestPebbleMatchesMemoryRef(t *testing.T) {
 	mem := NewMemoryRef()
 	peb := openPebble(t)
 
-	require.NoError(t, Compare(context.Background(), mem, peb, w), "equivalence mismatch")
+	require.NoError(t, Compare(context.Background(), mem, pebbleReference{peb}, w), "equivalence mismatch")
 }
 
 // TestEmptyWorkload — two empty Results are equal.
@@ -99,7 +133,7 @@ func TestEmptyWorkload(t *testing.T) {
 
 	mem := NewMemoryRef()
 	peb := openPebble(t)
-	require.NoError(t, Compare(context.Background(), mem, peb, w), "empty workload mismatch")
+	require.NoError(t, Compare(context.Background(), mem, pebbleReference{peb}, w), "empty workload mismatch")
 }
 
 // TestSingleGrant — minimal non-trivial workload.
@@ -114,7 +148,7 @@ func TestSingleGrant(t *testing.T) {
 
 	mem := NewMemoryRef()
 	peb := openPebble(t)
-	require.NoError(t, Compare(context.Background(), mem, peb, w), "single-grant mismatch")
+	require.NoError(t, Compare(context.Background(), mem, pebbleReference{peb}, w), "single-grant mismatch")
 }
 
 // TestPutOverwrite — putting the same external_id twice updates the
@@ -134,5 +168,5 @@ func TestPutOverwrite(t *testing.T) {
 
 	mem := NewMemoryRef()
 	peb := openPebble(t)
-	require.NoError(t, Compare(context.Background(), mem, peb, w), "overwrite mismatch")
+	require.NoError(t, Compare(context.Background(), mem, pebbleReference{peb}, w), "overwrite mismatch")
 }

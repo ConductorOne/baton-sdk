@@ -18,8 +18,8 @@ import (
 // records live in Pebble under typeSyncRun; methods here walk
 // IterateAllSyncRuns + GetSyncRunRecord + PutSyncRunRecord on the
 // engine.
-func (e *Engine) SyncMeta() c1zstore.SyncMeta {
-	return pebbleSyncMeta{e: e}
+func (r *SyncRuns) SyncMeta() c1zstore.SyncMeta {
+	return pebbleSyncMeta{e: r.e}
 }
 
 type pebbleSyncMeta struct {
@@ -39,12 +39,12 @@ func (s pebbleSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string)
 	if syncID == "" {
 		return errors.New("MarkSyncSupportsDiff: empty syncID")
 	}
-	r, err := s.e.GetSyncRunRecord(ctx, syncID)
+	r, err := s.e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return c1zstore.AdaptNotFound(fmt.Errorf("MarkSyncSupportsDiff: get: %w", err), pebble.ErrNotFound)
 	}
 	r.SetSupportsDiff(true)
-	if err := s.e.PutSyncRunRecord(ctx, r); err != nil {
+	if err := s.e.SyncRuns().PutSyncRunRecord(ctx, r); err != nil {
 		return fmt.Errorf("MarkSyncSupportsDiff: put: %w", err)
 	}
 	return nil
@@ -63,7 +63,7 @@ func (s pebbleSyncMeta) MarkIngestInvariantsVerified(
 	if !verification.IsVerified() {
 		return errors.New("MarkIngestInvariantsVerified: incomplete verification")
 	}
-	r, err := s.e.GetSyncRunRecord(ctx, syncID)
+	r, err := s.e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return c1zstore.AdaptNotFound(fmt.Errorf("MarkIngestInvariantsVerified: get: %w", err), pebble.ErrNotFound)
 	}
@@ -76,7 +76,7 @@ func (s pebbleSyncMeta) MarkIngestInvariantsVerified(
 	r.SetIngestInvariantGeneration(verification.Generation)
 	r.SetIngestInvariantCoverage(append([]string(nil), verification.Coverage...))
 	r.SetIngestInvariantMode(string(verification.Mode))
-	if err := s.e.PutSyncRunRecord(ctx, r); err != nil {
+	if err := s.e.SyncRuns().PutSyncRunRecord(ctx, r); err != nil {
 		return fmt.Errorf("MarkIngestInvariantsVerified: put: %w", err)
 	}
 	return nil
@@ -86,14 +86,14 @@ func (s pebbleSyncMeta) ClearIngestInvariantVerification(ctx context.Context, sy
 	if syncID == "" {
 		return errors.New("ClearIngestInvariantVerification: empty syncID")
 	}
-	r, err := s.e.GetSyncRunRecord(ctx, syncID)
+	r, err := s.e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return c1zstore.AdaptNotFound(fmt.Errorf("ClearIngestInvariantVerification: get: %w", err), pebble.ErrNotFound)
 	}
 	r.SetIngestInvariantGeneration("")
 	r.SetIngestInvariantCoverage(nil)
 	r.SetIngestInvariantMode("")
-	if err := s.e.PutSyncRunRecord(ctx, r); err != nil {
+	if err := s.e.SyncRuns().PutSyncRunRecord(ctx, r); err != nil {
 		return fmt.Errorf("ClearIngestInvariantVerification: put: %w", err)
 	}
 	return nil
@@ -118,7 +118,7 @@ func (s pebbleSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*c1zst
 // translates the result into the exported c1zstore.SyncRun shape.
 // typeOK is passed through verbatim; nil matches any sync type.
 func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.SyncType) bool) (*c1zstore.SyncRun, error) {
-	best, err := s.e.LatestFinishedSyncRecord(ctx, typeOK)
+	best, err := s.e.SyncRuns().LatestFinishedSyncRecord(ctx, typeOK)
 	if err != nil {
 		return nil, err
 	}
@@ -132,12 +132,12 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 // Delegates to Adapter.Stats, which reads the EndSync stats
 // sidecar (O(1)) when present and falls back to iteration when not.
 func (s pebbleSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
-	return s.e.Stats(ctx, syncType, syncID)
+	return s.e.SyncRuns().Stats(ctx, syncType, syncID)
 }
 
 // StatsV2 implements SyncMeta. Signature matches *C1File.StatsV2 exactly.
 func (s pebbleSyncMeta) StatsV2(ctx context.Context, syncType connectorstore.SyncType, syncID string) (*reader_v2.SyncStats, error) {
-	return s.e.StatsV2(ctx, syncType, syncID)
+	return s.e.SyncRuns().StatsV2(ctx, syncType, syncID)
 }
 
 // RecalculateStats recomputes the stats sidecar for syncID from the
@@ -152,7 +152,7 @@ func (s pebbleSyncMeta) RecalculateStats(ctx context.Context, syncID string) err
 	if syncID == "" {
 		return errors.New("RecalculateStats: empty syncID and no current sync")
 	}
-	return s.e.PersistSyncStats(ctx, syncID)
+	return s.e.SyncRuns().PersistSyncStats(ctx, syncID)
 }
 
 // syncRunRecordToExported translates the Pebble v3.SyncRunRecord
@@ -202,9 +202,9 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 // which would silently pick the wrong sync to prune. Sorting on
 // started_at (with sync_id tiebreaker) matches the SQLite engine's
 // ListSyncRuns ORDER BY id ASC semantics.
-func (e *Engine) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error) {
+func (r *SyncRuns) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error) {
 	var out []c1zstore.SyncRun
-	err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
+	err := r.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
 		verification := c1zstore.IngestInvariantVerification{
 			Generation: r.GetIngestInvariantGeneration(),
 			Coverage:   append([]string(nil), r.GetIngestInvariantCoverage()...),
@@ -259,8 +259,8 @@ func (e *Engine) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error)
 // c1zstore.SelectSyncsToDelete depends on this ordering so "drop the
 // oldest overflow" trims the right end. Used by pkg/dotc1z's Pebble
 // store to drive the retention policy at Cleanup.
-func (e *Engine) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, error) {
-	out, err := e.sortedSyncRuns(ctx)
+func (r *SyncRuns) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, error) {
+	out, err := r.sortedSyncRuns(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("pebble CleanupCandidates: IterateAllSyncRuns: %w", err)
 	}
@@ -276,8 +276,8 @@ func (e *Engine) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, err
 // ListSyncRuns and are not used. It backs the c1z sanitizer's
 // source-side sync-run-metadata read (supports_diff), which the gRPC
 // reader surface does not carry.
-func (e *Engine) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error) {
-	runs, err := e.sortedSyncRuns(ctx)
+func (r *SyncRuns) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error) {
+	runs, err := r.sortedSyncRuns(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("pebble ListSyncRuns: %w", err)
 	}

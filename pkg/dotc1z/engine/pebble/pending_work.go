@@ -87,7 +87,7 @@ func (l *Ledger) BeginCollecting(ctx context.Context, actions []c1zstore.LedgerW
 		if err := l.e.requireCurrentSync(); err != nil {
 			return err
 		}
-		record, err := l.e.GetSyncRunRecord(ctx, l.e.CurrentSyncID())
+		record, err := l.e.SyncRuns().GetSyncRunRecord(ctx, l.e.CurrentSyncID())
 		if err != nil {
 			return err
 		}

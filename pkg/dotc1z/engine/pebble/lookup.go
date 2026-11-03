@@ -74,33 +74,33 @@ const maxBareIDColons = 64
 // noteEntitlementKeyspaceWrite invalidates the lazy entitlement id lookup
 // map. Call after ANY mutation of the entitlement primary keyspace (batch
 // writes, deletes, ingests, range replacements, resets).
-func (e *Engine) noteEntitlementKeyspaceWrite() {
-	e.entIDLookupGen.Add(1)
+func (r *Records) noteEntitlementKeyspaceWrite() {
+	r.entIDLookupGen.Add(1)
 }
 
 // entitlementIdentitiesForExternalID returns every entitlement identity
 // whose raw external id equals externalID, via the lazily built map.
-func (e *Engine) entitlementIdentitiesForExternalID(ctx context.Context, externalID string) ([]entitlementIdentity, error) {
-	gen := e.entIDLookupGen.Load()
-	e.entIDLookupMu.Lock()
-	defer e.entIDLookupMu.Unlock()
-	if e.entIDLookup == nil || e.entIDLookupBuiltGen != gen {
-		m, err := e.buildEntitlementIDLookup(ctx)
+func (r *Records) entitlementIdentitiesForExternalID(ctx context.Context, externalID string) ([]entitlementIdentity, error) {
+	gen := r.entIDLookupGen.Load()
+	r.entIDLookupMu.Lock()
+	defer r.entIDLookupMu.Unlock()
+	if r.entIDLookup == nil || r.entIDLookupBuiltGen != gen {
+		m, err := r.buildEntitlementIDLookup(ctx)
 		if err != nil {
 			return nil, err
 		}
-		e.entIDLookup = m
-		e.entIDLookupBuiltGen = gen
+		r.entIDLookup = m
+		r.entIDLookupBuiltGen = gen
 	}
-	return e.entIDLookup[externalID], nil
+	return r.entIDLookup[externalID], nil
 }
 
 // buildEntitlementIDLookup scans the entitlement primary keyspace once and
 // groups identities by their reconstructed (== stored) external id. Only
 // keys are decoded; values are never touched.
-func (e *Engine) buildEntitlementIDLookup(ctx context.Context) (map[string][]entitlementIdentity, error) {
+func (r *Records) buildEntitlementIDLookup(ctx context.Context) (map[string][]entitlementIdentity, error) {
 	prefix := encodeEntitlementPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := r.e.db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -150,8 +150,8 @@ func decodeEntitlementIdentityKey(key []byte) (entitlementIdentity, bool) {
 // resolveEntitlementIdentityByExternalID applies the exactly-one rule to
 // entitlementIdentitiesForExternalID: one match wins, zero is
 // pebble.ErrNotFound, several is ErrAmbiguousExternalID.
-func (e *Engine) resolveEntitlementIdentityByExternalID(ctx context.Context, externalID string) (entitlementIdentity, error) {
-	matches, err := e.entitlementIdentitiesForExternalID(ctx, externalID)
+func (r *Records) resolveEntitlementIdentityByExternalID(ctx context.Context, externalID string) (entitlementIdentity, error) {
+	matches, err := r.entitlementIdentitiesForExternalID(ctx, externalID)
 	if err != nil {
 		return entitlementIdentity{}, err
 	}
@@ -173,8 +173,8 @@ func (e *Engine) resolveEntitlementIdentityByExternalID(ctx context.Context, ext
 // back to direct byte-split candidates of the prefix shape, keeping a
 // candidate only when the grant primary keyspace actually has rows under
 // it. Exactly-one rule throughout.
-func (e *Engine) resolveGrantScanEntitlementIdentity(ctx context.Context, entitlementID string) (entitlementIdentity, error) {
-	matches, err := e.entitlementIdentitiesForExternalID(ctx, entitlementID)
+func (r *Records) resolveGrantScanEntitlementIdentity(ctx context.Context, entitlementID string) (entitlementIdentity, error) {
+	matches, err := r.entitlementIdentitiesForExternalID(ctx, entitlementID)
 	if err != nil {
 		return entitlementIdentity{}, err
 	}
@@ -212,7 +212,7 @@ func (e *Engine) resolveGrantScanEntitlementIdentity(ctx context.Context, entitl
 				stripped:       true,
 				tail:           entitlementID[l+1:],
 			}
-			nonEmpty, err := e.grantPrimaryPrefixNonEmpty(encodeGrantPrimaryEntitlementPrefix(cand))
+			nonEmpty, err := r.grantPrimaryPrefixNonEmpty(encodeGrantPrimaryEntitlementPrefix(cand))
 			if err != nil {
 				return entitlementIdentity{}, err
 			}
@@ -232,8 +232,8 @@ func (e *Engine) resolveGrantScanEntitlementIdentity(ctx context.Context, entitl
 	}
 }
 
-func (e *Engine) grantPrimaryPrefixNonEmpty(prefix []byte) (bool, error) {
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+func (r *Records) grantPrimaryPrefixNonEmpty(prefix []byte) (bool, error) {
+	iter, err := r.e.db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -264,20 +264,20 @@ func (e *Engine) grantPrimaryPrefixNonEmpty(prefix []byte) (bool, error) {
 // public id also equals the query (a connector-custom stored id addresses
 // the row instead of the concat). Exactly one hit wins; zero is
 // pebble.ErrNotFound; several is ErrAmbiguousExternalID.
-func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID string) (grantIdentity, error) {
-	return e.resolveGrantIdentity(ctx, grantID, true)
+func (r *Records) resolveGrantIdentityByExternalID(ctx context.Context, grantID string) (grantIdentity, error) {
+	return r.resolveGrantIdentity(ctx, grantID, true)
 }
 
 // resolveGrantIdentityByCandidates is the bounded variant used by
 // source-cache tombstones. It never falls back to an O(all grants) scan for
 // connector-custom stored ids.
-func (e *Engine) resolveGrantIdentityByCandidates(ctx context.Context, grantID string) (grantIdentity, error) {
-	return e.resolveGrantIdentity(ctx, grantID, false)
+func (r *Records) resolveGrantIdentityByCandidates(ctx context.Context, grantID string) (grantIdentity, error) {
+	return r.resolveGrantIdentity(ctx, grantID, false)
 }
 
-func (e *Engine) resolveGrantIdentity(ctx context.Context, grantID string, allowStoredIDScan bool) (grantIdentity, error) {
-	id, err := resolveGrantIdentityCandidates(ctx, grantID, e.entitlementIdentitiesForExternalID, func(id grantIdentity) (string, error) {
-		val, closer, err := e.db.Get(encodeGrantIdentityKey(id))
+func (r *Records) resolveGrantIdentity(ctx context.Context, grantID string, allowStoredIDScan bool) (grantIdentity, error) {
+	id, err := resolveGrantIdentityCandidates(ctx, grantID, r.entitlementIdentitiesForExternalID, func(id grantIdentity) (string, error) {
+		val, closer, err := r.e.db.Get(encodeGrantIdentityKey(id))
 		if err != nil {
 			return "", err
 		}
@@ -285,7 +285,7 @@ func (e *Engine) resolveGrantIdentity(ctx context.Context, grantID string, allow
 		return scanGrantExternalIDRaw(val)
 	})
 	if errors.Is(err, pebble.ErrNotFound) && allowStoredIDScan {
-		return e.scanGrantIdentityByStoredExternalID(ctx, grantID)
+		return r.scanGrantIdentityByStoredExternalID(ctx, grantID)
 	}
 	return id, err
 }
@@ -435,8 +435,8 @@ func resolveGrantIdentityCandidates(ctx context.Context, grantID string,
 //
 // Exactly-one rule: zero matches is pebble.ErrNotFound, several is
 // ErrAmbiguousExternalID.
-func (e *Engine) scanGrantIdentityByStoredExternalID(ctx context.Context, grantID string) (grantIdentity, error) {
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+func (r *Records) scanGrantIdentityByStoredExternalID(ctx context.Context, grantID string) (grantIdentity, error) {
+	iter, err := r.e.db.NewIter(&pebble.IterOptions{
 		LowerBound: GrantLowerBound(),
 		UpperBound: GrantUpperBound(),
 	})
