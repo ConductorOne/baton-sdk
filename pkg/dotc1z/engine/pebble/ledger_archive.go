@@ -42,7 +42,7 @@ func (e *Engine) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
 		if !e.IsSealed() {
 			return errors.New("ledger archive requires a sealed sync")
 		}
-		record, err := e.LatestFinishedSyncRecord(ctx, func(v3.SyncType) bool { return true })
+		record, err := e.syncRuns.LatestFinishedSyncRecord(ctx, func(v3.SyncType) bool { return true })
 		if err != nil {
 			return err
 		}

@@ -31,11 +31,11 @@ type engineAccessor interface {
 
 // PebbleEngine returns the engine. Nil-safe so AsEngine can probe
 // arbitrary writers.
-func (e *Engine) PebbleEngine() *Engine {
-	if e == nil {
+func (x *Expansion) PebbleEngine() *Engine {
+	if x == nil {
 		return nil
 	}
-	return e
+	return x.e
 }
 
 // AsEngine recovers the underlying *Engine from a connectorstore.Writer
@@ -57,11 +57,11 @@ func AsEngine(w connectorstore.Writer) (*Engine, bool) {
 // counters, labeled with the caller's phase name. Diagnostic only: used to
 // attribute wall time lost to background compactions triggered by large
 // ingests (e.g. the synthesized-grant layer segments) during benchmark runs.
-func (e *Engine) LogCompactionMetrics(ctx context.Context, phase string) {
-	if e == nil || e.db == nil {
+func (x *Expansion) LogCompactionMetrics(ctx context.Context, phase string) {
+	if x == nil || x.e.db == nil {
 		return
 	}
-	m := e.db.Metrics()
+	m := x.e.db.Metrics()
 	ctxzap.Extract(ctx).Info("pebble compaction metrics",
 		zap.String("phase", phase),
 		zap.Int64("compact_count", m.Compact.Count),
@@ -82,7 +82,7 @@ func ReadSyncStatsRecord(ctx context.Context, e *Engine, syncID string) (*v3.Syn
 	if e == nil {
 		return nil, nil
 	}
-	return e.readSyncStats(ctx, syncID)
+	return e.syncRuns.readSyncStats(ctx, syncID)
 }
 
 // SyncStatsFromRecord converts the engine-internal stats sidecar shape
@@ -131,7 +131,7 @@ func CachedSyncStats(ctx context.Context, e *Engine, syncID string) (*reader_v2.
 	if e == nil {
 		return nil, false, nil
 	}
-	stats, err := e.readSyncStats(ctx, syncID)
+	stats, err := e.syncRuns.readSyncStats(ctx, syncID)
 	if err != nil {
 		return nil, false, err
 	}

@@ -69,7 +69,7 @@ func TestTypedRecordOpsRejectWrongFamilyAndMalformedKeys(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	grantKey := encodeGrantIdentityKey(grantIdentity{
 		entitlement:     entitlementIdentity{resourceTypeID: "app", resourceID: "github", stripped: true, tail: "member"},
@@ -107,8 +107,8 @@ func TestTypedRecordOpsRejectWrongFamilyAndMalformedKeys(t *testing.T) {
 	})
 
 	// An errored op abandons its batch; the engine keeps working.
-	require.NoError(t, a.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")))
-	resp, err := a.ListGrants(ctx, nil)
+	require.NoError(t, a.records.PutGrants(ctx, mkV2Grant("g1", "ent-A", "user", "alice")))
+	resp, err := a.records.ListGrants(ctx, nil)
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1, "engine must keep serving writes after rejected typed ops")
 }
@@ -126,7 +126,7 @@ func TestExpandedGrantOverwriteThroughSeal(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// Inline write with the expandable annotation → needs_expansion=true
 	// row + index entry via the inline regime.
@@ -136,7 +136,7 @@ func TestExpandedGrantOverwriteThroughSeal(t *testing.T) {
 	require.NoError(t, err)
 	expandable := mkV2Grant("g1", "ent-A", "user", "alice")
 	expandable.SetAnnotations([]*anypb.Any{annAny})
-	require.NoError(t, a.PutGrants(ctx, expandable))
+	require.NoError(t, a.records.PutGrants(ctx, expandable))
 
 	countNeedsExpansion := func() int {
 		n := 0
@@ -171,7 +171,7 @@ func TestExpandedGrantOverwriteThroughSeal(t *testing.T) {
 	// Seal-rebuilt by_principal serves the grant; needs_expansion index
 	// still agrees with the primary's preserved flag.
 	n := 0
-	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "alice", func(r *v3.GrantRecord) bool {
 		require.True(t, r.GetNeedsExpansion(), "preserved side-state must survive both overwrites")
 		n++
 		return true

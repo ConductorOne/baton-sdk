@@ -59,6 +59,7 @@ message Field {
   // through ActionHandlerWithSecrets; it is omitted from the public response
   // and returned as EncryptedData.
   bool is_secret = 7;
+  // Optional: the content type of the field. Only valid for StringField, StringSliceField, & StringMapField.
   string content_type = 8 [(validate.rules).string = {
     ignore_empty: true
     min_len: 1

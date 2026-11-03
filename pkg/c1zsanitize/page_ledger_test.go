@@ -217,7 +217,7 @@ func needsExpansionCount(t *testing.T, ctx context.Context, store c1zstore.Store
 	engine, ok := pebble.AsEngine(store)
 	require.True(t, ok)
 	count := 0
-	require.NoError(t, engine.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
+	require.NoError(t, engine.Records().IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}))
@@ -394,7 +394,7 @@ func TestSanitizeLedgerReadsAssetsFromOldUnfinishedPebbleSync(t *testing.T) {
 	}.Build()))
 	engine, ok := pebble.AsEngine(src)
 	require.True(t, ok)
-	require.NoError(t, engine.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoError(t, engine.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId: syncID, Type: v3.SyncType_SYNC_TYPE_FULL,
 		StartedAt: timestamppb.New(time.Now().AddDate(0, 0, -8)),
 	}.Build()))

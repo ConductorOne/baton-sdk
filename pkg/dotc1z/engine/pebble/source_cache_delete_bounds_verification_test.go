@@ -39,9 +39,9 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 				for i := range rows {
 					grants = append(grants, scGrant(fmt.Sprintf("member-%d", i), "alice", false))
 				}
-				require.NoError(t, a.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), grants...))
+				require.NoError(t, a.records.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), grants...))
 				return func(ctx context.Context) (int64, error) {
-					return a.PebbleEngine().DeleteGrantsByPrincipalsInScope(
+					return a.Expansion().PebbleEngine().DeleteGrantsByPrincipalsInScope(
 						ctx,
 						"scope-a",
 						map[string]struct{}{"alice": {}},
@@ -62,9 +62,9 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 					grants = append(grants, grant)
 					ids[grant.GetId()] = struct{}{}
 				}
-				require.NoError(t, a.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), grants...))
+				require.NoError(t, a.records.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), grants...))
 				return func(ctx context.Context) (int64, error) {
-					return a.PebbleEngine().DeleteGrantsByExternalIDsInScope(ctx, "scope-a", ids)
+					return a.Expansion().PebbleEngine().DeleteGrantsByExternalIDsInScope(ctx, "scope-a", ids)
 				}
 			},
 		},
@@ -82,9 +82,9 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 						SourceScopeKey: "scope-a",
 					}.Build())
 				}
-				require.NoError(t, a.PebbleEngine().PutResourceRecords(t.Context(), records...))
+				require.NoError(t, a.Expansion().PebbleEngine().records.PutResourceRecords(t.Context(), records...))
 				return func(ctx context.Context) (int64, error) {
-					return a.PebbleEngine().DeleteResourcesByIDsInScope(
+					return a.Expansion().PebbleEngine().DeleteResourcesByIDsInScope(
 						ctx,
 						"scope-a",
 						map[string]struct{}{"shared": {}},
@@ -101,13 +101,13 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 			_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
 			remove := tc.prepare(t, a)
-			require.Equal(t, rows, countKeys(t, a.PebbleEngine(), tc.primaryPrefix))
-			require.Equal(t, rows, countKeys(t, a.PebbleEngine(), tc.indexPrefix))
+			require.Equal(t, rows, countKeys(t, a.Expansion().PebbleEngine(), tc.primaryPrefix))
+			require.Equal(t, rows, countKeys(t, a.Expansion().PebbleEngine(), tc.indexPrefix))
 
-			a.PebbleEngine().test.sourceCacheDeleteBatchRows = 2
+			a.Expansion().PebbleEngine().test.sourceCacheDeleteBatchRows = 2
 			injected := errors.New("verification scoped delete commit failure")
 			commitCalls := 0
-			a.PebbleEngine().test.sourceCacheDeleteCommitHook = func(kind string, batchRows int, _ bool) error {
+			a.Expansion().PebbleEngine().test.sourceCacheDeleteCommitHook = func(kind string, batchRows int, _ bool) error {
 				require.Equal(t, tc.commitKind, kind)
 				require.LessOrEqual(t, batchRows, 2)
 				commitCalls++
@@ -120,17 +120,17 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 			deleted, err := remove(ctx)
 			require.ErrorIs(t, err, injected)
 			require.Equal(t, int64(2), deleted, "only the first committed chunk may be reported")
-			require.Equal(t, rows-2, countKeys(t, a.PebbleEngine(), tc.primaryPrefix))
-			require.Equal(t, rows-2, countKeys(t, a.PebbleEngine(), tc.indexPrefix))
-			require.NoError(t, auditSourceScopeBiconditional(a.PebbleEngine()))
+			require.Equal(t, rows-2, countKeys(t, a.Expansion().PebbleEngine(), tc.primaryPrefix))
+			require.Equal(t, rows-2, countKeys(t, a.Expansion().PebbleEngine(), tc.indexPrefix))
+			require.NoError(t, auditSourceScopeBiconditional(a.Expansion().PebbleEngine()))
 
-			a.PebbleEngine().test.sourceCacheDeleteCommitHook = nil
+			a.Expansion().PebbleEngine().test.sourceCacheDeleteCommitHook = nil
 			deleted, err = remove(ctx)
 			require.NoError(t, err)
 			require.Equal(t, int64(rows-2), deleted)
-			require.Zero(t, countKeys(t, a.PebbleEngine(), tc.primaryPrefix))
-			require.Zero(t, countKeys(t, a.PebbleEngine(), tc.indexPrefix))
-			require.NoError(t, auditSourceScopeBiconditional(a.PebbleEngine()))
+			require.Zero(t, countKeys(t, a.Expansion().PebbleEngine(), tc.primaryPrefix))
+			require.Zero(t, countKeys(t, a.Expansion().PebbleEngine(), tc.indexPrefix))
+			require.NoError(t, auditSourceScopeBiconditional(a.Expansion().PebbleEngine()))
 		})
 	}
 }
@@ -148,7 +148,7 @@ func TestVerificationEntitlementDeleteBumpsLookupGenPerChunk(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	const rows = 5
 	records := make([]*v3.EntitlementRecord, 0, rows)
@@ -164,26 +164,26 @@ func TestVerificationEntitlementDeleteBumpsLookupGenPerChunk(t *testing.T) {
 			}.Build(),
 		}.Build())
 	}
-	require.NoError(t, e.PutEntitlementRecords(ctx, records...))
+	require.NoError(t, e.records.PutEntitlementRecords(ctx, records...))
 
 	e.test.sourceCacheDeleteBatchRows = 2
-	genBefore := e.entIDLookupGen.Load()
+	genBefore := e.records.entIDLookupGen.Load()
 	commitCalls := 0
 	sawMidLoopBump := false
 	e.test.sourceCacheDeleteCommitHook = func(kind string, _ int, _ bool) error {
 		require.Equal(t, "entitlements-canonical", kind)
 		commitCalls++
 		if commitCalls == 2 {
-			sawMidLoopBump = e.entIDLookupGen.Load() > genBefore
+			sawMidLoopBump = e.records.entIDLookupGen.Load() > genBefore
 		}
 		return nil
 	}
-	require.NoError(t, e.DeleteEntitlementRecords(ctx, ids, ""))
+	require.NoError(t, e.records.DeleteEntitlementRecords(ctx, ids, ""))
 	e.test.sourceCacheDeleteCommitHook = nil
 	require.GreaterOrEqual(t, commitCalls, 2, "the 5-row delete must chunk at 2 rows")
 	require.True(t, sawMidLoopBump,
 		"chunk 1 landed before chunk 2's pre-commit hook; the lookup generation must already be invalidated")
-	require.Greater(t, e.entIDLookupGen.Load(), genBefore)
+	require.Greater(t, e.records.entIDLookupGen.Load(), genBefore)
 }
 
 // A Pebble batch returns to a process-global pool when closed. The helper must
@@ -195,13 +195,13 @@ func TestVerificationScopedDeleteBatchFinalCloseOwnership(t *testing.T) {
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	grant := scGrant("member", "alice", false)
-	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, "scope-a"), grant))
-	rec, err := a.PebbleEngine().GetGrantRecord(ctx, grant.GetId())
+	require.NoError(t, a.records.PutGrants(sourcecache.WithScope(ctx, "scope-a"), grant))
+	rec, err := a.Expansion().PebbleEngine().records.GetGrantRecord(ctx, grant.GetId())
 	require.NoError(t, err)
 	id, err := grantIdentityFromRecord(rec)
 	require.NoError(t, err)
 
-	deletes := newSourceCacheDeleteBatch(a.PebbleEngine(), "ownership", "scope-a", cockroachpebble.NoSync)
+	deletes := newSourceCacheDeleteBatch(a.Expansion().PebbleEngine(), "ownership", "scope-a", cockroachpebble.NoSync)
 	require.NoError(t, deletes.batch.StageSourceScopeOrphanIndexDelete(
 		encodeGrantBySourceScopeIndexKey("scope-a", id),
 	))

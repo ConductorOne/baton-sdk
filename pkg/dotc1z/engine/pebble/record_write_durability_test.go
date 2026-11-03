@@ -87,12 +87,12 @@ func TestBoundSyncRecordWritesDoNotSyncTheWAL(t *testing.T) {
 
 	syncID := ksuid.New().String()
 	require.NoError(t, eng.MarkFreshSync(syncID))
-	require.NoError(t, eng.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+	require.NoError(t, eng.SyncRuns().PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
 		SyncId:    syncID,
 		Type:      v3.SyncType_SYNC_TYPE_FULL,
 		StartedAt: timestamppb.Now(),
 	}.Build()))
-	require.NoError(t, eng.PutGrantRecords(ctx, durabilityTestGrants(0, 50)...))
+	require.NoError(t, eng.records.PutGrantRecords(ctx, durabilityTestGrants(0, 50)...))
 	require.NoError(t, eng.FinishSync(ctx))
 
 	require.NoError(t, eng.SetCurrentSync(ctx, syncID))
@@ -103,7 +103,7 @@ func TestBoundSyncRecordWritesDoNotSyncTheWAL(t *testing.T) {
 	// happened.
 	before := fs.walSyncs.Load()
 	require.Positive(t, before, "the counting FS saw no WAL sync from the fresh sync, so the equality below proves nothing")
-	require.NoError(t, eng.PutGrantRecords(ctx, durabilityTestGrants(50, 100)...))
+	require.NoError(t, eng.records.PutGrantRecords(ctx, durabilityTestGrants(50, 100)...))
 	require.Equal(t, before, fs.walSyncs.Load(), "PutGrantRecords on a bound sync fsynced the WAL")
 
 	require.NoError(t, eng.EndSync(ctx))
@@ -134,7 +134,7 @@ func TestBoundSyncRecordWritesDoNotSyncTheWAL(t *testing.T) {
 	require.NoError(t, err, "Open checkpoint")
 	defer func() { _ = reopened.Close() }()
 	count := 0
-	require.NoError(t, reopened.IterateGrants(ctx, func(*v3.GrantRecord) bool {
+	require.NoError(t, reopened.records.IterateGrants(ctx, func(*v3.GrantRecord) bool {
 		count++
 		return true
 	}))

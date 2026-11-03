@@ -114,18 +114,18 @@ func TestIDIndexMigrationSemantics(t *testing.T) {
 	require.NoError(t, err, "open migrates in place")
 
 	// External id migrated byte-identical.
-	ent, err := e.GetEntitlementRecord(ctx, "member")
+	ent, err := e.records.GetEntitlementRecord(ctx, "member")
 	require.NoError(t, err)
 	require.Equal(t, "member", ent.GetExternalId())
 
 	// The ref-less rows are gone; the duplicate grants folded to one row
 	// with the earliest-discovered external id.
 	var entIDs, grantIDs []string
-	require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
+	require.NoError(t, e.records.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
 		entIDs = append(entIDs, r.GetExternalId())
 		return true
 	}))
-	require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		grantIDs = append(grantIDs, r.GetExternalId())
 		return true
 	}))
@@ -134,7 +134,7 @@ func TestIDIndexMigrationSemantics(t *testing.T) {
 
 	// The by_principal index was rebuilt against the folded row.
 	var byPrincipal int
-	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "u1", func(*v3.GrantRecord) bool {
+	require.NoError(t, e.records.IterateGrantsByPrincipal(ctx, "user", "u1", func(*v3.GrantRecord) bool {
 		byPrincipal++
 		return true
 	}))
@@ -149,7 +149,7 @@ func TestIDIndexMigrationSemantics(t *testing.T) {
 	e2, err := Open(ctx, dir)
 	require.NoError(t, err)
 	defer e2.Close()
-	got, err := e2.GetEntitlementRecord(ctx, "member")
+	got, err := e2.records.GetEntitlementRecord(ctx, "member")
 	require.NoError(t, err)
 	require.Equal(t, "member", got.GetExternalId())
 }

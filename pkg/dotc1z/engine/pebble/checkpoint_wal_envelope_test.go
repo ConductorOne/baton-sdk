@@ -50,8 +50,8 @@ func TestSavedC1ZReopensAfterWALTruncation(t *testing.T) {
 	defer func() { _ = w.Close(ctx) }()
 	eng, ok := pebble.AsEngine(w)
 	require.True(t, ok, "not a pebble store: %T", w)
-	_, err = eng.GetSyncRunRecord(ctx, second)
+	_, err = eng.SyncRuns().GetSyncRunRecord(ctx, second)
 	require.NoError(t, err, "second sync %s lost across save/reopen", second)
-	_, err = eng.GetSyncRunRecord(ctx, first)
+	_, err = eng.SyncRuns().GetSyncRunRecord(ctx, first)
 	require.Error(t, err, "first sync %s should have been replaced by the second (single-sync contract)", first)
 }

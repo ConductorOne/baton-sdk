@@ -1108,7 +1108,8 @@ type Field_builder struct {
 	// action return types, the connector must return the value as PlaintextData
 	// through ActionHandlerWithSecrets; it is omitted from the public response
 	// and returned as EncryptedData.
-	IsSecret    bool
+	IsSecret bool
+	// Optional: the content type of the field. Only valid for StringField, StringSliceField, & StringMapField.
 	ContentType string
 	Tags        []string
 	// Fields of oneof xxx_hidden_Field:

@@ -832,7 +832,7 @@ func TestCompactor_IncrementalSealedArtifactLifecycle(t *testing.T) {
 	// (2) by_principal index is populated and covers sam (written incrementally).
 	eng, ok := enginepkg.AsEngine(store)
 	require.True(t, ok, "expected a pebble engine")
-	it, err := eng.NewIter(&pebble.IterOptions{
+	it, err := eng.Expansion().NewIter(&pebble.IterOptions{
 		LowerBound: enginepkg.GrantByPrincipalLowerBound(),
 		UpperBound: enginepkg.GrantByPrincipalUpperBound(),
 	})

@@ -6,11 +6,41 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
+
+type Digests struct {
+	e *Engine
+
+	// grantDigestBuildPending mirrors the durable digest-build marker
+	// (encodeGrantDigestBuildPendingKey): true between a digest build's
+	// arm and its completion (or the drop that cleans up after it). A
+	// writable Open that finds the durable marker drops all digest state
+	// immediately, so on a writable engine this is only ever true while
+	// a build owns the write barrier or after an in-process build
+	// failure whose cleanup drop itself failed. A READ-ONLY Open cannot
+	// drop, so the flag stays set and the digest root getters
+	// (getPartitionDigestRoot, GetGrantDigestGlobalRoot) report "never
+	// built" instead of trusting nodes a crashed build half-committed.
+	grantDigestBuildPending atomic.Bool
+
+	// grantDigestAbiStale is the read-only-open counterpart of the ABI
+	// check in verifyGrantDigestABI: true when the file holds digest
+	// nodes whose stamp (rawdb.GrantDigestABIStampKey) does not name
+	// the current GrantDigestABIVersion — state built by different hash
+	// code, e.g. a file sealed by an older SDK. A writable Open drops
+	// such state instead of setting this, so on a writable engine it is
+	// always false; on a read-only engine it makes the digest root
+	// getters report "never built" (the same fail-safe shape as
+	// grantDigestBuildPending above), and consumers recalculate.
+	grantDigestAbiStale atomic.Bool
+}
+
+func (e *Engine) Digests() *Digests { return &e.digests }
 
 // Bucketed XOR set digests over bucket-hash indexes.
 //
@@ -331,9 +361,9 @@ type digestLeafNode struct {
 // Callers must hold writeMu (all do): folding outside the writer mutex
 // could interleave with a record write and persist a digest that
 // matches neither the before nor the after state.
-func (e *Engine) foldPartitionNodes(ctx context.Context, spec digestIndexSpec, partition string, widthBits int) ([]byte, []digestLeafNode, error) {
+func (d *Digests) foldPartitionNodes(ctx context.Context, spec digestIndexSpec, partition string, widthBits int) ([]byte, []digestLeafNode, error) {
 	prefix := spec.partitionPrefix(partition)
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBoundOf(prefix)})
+	iter, err := d.e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBoundOf(prefix)})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -436,17 +466,17 @@ func (e *Engine) foldPartitionNodes(ctx context.Context, spec digestIndexSpec, p
 // presence to mean every partition is present and correct, and this
 // function rewrites one partition's content without touching that
 // root at all.
-func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestIndexSpec, partition string, widthBits int) error {
+func (d *Digests) buildPartitionDigestAtWidth(ctx context.Context, spec digestIndexSpec, partition string, widthBits int) error {
 	nodeLower := rawdb.DigestPartitionPrefix(spec.indexID, partition)
 	nodeUpper := upperBoundOf(nodeLower)
 
-	return e.withWrite(func() error {
-		rootVal, leaves, err := e.foldPartitionNodes(ctx, spec, partition, widthBits)
+	return d.e.withWrite(func() error {
+		rootVal, leaves, err := d.foldPartitionNodes(ctx, spec, partition, widthBits)
 		if err != nil {
 			return err
 		}
 
-		batch := e.db.NewDigestBatch()
+		batch := d.e.db.NewDigestBatch()
 		defer batch.Close()
 
 		// Clear any prior build (see function comment). In-batch
@@ -470,7 +500,7 @@ func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestInd
 		if err := batch.Commit(opts); err != nil {
 			return err
 		}
-		e.db.SetGrantDigestsPresent(true)
+		d.e.db.SetGrantDigestsPresent(true)
 		return nil
 	})
 }
@@ -490,14 +520,14 @@ type DigestRoot struct {
 // nodes, so with no root the index range is absent too and
 // computeBucketDigest would read that absence as "zero records" — the
 // false-clean trap dirtyPartitionBuckets' doc comment describes.
-func (e *Engine) getPartitionDigestRoot(spec digestIndexSpec, partition string) (DigestRoot, bool, error) {
-	if e.grantDigestStateUntrusted() {
+func (d *Digests) getPartitionDigestRoot(spec digestIndexSpec, partition string) (DigestRoot, bool, error) {
+	if d.e.grantDigestStateUntrusted() {
 		// See grantDigestStateUntrusted: no stored root may be trusted
 		// while either flag is set — report "never built", which every
 		// consumer already treats as "recalculate".
 		return DigestRoot{}, false, nil
 	}
-	val, closer, err := e.db.Get(encodeDigestNodeKey(spec.indexID, partition, digestLevelRoot, nil))
+	val, closer, err := d.e.db.Get(encodeDigestNodeKey(spec.indexID, partition, digestLevelRoot, nil))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return DigestRoot{}, false, nil
@@ -516,8 +546,8 @@ func (e *Engine) getPartitionDigestRoot(spec digestIndexSpec, partition string) 
 
 // getDigestLeaf reads one stored leaf by its key prefix. An absent leaf
 // returns (0, zero digest, present=false, nil) — the XOR identity.
-func (e *Engine) getDigestLeaf(spec digestIndexSpec, partition string, leafPrefix []byte) (int64, []byte, bool, error) {
-	val, closer, err := e.db.Get(encodeDigestNodeKey(spec.indexID, partition, digestLevelLeaf, leafPrefix))
+func (d *Digests) getDigestLeaf(spec digestIndexSpec, partition string, leafPrefix []byte) (int64, []byte, bool, error) {
+	val, closer, err := d.e.db.Get(encodeDigestNodeKey(spec.indexID, partition, digestLevelLeaf, leafPrefix))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return 0, zeroDigest[:], false, nil
@@ -549,9 +579,9 @@ type foldedBucket struct {
 // range scan; folding is exact because leaf prefixes are left-aligned
 // (so keys sort in bucket-hash order at any width) and XOR digests are
 // split-independent.
-func (e *Engine) foldedLeafBuckets(ctx context.Context, spec digestIndexSpec, partition string, foldBits int) ([]foldedBucket, error) {
+func (d *Digests) foldedLeafBuckets(ctx context.Context, spec digestIndexSpec, partition string, foldBits int) ([]foldedBucket, error) {
 	stem := encodeDigestNodeKey(spec.indexID, partition, digestLevelLeaf, nil)
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: stem, UpperBound: upperBoundOf(stem)})
+	iter, err := d.e.db.NewIter(&pebble.IterOptions{LowerBound: stem, UpperBound: upperBoundOf(stem)})
 	if err != nil {
 		return nil, err
 	}
@@ -596,9 +626,9 @@ func (e *Engine) foldedLeafBuckets(ctx context.Context, spec digestIndexSpec, pa
 // partition the fold reads an absent index range and returns {0, 0},
 // indistinguishable from a truly empty partition; it must never be
 // used as a fallback for a missing root (see getPartitionDigestRoot).
-func (e *Engine) computeBucketDigest(ctx context.Context, spec digestIndexSpec, partition string, bucket DigestBucket) ([]byte, int64, error) {
+func (d *Digests) computeBucketDigest(ctx context.Context, spec digestIndexSpec, partition string, bucket DigestBucket) ([]byte, int64, error) {
 	lower, upper := spec.bucketBounds(partition, bucket)
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := d.e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -633,9 +663,9 @@ func (e *Engine) computeBucketDigest(ctx context.Context, spec digestIndexSpec, 
 // to the bucket-hash resolution. Returns the non-empty buckets in index
 // order — index entries are bucket-hash-major, so each bucket's records
 // are contiguous and close when the top-`bits` prefix changes.
-func (e *Engine) computeBucketsAtWidth(ctx context.Context, spec digestIndexSpec, partition string, bits int) ([]foldedBucket, error) {
+func (d *Digests) computeBucketsAtWidth(ctx context.Context, spec digestIndexSpec, partition string, bits int) ([]foldedBucket, error) {
 	prefix := spec.partitionPrefix(partition)
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBoundOf(prefix)})
+	iter, err := d.e.db.NewIter(&pebble.IterOptions{LowerBound: prefix, UpperBound: upperBoundOf(prefix)})
 	if err != nil {
 		return nil, err
 	}
@@ -688,12 +718,12 @@ func (e *Engine) computeBucketsAtWidth(ctx context.Context, spec digestIndexSpec
 // with the index disabled folds to "zero records" and two such files
 // would compare falsely clean). So the whole partition is reported
 // dirty; the caller re-reads it, or rebuilds the digest first.
-func (e *Engine) dirtyPartitionBuckets(ctx context.Context, spec digestIndexSpec, other *Engine, partition string) ([]DigestBucket, error) {
-	rootA, okA, err := e.getPartitionDigestRoot(spec, partition)
+func (d *Digests) dirtyPartitionBuckets(ctx context.Context, spec digestIndexSpec, other *Engine, partition string) ([]DigestBucket, error) {
+	rootA, okA, err := d.getPartitionDigestRoot(spec, partition)
 	if err != nil {
 		return nil, err
 	}
-	rootB, okB, err := other.getPartitionDigestRoot(spec, partition)
+	rootB, okB, err := other.Digests().getPartitionDigestRoot(spec, partition)
 	if err != nil {
 		return nil, err
 	}
@@ -713,11 +743,11 @@ func (e *Engine) dirtyPartitionBuckets(ctx context.Context, spec digestIndexSpec
 		return []DigestBucket{{}}, nil
 	}
 
-	fa, err := e.foldedLeafBuckets(ctx, spec, partition, compareBits)
+	fa, err := d.foldedLeafBuckets(ctx, spec, partition, compareBits)
 	if err != nil {
 		return nil, err
 	}
-	fb, err := other.foldedLeafBuckets(ctx, spec, partition, compareBits)
+	fb, err := other.Digests().foldedLeafBuckets(ctx, spec, partition, compareBits)
 	if err != nil {
 		return nil, err
 	}

@@ -70,11 +70,11 @@ func TestProdScaleScanVsFoldDebt(t *testing.T) {
 		// files present; TablesCount is accurate in both modes. (The
 		// fold's production debt gate reads metrics from a writable
 		// open, where Sublevels is correct.)
-		l0Files := eng.Metrics().Levels[0].TablesCount
+		l0Files := eng.Expansion().Metrics().Levels[0].TablesCount
 
 		start := time.Now()
 		count := 0
-		require.NoError(t, eng.IterateGrants(ctx, func(*v3.GrantRecord) bool {
+		require.NoError(t, eng.Records().IterateGrants(ctx, func(*v3.GrantRecord) bool {
 			count++
 			return true
 		}))

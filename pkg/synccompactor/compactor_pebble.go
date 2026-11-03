@@ -475,7 +475,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	if !ok {
 		return "", errors.New("compactPebbleFold: compacted store is not a pebble engine")
 	}
-	baseRec, err := destEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+	baseRec, err := destEng.SyncRuns().LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 	if err != nil {
 		return "", fmt.Errorf("compactPebbleFold: select base sync: %w", err)
 	}
@@ -530,7 +530,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 			return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
 		}
 		if srcSyncID == "" {
-			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+			rec, err := srcEng.SyncRuns().LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 			if err != nil {
 				err = fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", sourcePath, err)
 				return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
@@ -675,7 +675,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// stamped, and pays the normal O(partials) cost again.
 	switch {
 	case len(foldStats.TouchedGrantPartitions) > 0 && !destEng.GrantDigestIndexEnabled():
-		if err := destEng.DropAllGrantDigestState(ctx); err != nil {
+		if err := destEng.Digests().DropAllGrantDigestState(ctx); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: drop grant digest state (digest index disabled): %w", err)
 		}
 		l.Info("compactPebbleFold: grant writes with digest index disabled; dropped the base's copied digest state",
@@ -685,16 +685,16 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		for p := range foldStats.TouchedGrantPartitions {
 			partitions = append(partitions, p)
 		}
-		if err := destEng.InvalidateGrantDigestPartitions(ctx, partitions); err != nil {
+		if err := destEng.Digests().InvalidateGrantDigestPartitions(ctx, partitions); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: invalidate grant digest partitions: %w", err)
 		}
-		if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
+		if err := destEng.Digests().RepairMissingGrantDigests(ctx); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: repair grant digests: %w", err)
 		}
 		l.Info("compactPebbleFold: repaired grant digests for touched entitlements",
 			zap.Int("touched_partitions", len(partitions)))
 	case destEng.GrantDigestIndexEnabled() && !destEng.GrantDigestsPresent():
-		if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
+		if err := destEng.Digests().RepairMissingGrantDigests(ctx); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: build grant digests for a base with none: %w", err)
 		}
 		l.Info("compactPebbleFold: no grant writes, but the base carried no grant digest state; built it")
@@ -736,7 +736,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// stamped with that base sync ID and may no longer describe merged data.
 	// Drop it before publishing the fresh sync; a following expansion writes a
 	// new graph, while skip-expansion artifacts safely fall back next time.
-	if err := destEng.DeleteEntitlementGraphSidecar(ctx); err != nil {
+	if err := destEng.Digests().DeleteEntitlementGraphSidecar(ctx); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: delete inherited entitlement graph: %w", err)
 	}
 	baseRec.SetSyncId(newSyncID)
@@ -772,14 +772,14 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// file's one sync-run record now carries newSyncID. (The compactor
 	// GetSync's this id right after and asserts it matches — the
 	// engine's GetSyncRunRecord id-match guard enforces it.)
-	if err := destEng.PutSyncRunRecord(ctx, baseRec); err != nil {
+	if err := destEng.SyncRuns().PutSyncRunRecord(ctx, baseRec); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: persist folded sync_run: %w", err)
 	}
 	// The fold rewrote the keyspace, so the cached stats sidecar is
 	// stale. Recompute under the NEW id so the sidecar's SyncId — and
 	// the envelope manifest's sync-run projection built from it at save
 	// — match the renamed sync. Key-range counts, not full unmarshals.
-	if err := destEng.PersistSyncStats(ctx, newSyncID); err != nil {
+	if err := destEng.SyncRuns().PersistSyncStats(ctx, newSyncID); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: persist stats: %w", err)
 	}
 	// Best-effort: provenance never fails the compaction.
@@ -797,7 +797,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 			partialSyncIDs,
 			compactionRecordCounts(outputStats, &foldStats),
 		))
-		if err := destEng.PersistComputedSyncStats(ctx, newSyncID, outputStats); err != nil {
+		if err := destEng.SyncRuns().PersistComputedSyncStats(ctx, newSyncID, outputStats); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: persist provenance: %w", err)
 		}
 	}
@@ -870,7 +870,7 @@ func rebuildCompactedGrantDigests(ctx context.Context, destEng *enginepkg.Engine
 	if !destEng.GrantDigestIndexEnabled() {
 		return nil
 	}
-	if err := destEng.BuildGrantDigests(ctx); err != nil {
+	if err := destEng.Digests().BuildGrantDigests(ctx); err != nil {
 		return fmt.Errorf("build grant digests: %w", err)
 	}
 	return nil
@@ -1018,7 +1018,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			if !ok {
 				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s is not a pebble c1z", sourcePath)
 			}
-			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+			rec, err := srcEng.SyncRuns().LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 			if err != nil {
 				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: select source sync for %s: %w", sourcePath, err)
 			}
@@ -1123,7 +1123,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	// Set the compacted sync_run's type + ended_at to the union / max
 	// across the inputs so downstream gating (e.g. grant expansion)
 	// behaves identically to the sqlite path, then recompute stats.
-	rec, err := destEng.GetSyncRunRecord(ctx, newSyncId)
+	rec, err := destEng.SyncRuns().GetSyncRunRecord(ctx, newSyncId)
 	if err != nil {
 		return fmt.Errorf("compactPebble: load dest sync_run: %w", err)
 	}
@@ -1137,13 +1137,13 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	} else {
 		rec.SetSyncToken(tok)
 	}
-	if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
+	if err := destEng.SyncRuns().PutSyncRunRecord(ctx, rec); err != nil {
 		return fmt.Errorf("compactPebble: persist dest sync_run: %w", err)
 	}
 	// The merge accumulated the dest stats while writing winners, so
 	// persist those instead of re-scanning the freshly written output.
 	if statsRec == nil {
-		if err := destEng.PersistSyncStats(ctx, newSyncId); err != nil {
+		if err := destEng.SyncRuns().PersistSyncStats(ctx, newSyncId); err != nil {
 			return fmt.Errorf("compactPebble: persist stats: %w", err)
 		}
 		recomputed, statsErr := enginepkg.ReadSyncStatsRecord(ctx, destEng, newSyncId)
@@ -1163,7 +1163,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		statsRec.SetCompaction(buildCompactionProvenance(
 			nil, string(mode), rebuildBaseSyncID, rebuildPartialSyncIDs, compactionRecordCounts(statsRec, nil),
 		))
-		if err := destEng.PersistComputedSyncStats(ctx, newSyncId, statsRec); err != nil {
+		if err := destEng.SyncRuns().PersistComputedSyncStats(ctx, newSyncId, statsRec); err != nil {
 			return fmt.Errorf("compactPebble: persist stats: %w", err)
 		}
 	}

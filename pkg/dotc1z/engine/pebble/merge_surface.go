@@ -30,60 +30,60 @@ import (
 
 // Get reads a key. Same contract as pebble.DB.Get, including
 // pebble.ErrNotFound and the caller-owned closer.
-func (e *Engine) Get(key []byte) ([]byte, io.Closer, error) {
-	if e.db == nil {
+func (x *Expansion) Get(key []byte) ([]byte, io.Closer, error) {
+	if x.e.db == nil {
 		return nil, nil, ErrEngineClosing
 	}
-	return e.db.Get(key)
+	return x.e.db.Get(key)
 }
 
 // NewIter opens an iterator. Same contract as pebble.DB.NewIter.
-func (e *Engine) NewIter(o *pebble.IterOptions) (*pebble.Iterator, error) {
-	if e.db == nil {
+func (x *Expansion) NewIter(o *pebble.IterOptions) (*pebble.Iterator, error) {
+	if x.e.db == nil {
 		return nil, ErrEngineClosing
 	}
-	return e.db.NewIter(o)
+	return x.e.db.NewIter(o)
 }
 
 // Metrics returns pebble's metrics snapshot, or nil after Close.
-func (e *Engine) Metrics() *pebble.Metrics {
-	if e.db == nil {
+func (x *Expansion) Metrics() *pebble.Metrics {
+	if x.e.db == nil {
 		return nil
 	}
-	return e.db.Metrics()
+	return x.e.db.Metrics()
 }
 
 // EstimateDiskUsage estimates on-disk size of the key range.
-func (e *Engine) EstimateDiskUsage(start, end []byte) (uint64, error) {
-	if e.db == nil {
+func (x *Expansion) EstimateDiskUsage(start, end []byte) (uint64, error) {
+	if x.e.db == nil {
 		return 0, ErrEngineClosing
 	}
-	return e.db.EstimateDiskUsage(start, end)
+	return x.e.db.EstimateDiskUsage(start, end)
 }
 
 // DropKeyRange stages and commits a range tombstone over [start, end).
-func (e *Engine) DropKeyRange(start, end []byte, o *pebble.WriteOptions) error {
-	if e.db == nil {
+func (x *Expansion) DropKeyRange(start, end []byte, o *pebble.WriteOptions) error {
+	if x.e.db == nil {
 		return ErrEngineClosing
 	}
-	return e.db.DropKeyRange(start, end, o)
+	return x.e.db.DropKeyRange(start, end, o)
 }
 
 // IngestSSTs ingests externally built SSTs (created on the engine FS).
-func (e *Engine) IngestSSTs(ctx context.Context, paths []string) error {
-	if e.db == nil {
+func (x *Expansion) IngestSSTs(ctx context.Context, paths []string) error {
+	if x.e.db == nil {
 		return ErrEngineClosing
 	}
-	return e.db.IngestSSTs(ctx, paths)
+	return x.e.db.IngestSSTs(ctx, paths)
 }
 
 // ReplaceRangeWithSSTs atomically replaces span with the given SSTs
 // (pebble IngestAndExcise).
-func (e *Engine) ReplaceRangeWithSSTs(ctx context.Context, paths []string, span pebble.KeyRange) error {
-	if e.db == nil {
+func (x *Expansion) ReplaceRangeWithSSTs(ctx context.Context, paths []string, span pebble.KeyRange) error {
+	if x.e.db == nil {
 		return ErrEngineClosing
 	}
-	return e.db.ReplaceRangeWithSSTs(ctx, paths, span)
+	return x.e.db.ReplaceRangeWithSSTs(ctx, paths, span)
 }
 
 // NewFoldBatch mints the compactor's generic staged batch (the one
@@ -95,11 +95,11 @@ func (e *Engine) ReplaceRangeWithSSTs(ctx context.Context, paths []string, span 
 // and a closed engine here means the compactor's call-ordering fence
 // (merge completes before save/Close) was violated, which is a
 // programming error, not a runtime condition to handle.
-func (e *Engine) NewFoldBatch() *FoldBatch {
-	if e.db == nil {
+func (x *Expansion) NewFoldBatch() *FoldBatch {
+	if x.e.db == nil {
 		panic("pebble engine: NewFoldBatch on a closed engine — the fold must complete before the engine closes")
 	}
-	return e.db.NewFoldBatch()
+	return x.e.db.NewFoldBatch()
 }
 
 // UnsafeForTesting returns the raw *pebble.DB — the single raw escape
@@ -107,9 +107,9 @@ func (e *Engine) NewFoldBatch() *FoldBatch {
 // the production API cannot express. Panics outside `go test`
 // (testing.Testing(), enforced inside rawdb) and, explicitly, after
 // Close.
-func (e *Engine) UnsafeForTesting() *pebble.DB {
-	if e.db == nil {
+func (x *Expansion) UnsafeForTesting() *pebble.DB {
+	if x.e.db == nil {
 		panic("pebble engine: UnsafeForTesting on a closed engine")
 	}
-	return e.db.UnsafeForTesting()
+	return x.e.db.UnsafeForTesting()
 }
