@@ -94,7 +94,7 @@ func (p *ledgerPage) GetResource(ctx context.Context, resourceTypeID, resourceID
 
 func (p *ledgerPage) stage(action *Action, next string, children []Action) error {
 	if action.ID != p.action.ID {
-		return errors.New("ledger page transitioned a different action")
+		return fmt.Errorf("ledger page for %s %s transitioned %s %s", p.action.Op, p.action.ID, action.Op, action.ID)
 	}
 	scheduled := make(map[string]bool)
 	accepted := make([]Action, 0, len(children))
