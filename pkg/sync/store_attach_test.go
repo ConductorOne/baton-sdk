@@ -46,7 +46,7 @@ func TestNewSyncerRejectsStoreWithoutPageLedger(t *testing.T) {
 	require.ErrorContains(t, err, "requires Pebble and PageLedgerStore")
 }
 
-// withLedgerCaps exposes the real store's PageLedgerStore, WriteHookStore,
+// withLedgerCaps exposes the real store's PageLedgerStore, SetWriteHook,
 // and Metadata. Every other method still reaches the double.
 func TestWithLedgerCapsAttachesLedgered(t *testing.T) {
 	ctx := t.Context()
@@ -60,7 +60,9 @@ func TestWithLedgerCapsAttachesLedgered(t *testing.T) {
 	caps := resolveStoreCaps(wrapped)
 	realCaps := resolveStoreCaps(pebbleStore)
 	require.Same(t, realCaps.pageLedger, caps.pageLedger.(*ledgeredStore).PageLedgerStore)
-	require.Same(t, realCaps.writeHook, caps.writeHook.(*ledgeredStore).WriteHookStore)
+	realHook, ok := pebbleStore.(writeHookSetter)
+	require.True(t, ok)
+	require.Same(t, realHook, wrapped.(*ledgeredStore).writeHookSetter)
 	require.Nil(t, wrapped.SyncMeta(), "non-ledger calls reach the double")
 
 	s, err := NewSyncer(ctx, newMockConnector(), WithConnectorStore(wrapped))
@@ -77,6 +79,8 @@ func TestWithTripwireLedgerCapsPanicsOnTouch(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, s.(*syncer).storeAttachErr)
 
-	require.Panics(t, func() { wrapped.(c1zstore.WriteHookStore).SetWriteHook(nil) })
+	setter, ok := wrapped.(writeHookSetter)
+	require.True(t, ok)
+	require.Panics(t, func() { setter.SetWriteHook(nil) })
 	require.Panics(t, func() { _, _ = wrapped.(c1zstore.PageLedgerStore).LedgerFacts(t.Context()) })
 }
