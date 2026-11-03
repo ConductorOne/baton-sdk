@@ -67,7 +67,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 		f.audit.enter(ledgerHandler)
 		_, err = runtime.runPage(t.Context(), 0, id, func(ctx context.Context, page *ledgerPage) error {
 			require.NoError(t, page.writer.SetPendingWork(work[0]))
-			require.NoError(t, page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()))
+			require.NoError(t, page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()))
 			require.NoError(t, page.setFact("runtime-fact"))
 			page.observations.Counters = map[string]uint64{"pages": 1}
 			if cut == "page-handler" {
@@ -81,8 +81,8 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			crash()
 		}
 		f.audit.enter(ledgerHandler)
-		require.NoError(t, runLedgerSchedulerFixture(t, runtime, []ledgerAction{{identity: id}}, 1, func(ctx context.Context, s *syncer, action *Action, _ *ledgerPage) error {
-			return s.nextPageOrFinishAction(ctx, action, "")
+		require.NoError(t, runLedgerSchedulerFixture(t, runtime, []ledgerAction{{identity: id}}, 1, func(ctx context.Context, page *ledgerPage, s *syncer, action *Action) error {
+			return page.stage(action, "", nil)
 		}))
 		f.audit.enter(ledgerLifecycle)
 		require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{StepDurationsMs: map[string]int64{"run": 17}}))

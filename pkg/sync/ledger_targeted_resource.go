@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (s *syncer) getLedgerResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+func (s *syncer) getLedgerResourceFromConnector(ctx context.Context, page *ledgerPage, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	ctx, span := tracer.Start(ctx, "syncer.getResource")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -27,14 +27,13 @@ func (s *syncer) getLedgerResourceFromConnector(ctx context.Context, resourceID 
 			ActiveSyncId:     s.getActiveSyncID(),
 		}.Build(),
 	)
-	invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	callAction := *invocation.action
+	callAction := *page.action
 	callAction.ResourceTypeID, callAction.ResourceID = resourceID.GetResourceType(), resourceID.GetResource()
-	s.recordLedgerConnectorResponseForAction(ctx, invocation, &callAction, "get-resource", time.Since(start), resourceResp.GetAnnotations())
-	recordLedgerConnectorError(invocation, err)
+	s.recordLedgerConnectorResponseForAction(ctx, page, &callAction, "get-resource", time.Since(start), resourceResp.GetAnnotations())
+	recordLedgerConnectorError(page, err)
 	if err == nil {
 		if resourceResp.GetResource() != nil {
-			ledgerCollection(invocation).ResourcesReceived++
+			ledgerCollection(page).ResourcesReceived++
 		}
 		return resourceResp.GetResource(), nil
 	}
@@ -53,13 +52,12 @@ func (s *syncer) getLedgerResourceFromConnector(ctx context.Context, resourceID 
 	return nil, err
 }
 
-func (s *syncer) syncLedgerTargetedResource(ctx context.Context, action *Action) error {
-	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	if !ok {
+func (s *syncer) syncLedgerTargetedResource(ctx context.Context, page *ledgerPage, action *Action) error {
+	if page == nil {
 		return errors.New("targeted resource ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { invocation.page.row.PageDuration = time.Since(start) }()
+	defer page.recordDuration(start)
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncTargetedResource")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -82,7 +80,7 @@ func (s *syncer) syncLedgerTargetedResource(ctx context.Context, action *Action)
 		}.Build()
 	}
 
-	resource, err := s.getLedgerResourceFromConnector(ctx, v2.ResourceId_builder{
+	resource, err := s.getLedgerResourceFromConnector(ctx, page, v2.ResourceId_builder{
 		ResourceType: resourceTypeID,
 		Resource:     resourceID,
 	}.Build(), prID)
@@ -91,18 +89,18 @@ func (s *syncer) syncLedgerTargetedResource(ctx context.Context, action *Action)
 	}
 
 	if resource == nil {
-		return s.nextPageOrFinishAction(ctx, action, "")
+		return page.stage(action, "", nil)
 	}
-	resources, err := s.filterLedgerResources(invocation, []*v2.Resource{resource})
+	resources, err := s.filterLedgerResources(page, []*v2.Resource{resource})
 	if err != nil {
 		return err
 	}
 	if len(resources) == 0 {
-		return s.nextPageOrFinishAction(ctx, action, "")
+		return page.stage(action, "", nil)
 	}
 	resource = resources[0]
 
-	if err := invocation.page.writer.PutResources(ctx, resource); err != nil {
+	if err := page.PutResources(ctx, resource); err != nil {
 		return err
 	}
 
@@ -152,5 +150,5 @@ func (s *syncer) syncLedgerTargetedResource(ctx context.Context, action *Action)
 	childActions := s.pendingChildResourceActions(childTypeIDs, resourceTypeID, resourceID)
 	followupActions = append(followupActions, childActions...)
 
-	return s.nextPageOrFinishAction(ctx, action, "", followupActions...)
+	return page.stage(action, "", followupActions)
 }

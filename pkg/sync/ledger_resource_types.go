@@ -46,22 +46,20 @@ func (s *syncer) validateSelectedResourceTypes(ctx context.Context, staged []*v2
 	return nil
 }
 
-func (s *syncer) syncLedgerResourceTypes(ctx context.Context, action *Action) error {
+func (s *syncer) syncLedgerResourceTypes(ctx context.Context, page *ledgerPage, action *Action) error {
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncResourceTypes")
 	uotel.SetSyncIdentityAttrs(ctx, span)
-	err := s.collectLedgerResourceTypes(ctx, action)
+	err := s.collectLedgerResourceTypes(ctx, page, action)
 	uotel.EndSpanWithError(span, err)
 	return err
 }
 
-func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action) error {
-	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	if !ok {
+func (s *syncer) collectLedgerResourceTypes(ctx context.Context, page *ledgerPage, action *Action) error {
+	if page == nil {
 		return errors.New("resource-type ledger handler requires an open page")
 	}
-	page := invocation.page
 	pageStart := time.Now()
-	defer func() { page.row.PageDuration = time.Since(pageStart) }()
+	defer page.recordDuration(pageStart)
 	if action.PageToken == "" {
 		ctxzap.Extract(ctx).Info("Syncing resource types...")
 		s.handleInitialActionForStep(ctx, *action)
@@ -71,12 +69,12 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 		PageToken: action.PageToken, ActiveSyncId: s.getActiveSyncID(),
 	}.Build())
 	elapsed := time.Since(start)
-	s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", elapsed, resp.GetAnnotations())
-	recordLedgerConnectorError(invocation, err)
+	s.recordLedgerConnectorResponse(ctx, page, "list-resource-types", elapsed, resp.GetAnnotations())
+	recordLedgerConnectorError(page, err)
 	if err != nil {
 		return markActionListCall(err)
 	}
-	collection := ledgerCollection(invocation)
+	collection := ledgerCollection(page)
 	recordLedgerList(collection, &collection.ResourceTypesReceived, resp.GetList(), resp.GetNextPageToken())
 	selection := make(map[string]bool, len(s.cfg.syncResourceTypes))
 	for _, id := range s.cfg.syncResourceTypes {
@@ -99,7 +97,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 			collection.ResourceTypesExcludedBySelection++
 		}
 	}
-	if err := page.writer.PutResourceTypes(ctx, selected...); err != nil {
+	if err := page.PutResourceTypes(ctx, selected...); err != nil {
 		return err
 	}
 	if resp.GetNextPageToken() == "" {
@@ -111,7 +109,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 	page.observations.Counters = map[string]uint64{"ingest.invalid_resource_types_observed": invalid}
 
 	progressAction := *action
-	invocation.afterCommit = append(invocation.afterCommit, func() {
+	page.afterCommit = append(page.afterCommit, func() {
 		s.ingestFilterStats.invalidResourceTypesObserved.Add(invalid)
 		s.counts.AddResourceTypes(len(selected))
 		s.handleProgress(ctx, &progressAction, len(selected))
@@ -119,53 +117,52 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 			s.counts.LogResourceTypesProgress(ctx)
 		}
 	})
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+	return page.stage(action, resp.GetNextPageToken(), nil)
 }
 
-func (s *syncer) recordLedgerConnectorResponse(ctx context.Context, invocation *ledgerInvocation, method string, elapsed time.Duration, annos []*anypb.Any) {
-	s.recordLedgerConnectorResponseForAction(ctx, invocation, invocation.action, method, elapsed, annos)
+func (s *syncer) recordLedgerConnectorResponse(ctx context.Context, page *ledgerPage, method string, elapsed time.Duration, annos []*anypb.Any) {
+	s.recordLedgerConnectorResponseForAction(ctx, page, page.action, method, elapsed, annos)
 }
 
 func (s *syncer) recordLedgerConnectorResponseForAction(
-	ctx context.Context, invocation *ledgerInvocation, action *Action, method string, elapsed time.Duration, annos []*anypb.Any,
+	ctx context.Context, page *ledgerPage, action *Action, method string, elapsed time.Duration, annos []*anypb.Any,
 ) {
-	page := invocation.page
 	var reportedWait time.Duration
-	if invocation.attempts != nil {
+	if page.attempts != nil {
 		measured := elapsed
 		if !s.recordStats {
 			measured = 0
 		}
-		invocation.attempts.recordCall(measured)
+		page.attempts.recordCall(measured)
 	}
 	if s.recordStats {
 		page.row.ConnectorDuration += elapsed
 		stat := c1zstore.CallStat{Count: 1, TotalMs: elapsed.Milliseconds(), MaxMs: elapsed.Milliseconds()}
-		if invocation.connectorObservations.ConnectorCalls == nil {
-			invocation.connectorObservations.ConnectorCalls = make(map[string]c1zstore.CallStat)
+		if page.connectorObservations.ConnectorCalls == nil {
+			page.connectorObservations.ConnectorCalls = make(map[string]c1zstore.CallStat)
 		}
-		previous := invocation.connectorObservations.ConnectorCalls[method]
+		previous := page.connectorObservations.ConnectorCalls[method]
 		previous.Add(stat)
-		invocation.connectorObservations.ConnectorCalls[method] = previous
+		page.connectorObservations.ConnectorCalls[method] = previous
 		if action.ResourceTypeID != "" {
 			key := method + ":" + action.ResourceTypeID
-			previous := invocation.connectorObservations.ConnectorCalls[key]
+			previous := page.connectorObservations.ConnectorCalls[key]
 			previous.Add(stat)
-			invocation.connectorObservations.ConnectorCalls[key] = previous
+			page.connectorObservations.ConnectorCalls[key] = previous
 		}
 		reportedWait = connectorReportedWait(annos)
 		if reportedWait > 0 {
 			waitMs := reportedWait.Milliseconds()
 			page.row.WaitDuration += reportedWait
-			if invocation.attempts != nil {
-				invocation.attempts.recordReportedWait(reportedWait)
+			if page.attempts != nil {
+				page.attempts.recordReportedWait(reportedWait)
 			}
-			if invocation.connectorObservations.StepDurationsMs == nil {
-				invocation.connectorObservations.StepDurationsMs = make(map[string]int64)
+			if page.connectorObservations.StepDurationsMs == nil {
+				page.connectorObservations.StepDurationsMs = make(map[string]int64)
 			}
-			invocation.connectorObservations.StepDurationsMs["rate_limit_wait"] += waitMs
+			page.connectorObservations.StepDurationsMs["rate_limit_wait"] += waitMs
 			if action.ResourceTypeID != "" {
-				invocation.connectorObservations.StepDurationsMs["rate_limit_wait:"+action.ResourceTypeID] += waitMs
+				page.connectorObservations.StepDurationsMs["rate_limit_wait:"+action.ResourceTypeID] += waitMs
 			}
 		}
 	}
@@ -180,7 +177,7 @@ func (s *syncer) recordLedgerConnectorResponseForAction(
 	}
 }
 
-func (s *syncer) recordLedgerSessionUsage(invocation *ledgerInvocation, annos []*anypb.Any) {
+func (s *syncer) recordLedgerSessionUsage(page *ledgerPage, annos []*anypb.Any) {
 	if !s.recordStats {
 		return
 	}
@@ -190,16 +187,16 @@ func (s *syncer) recordLedgerSessionUsage(invocation *ledgerInvocation, annos []
 	if err != nil || !found {
 		return
 	}
-	if invocation.connectorObservations.SessionCalls == nil {
-		invocation.connectorObservations.SessionCalls = make(map[string]c1zstore.CallStat)
+	if page.connectorObservations.SessionCalls == nil {
+		page.connectorObservations.SessionCalls = make(map[string]c1zstore.CallStat)
 	}
 	for _, op := range usage.GetOps() {
 		if op.GetOp() == "" {
 			continue
 		}
 		key := "connector." + op.GetOp()
-		stat := invocation.connectorObservations.SessionCalls[key]
+		stat := page.connectorObservations.SessionCalls[key]
 		stat.Add(c1zstore.CallStat{Count: op.GetCount(), Errors: op.GetErrors(), Timeouts: op.GetTimeouts(), TotalMs: op.GetTotalMs(), MaxMs: op.GetMaxMs()})
-		invocation.connectorObservations.SessionCalls[key] = stat
+		page.connectorObservations.SessionCalls[key] = stat
 	}
 }

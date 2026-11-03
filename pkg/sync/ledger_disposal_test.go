@@ -30,7 +30,7 @@ func TestLedgerDiscardPendingFinishedBindingDoesNotRestartProcessing(t *testing.
 		WithConnectorStore(f.store), WithSyncID(id), WithPreserveEntitlementGraph())
 	require.NoError(t, err)
 	next := resumed.(*syncer)
-	next.testHooks.ledgerHandler = func(context.Context, *Action, *ledgerPage) error {
+	next.testHooks.ledgerHandler = func(context.Context, *ledgerPage, *Action) error {
 		t.Error("pending seal must not restart processing")
 		return errLedgerInjectedPage
 	}

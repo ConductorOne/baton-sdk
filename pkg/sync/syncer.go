@@ -198,10 +198,6 @@ type syncer struct {
 	// whose durable list-resource ratio already trips cannot abort before
 	// this run finishes more than ten list-resource actions.
 	listResourceActionsCompletedThisRun atomic.Uint64
-	// parallelActionTransitioner atomically commits parent pagination and
-	// spawned work to state and the active worker pool.
-	parallelTransitionMu       native_sync.RWMutex
-	parallelActionTransitioner func(context.Context, *Action, string, []Action) error
 
 	// Watermark for the rate_limit_wait_wall bucket: the latest instant
 	// already counted as rate-limit-blocked wall time, plus the
@@ -670,33 +666,13 @@ func (s *syncer) markTypeScopedPlanned(action *Action) {
 // could not see rows a non-stream ingestion path wrote.
 const maxEntitlementsPerExclusionGroup = 50
 
-// nextPageOrFinishAction updates the action with the next page token, or if there is no next page, finishes the action.
-// It also pushes any child actions before updating/finishing the action.
-// This is useful for pagination, and for actions that create other actions.
-func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
-	if invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation); ok {
-		return invocation.stage(action, nextPageToken, childActions)
-	}
-	s.parallelTransitionMu.RLock()
-	transitioner := s.parallelActionTransitioner
-	s.parallelTransitionMu.RUnlock()
-	if transitioner != nil {
-		return transitioner(ctx, action, nextPageToken, childActions)
-	}
-
-	return s.transitionActionState(ctx, action, nextPageToken, childActions)
-}
-
 func (s *syncer) transitionActionState(
 	ctx context.Context,
 	action *Action,
 	nextPageToken string,
 	childActions []Action,
+	pending ledgerTransitionCommit,
 ) error {
-	pending, ok := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit)
-	if !ok {
-		return errors.New("action transition requires a ledger commit")
-	}
 	if err := pending.commit(); err != nil {
 		return err
 	}
@@ -952,8 +928,8 @@ func (s *syncer) SkipSync(ctx context.Context) (err error) {
 	return s.skipLedgerSync(runCtx)
 }
 
-func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
-	return s.syncLedgerResourceTypes(ctx, action)
+func (s *syncer) SyncResourceTypes(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerResourceTypes(ctx, page, action)
 }
 
 func (s *syncer) hasChildResources(resource *v2.Resource) bool {
@@ -1032,14 +1008,14 @@ func (s *syncer) pendingChildResourceActions(childTypeIDs []string, parentTypeID
 	return actions
 }
 
-func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error {
-	return s.syncLedgerTargetedResource(ctx, action)
+func (s *syncer) SyncTargetedResource(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerTargetedResource(ctx, page, action)
 }
 
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
-func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
-	return s.syncLedgerResources(ctx, action)
+func (s *syncer) SyncResources(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerResources(ctx, page, action)
 }
 
 func resourceTraitMessage(t v2.ResourceType_Trait) proto.Message {
@@ -1326,8 +1302,8 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 
 // SyncEntitlements fetches entitlements. Annotated resource types receive one
 // type-scoped action instead of a per-resource fan-out.
-func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
-	return s.syncLedgerEntitlements(ctx, action)
+func (s *syncer) SyncEntitlements(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerEntitlements(ctx, page, action)
 }
 
 func (s *syncer) resourceTypeHasTypeScopedEntitlements(ctx context.Context, resourceTypeID string) (bool, error) {
@@ -1338,13 +1314,13 @@ func (s *syncer) typeScopedEntitlementsResourceTypes(ctx context.Context) ([]str
 	return s.resourceTypesCarrying(ctx, &v2.TypeScopedEntitlements{}, &s.typeScopedEntitlementsForResourceType)
 }
 
-func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) error {
-	return s.syncLedgerStaticEntitlements(ctx, action)
+func (s *syncer) SyncStaticEntitlements(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerStaticEntitlements(ctx, page, action)
 }
 
 // SyncAssets iterates each resource in the data store, and adds an action to fetch all of the assets for that resource.
-func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
-	return s.syncLedgerAssets(ctx, action)
+func (s *syncer) SyncAssets(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerAssets(ctx, page, action)
 }
 
 // SyncGrantExpansion handles the grant expansion phase of sync.
@@ -1493,8 +1469,8 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 
 // SyncGrants fetches grants. Annotated resource types receive one type-scoped
 // action instead of a per-resource fan-out.
-func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
-	return s.syncLedgerGrants(ctx, action)
+func (s *syncer) SyncGrants(ctx context.Context, page *ledgerPage, action *Action) error {
+	return s.syncLedgerGrants(ctx, page, action)
 }
 
 func (s *syncer) resourceTypeHasTypeScopedGrants(ctx context.Context, resourceTypeID string) (bool, error) {

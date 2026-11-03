@@ -33,11 +33,10 @@ func TestLedgerRunAccountingAcrossAttempts(t *testing.T) {
 	s.run.pushAction(t.Context(), Action{Op: SyncResourceTypesOp})
 	usage, err := anypb.New(v2.SessionStoreUsage_builder{Ops: []*v2.SessionStoreUsage_OpStats{v2.SessionStoreUsage_OpStats_builder{Op: "get", Count: 2, TotalMs: 6, MaxMs: 4}.Build()}}.Build())
 	require.NoError(t, err)
-	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, page *ledgerPage) error {
-		invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-		s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", 4*time.Millisecond, nil)
-		s.recordLedgerSessionUsage(invocation, []*anypb.Any{usage})
-		return s.nextPageOrFinishAction(ctx, action, "")
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+		s.recordLedgerConnectorResponse(ctx, page, "list-resource-types", 4*time.Millisecond, nil)
+		s.recordLedgerSessionUsage(page, []*anypb.Any{usage})
+		return page.stage(action, "", nil)
 	}
 	f.audit.enter(ledgerHandler)
 	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), nil, false))
@@ -111,13 +110,12 @@ func TestLedgerResponseObservationsAreCapturedBeforeCommit(t *testing.T) {
 	}}.Build())
 	require.NoError(t, err)
 	annos := []*anypb.Any{wait, usage}
-	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
-		invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-		s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", time.Millisecond, annos)
-		s.recordLedgerSessionUsage(invocation, annos)
+	s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+		s.recordLedgerConnectorResponse(ctx, page, "list-resource-types", time.Millisecond, annos)
+		s.recordLedgerSessionUsage(page, annos)
 		wait.Value = nil
 		usage.Value = nil
-		return s.nextPageOrFinishAction(ctx, action, "")
+		return page.stage(action, "", nil)
 	}
 	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), nil, false))
 	stored, err := f.ledger.LedgerCounters(t.Context())
@@ -160,14 +158,13 @@ func TestLedgerMigratedAccountingAcrossColdResumes(t *testing.T) {
 					wantToken = fmt.Sprint(attempt)
 				}
 				require.Equal(t, wantToken, s.run.current().PageToken)
-				s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
-					invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-					s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", 4*time.Millisecond, nil)
+				s.testHooks.ledgerHandler = func(ctx context.Context, page *ledgerPage, action *Action) error {
+					s.recordLedgerConnectorResponse(ctx, page, "list-resource-types", 4*time.Millisecond, nil)
 					next := ""
 					if attempt != 2 {
 						next = fmt.Sprint(attempt + 1)
 					}
-					return s.nextPageOrFinishAction(ctx, action, next)
+					return page.stage(action, next, nil)
 				}
 				require.NoError(t, invokeLedgerTestPage(t, s, ctx, s.run.current(), nil, false))
 				s.recordSessionOp("get", 8*time.Millisecond, context.DeadlineExceeded)

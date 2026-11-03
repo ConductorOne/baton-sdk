@@ -32,11 +32,13 @@ func TestLedgerDeterministicTimeFixture(t *testing.T) {
 			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 			require.NoError(t, err)
 			f.audit.enter(ledgerHandler)
-			require.NoError(t, runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
-				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
+			require.NoError(t, runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(
+				ctx context.Context, page *ledgerPage, s *syncer, action *Action,
+			) error {
+				if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
 					return err
 				}
-				return ledgerFixtureTransition(ctx, s, action, "")
+				return ledgerFixtureTransition(page, action, "")
 			}))
 			f.audit.enter(ledgerLifecycle)
 			require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
@@ -72,12 +74,12 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 				require.NoError(t, err)
 				failed := false
 				stopped := fmt.Errorf("injected before commit of page %d", cut)
-				handler := func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
+				handler := func(ctx context.Context, page *ledgerPage, s *syncer, action *Action) error {
 					if action.Op == SyncResourceTypesOp {
-						if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
+						if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
 							return err
 						}
-						return ledgerFixtureTransition(ctx, s, action, "",
+						return ledgerFixtureTransition(page, action, "",
 							c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "type", ResourceID: "stream-0"}},
 							c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "type", ResourceID: "stream-1"}})
 					}
@@ -93,13 +95,13 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 					resource := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "type", Resource: name}.Build(), DisplayName: name}.Build()
 					entitlement := v2.Entitlement_builder{Id: "ent-" + name, Resource: resource, DisplayName: name}.Build()
 					grant := v2.Grant_builder{Id: "grant-" + name, Entitlement: entitlement, Principal: resource}.Build()
-					if err := page.writer.PutResources(ctx, resource); err != nil {
+					if err := page.PutResources(ctx, resource); err != nil {
 						return err
 					}
-					if err := page.writer.PutEntitlements(ctx, entitlement); err != nil {
+					if err := page.PutEntitlements(ctx, entitlement); err != nil {
 						return err
 					}
-					if err := page.writer.PutGrants(ctx, grant); err != nil {
+					if err := page.PutGrants(ctx, grant); err != nil {
 						return err
 					}
 					if err := page.setFact("observed-data"); err != nil {
@@ -114,7 +116,7 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 					if index < 2 {
 						next = strconv.Itoa(index + 1)
 					}
-					return ledgerFixtureTransition(ctx, s, action, next)
+					return ledgerFixtureTransition(page, action, next)
 				}
 				f.audit.enter(ledgerHandler)
 				err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), workers, handler)

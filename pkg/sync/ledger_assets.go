@@ -17,8 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *syncer) collectLedgerAssets(ctx context.Context, action *Action) error {
-	invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+func (s *syncer) collectLedgerAssets(ctx context.Context, page *ledgerPage, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncAssetsForResource")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -57,10 +56,10 @@ func (s *syncer) collectLedgerAssets(ctx context.Context, action *Action) error 
 		err := func() error {
 			l.Debug("fetching asset", zap.String("asset_ref_id", assetRef.GetId()))
 			start := time.Now()
-			defer func() { s.recordLedgerConnectorResponse(ctx, invocation, "get-asset", time.Since(start), nil) }()
+			defer func() { s.recordLedgerConnectorResponse(ctx, page, "get-asset", time.Since(start), nil) }()
 
 			resp, err := s.connector.GetAsset(ctx, v2.AssetServiceGetAssetRequest_builder{Asset: assetRef}.Build())
-			recordLedgerConnectorError(invocation, err)
+			recordLedgerConnectorError(page, err)
 			if err != nil {
 				return err
 			}
@@ -80,7 +79,7 @@ func (s *syncer) collectLedgerAssets(ctx context.Context, action *Action) error 
 					if errors.Is(recvErr, io.EOF) {
 						continue
 					}
-					recordLedgerConnectorError(invocation, recvErr)
+					recordLedgerConnectorError(page, recvErr)
 					l.Error("error fetching asset", zap.Error(recvErr))
 					return recvErr
 				}
@@ -107,23 +106,22 @@ func (s *syncer) collectLedgerAssets(ctx context.Context, action *Action) error 
 				return fmt.Errorf("no metadata received, unable to store asset")
 			}
 
-			return invocation.page.writer.PutAsset(ctx, assetRef, metadata.GetContentType(), assetBytes.Bytes())
+			return page.PutAsset(ctx, assetRef, metadata.GetContentType(), assetBytes.Bytes())
 		}()
 		if err != nil {
 			return err
 		}
 	}
 
-	return s.nextPageOrFinishAction(ctx, action, "")
+	return page.stage(action, "", nil)
 }
 
-func (s *syncer) syncLedgerAssets(ctx context.Context, action *Action) error {
-	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	if !ok {
+func (s *syncer) syncLedgerAssets(ctx context.Context, page *ledgerPage, action *Action) error {
+	if page == nil {
 		return errors.New("asset ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { invocation.page.row.PageDuration = time.Since(start) }()
+	defer page.recordDuration(start)
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncAssets")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -149,10 +147,10 @@ func (s *syncer) syncLedgerAssets(ctx context.Context, action *Action) error {
 			actions = append(actions, Action{Op: SyncAssetsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
+		return page.stage(action, resp.GetNextPageToken(), actions)
 	}
 
-	err = s.collectLedgerAssets(ctx, action)
+	err = s.collectLedgerAssets(ctx, page, action)
 	if err != nil {
 		ctxzap.Extract(ctx).Error("error syncing assets", zap.Error(err))
 		return err

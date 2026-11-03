@@ -103,8 +103,8 @@ func TestLedgerInitialActionMatchesBaseline(t *testing.T) {
 			targeted := configureInitialActionCase(t, s, f, tc)
 			action := s.run.current()
 			f.audit.enter(ledgerHandler)
-			err := invokeLedgerTestPage(t, s, t.Context(), action, func(ctx context.Context, action *Action) error {
-				return s.initializeAction(ctx, action, targeted)
+			err := invokeLedgerTestPage(t, s, t.Context(), action, func(ctx context.Context, page *ledgerPage, action *Action) error {
+				return s.initializeAction(ctx, page, action, targeted)
 			}, false)
 			f.audit.enter(ledgerLifecycle)
 			require.NoError(t, err)
@@ -140,8 +140,8 @@ func TestLedgerInitialQualitySurvivesResume(t *testing.T) {
 			before := ledgerRawSnapshot(t, f.engine)
 			action := s.run.current()
 			f.audit.enter(ledgerHandler)
-			err := invokeLedgerTestPage(t, s, t.Context(), action, func(ctx context.Context, action *Action) error {
-				return s.initializeAction(ctx, action, nil)
+			err := invokeLedgerTestPage(t, s, t.Context(), action, func(ctx context.Context, page *ledgerPage, action *Action) error {
+				return s.initializeAction(ctx, page, action, nil)
 			}, false)
 			f.audit.enter(ledgerLifecycle)
 			require.NoError(t, err)

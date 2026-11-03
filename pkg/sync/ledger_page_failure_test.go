@@ -57,7 +57,7 @@ func TestLedgerPageFailureDiscardsStagedObservations(t *testing.T) {
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerHandler)
 			_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "init"}, func(ctx context.Context, page *ledgerPage) error {
-				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discarded"}.Build()); err != nil {
+				if err := page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discarded"}.Build()); err != nil {
 					return err
 				}
 				if err := page.setFact("failed-fact"); err != nil {

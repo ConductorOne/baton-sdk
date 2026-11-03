@@ -1,32 +1,24 @@
 package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
-	"context"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 )
 
-type ledgerAttemptsKey struct{}
-
-// ledgerAttempts is owned by one goroutine: the worker whose context carries
-// it (syncParallel mints one per worker) or the coordinator (parallelSync
-// mints one for serial steps). Every mutator runs on that goroutine, including
-// recordWait, which ratelimit.ObserveWait invokes from the goroutine that
-// slept — retry.Retryer.ShouldWaitAndRetry and the unary client interceptor,
-// neither of which hands the context to another goroutine. No mutex;
-// TestLedgerWaitObservationsStayWithWorker pins the ownership.
+// ledgerAttempts is owned by one goroutine: syncParallel mints one per worker
+// and parallelSync mints one for serial steps. Every mutator runs on that
+// goroutine, including recordWait, which ratelimit.ObserveWait invokes from
+// the goroutine that slept — retry.Retryer.ShouldWaitAndRetry and the unary
+// client interceptor, neither of which hands the call to another goroutine.
+// No mutex; TestLedgerWaitObservationsStayWithWorker pins the ownership.
 type ledgerAttempts struct {
 	identity                    c1zstore.LedgerActionIdentity
 	observations                c1zstore.LedgerCounters
 	attempts, errors            uint64
 	retryWait, rateLimitWait    time.Duration
 	connectorTime, reportedWait time.Duration
-}
-
-func withLedgerAttempts(ctx context.Context) context.Context {
-	return context.WithValue(ctx, ledgerAttemptsKey{}, &ledgerAttempts{})
 }
 
 func (a *ledgerAttempts) selectPage(id c1zstore.LedgerActionIdentity) {
@@ -77,9 +69,9 @@ func (a *ledgerAttempts) committed() {
 	a.observations = c1zstore.LedgerCounters{}
 }
 
-func recordLedgerConnectorError(invocation *ledgerInvocation, err error) {
-	if invocation.attempts != nil {
-		invocation.attempts.recordError(err)
+func recordLedgerConnectorError(page *ledgerPage, err error) {
+	if page.attempts != nil {
+		page.attempts.recordError(err)
 	}
 }
 

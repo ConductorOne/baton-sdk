@@ -13,13 +13,12 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
-func (s *syncer) syncLedgerEntitlements(ctx context.Context, action *Action) error {
-	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	if !ok {
+func (s *syncer) syncLedgerEntitlements(ctx context.Context, page *ledgerPage, action *Action) error {
+	if page == nil {
 		return errors.New("entitlement ledger handler requires an open page")
 	}
 	start := time.Now()
-	defer func() { invocation.page.row.PageDuration = time.Since(start) }()
+	defer page.recordDuration(start)
 
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
@@ -34,17 +33,17 @@ func (s *syncer) syncLedgerEntitlements(ctx context.Context, action *Action) err
 		if err != nil {
 			return err
 		}
-		if nextPageErr := s.nextPageOrFinishAction(ctx, action, nextPageToken, actions...); nextPageErr != nil {
+		if nextPageErr := page.stage(action, nextPageToken, actions); nextPageErr != nil {
 			err = nextPageErr
 			return err
 		}
 		if plannedTypeScoped {
-			invocation.page.row.TypeScopedPlanned = true
+			page.markTypeScopedPlanned()
 		}
 		return nil
 	}
 
-	err = s.collectLedgerEntitlements(ctx, action)
+	err = s.collectLedgerEntitlements(ctx, page, action)
 	if err != nil {
 		return err
 	}
@@ -52,8 +51,7 @@ func (s *syncer) syncLedgerEntitlements(ctx context.Context, action *Action) err
 	return nil
 }
 
-func (s *syncer) collectLedgerEntitlements(ctx context.Context, action *Action) error {
-	invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+func (s *syncer) collectLedgerEntitlements(ctx context.Context, page *ledgerPage, action *Action) error {
 	typeScoped := action.TypeScoped
 	resourceID := v2.ResourceId_builder{
 		ResourceType: action.ResourceTypeID,
@@ -81,25 +79,25 @@ func (s *syncer) collectLedgerEntitlements(ctx context.Context, action *Action) 
 		ActiveSyncId: s.getActiveSyncID(),
 		Annotations:  reqAnnos,
 	}.Build())
-	s.recordLedgerConnectorResponse(ctx, invocation, "list-entitlements", time.Since(start), resp.GetAnnotations())
-	recordLedgerConnectorError(invocation, err)
-	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
+	s.recordLedgerConnectorResponse(ctx, page, "list-entitlements", time.Since(start), resp.GetAnnotations())
+	recordLedgerConnectorError(page, err)
+	s.recordLedgerSessionUsage(page, resp.GetAnnotations())
 	if err != nil {
 		return markActionListCall(err)
 	}
-	collection := ledgerCollection(invocation)
+	collection := ledgerCollection(page)
 	recordLedgerList(collection, &collection.EntitlementsReceived, resp.GetList(), resp.GetNextPageToken())
-	entitlements, err := s.filterLedgerEntitlements(ctx, invocation, resp.GetList())
+	entitlements, err := s.filterLedgerEntitlements(ctx, page, resp.GetList())
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
 	}
-	err = invocation.page.writer.PutEntitlements(ctx, entitlements...)
+	err = page.PutEntitlements(ctx, entitlements...)
 	if err != nil {
 		return err
 	}
 
 	progressAction := *action
-	invocation.afterCommit = append(invocation.afterCommit, func() {
+	page.afterCommit = append(page.afterCommit, func() {
 		s.handleProgress(ctx, &progressAction, len(entitlements))
 		progressIncrement, countOnly := collectionProgressIncrement(&progressAction, len(entitlements), resp.GetNextPageToken() != "")
 		if countOnly {
@@ -114,10 +112,10 @@ func (s *syncer) collectLedgerEntitlements(ctx context.Context, action *Action) 
 	if err != nil {
 		return err
 	}
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), spawned...)
+	return page.stage(action, resp.GetNextPageToken(), spawned)
 }
 
-func (s *syncer) filterLedgerEntitlements(ctx context.Context, invocation *ledgerInvocation, values []*v2.Entitlement) ([]*v2.Entitlement, error) {
+func (s *syncer) filterLedgerEntitlements(ctx context.Context, page *ledgerPage, values []*v2.Entitlement) ([]*v2.Entitlement, error) {
 	var kept []*v2.Entitlement
 	var dropped, invalid uint64
 	for _, value := range values {
@@ -141,8 +139,7 @@ func (s *syncer) filterLedgerEntitlements(ctx context.Context, invocation *ledge
 		}
 		kept = append(kept, value)
 	}
-	page := invocation.page
-	collection := ledgerCollection(invocation)
+	collection := ledgerCollection(page)
 	collection.EntitlementsExcludedByType += dropped
 	collection.EntitlementsExcludedInvalid += invalid
 	if page.observations.Counters == nil {
@@ -159,7 +156,7 @@ func (s *syncer) filterLedgerEntitlements(ctx context.Context, invocation *ledge
 		}
 		page.observations.Flags |= ingestQualityReasonEntitlementDropped
 	}
-	invocation.afterCommit = append(invocation.afterCommit, func() {
+	page.afterCommit = append(page.afterCommit, func() {
 		s.ingestFilterStats.invalidEntitlementsObserved.Add(invalid)
 		s.ingestFilterStats.entitlementsDropped.Add(dropped)
 		if dropped > 0 {

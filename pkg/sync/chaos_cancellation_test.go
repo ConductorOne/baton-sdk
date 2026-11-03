@@ -321,7 +321,7 @@ func TestParallelBatchSecondGenuineFailureStillLogs(t *testing.T) {
 	arrived := 0
 	bothArrived := make(chan struct{})
 	var premiseFailed atomic.Bool
-	f := func(ctx context.Context, action *Action) error {
+	f := func(ctx context.Context, page *ledgerPage, action *Action) error {
 		mu.Lock()
 		arrived++
 		if arrived == 2 {
@@ -374,7 +374,7 @@ func TestParallelBatchFailureDuringStopStaysQuiet(t *testing.T) {
 	seedLedgerTestRun(t, s, nil)
 
 	var ran atomic.Bool
-	f := func(ctx context.Context, action *Action) error {
+	f := func(ctx context.Context, page *ledgerPage, action *Action) error {
 		ran.Store(true)
 		stop(context.DeadlineExceeded)
 		return fmt.Errorf("genuine failure racing the run-duration deadline")

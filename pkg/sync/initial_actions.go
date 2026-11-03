@@ -58,24 +58,23 @@ func (s *syncer) initialActions(targetedResources []*v2.Resource) ([]Action, []s
 	return actions, facts
 }
 
-func (s *syncer) initializeAction(ctx context.Context, action *Action, targetedResources []*v2.Resource) error {
+func (s *syncer) initializeAction(ctx context.Context, page *ledgerPage, action *Action, targetedResources []*v2.Resource) error {
 	children, facts := s.initialActions(targetedResources)
-	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	if !ok {
+	if page == nil {
 		return errors.New("ledger Init requires an open page")
 	}
-	if err := s.recordFirstReportOptions(invocation.page); err != nil {
+	if err := s.recordFirstReportOptions(page); err != nil {
 		return err
 	}
 	if s.stats.ingestQuality() != nil {
-		if err := invocation.page.setFact(ledgerFactIngestKnown); err != nil {
+		if err := page.setFact(ledgerFactIngestKnown); err != nil {
 			return err
 		}
 	}
 	for _, fact := range facts {
-		if err := invocation.page.setFact(fact); err != nil {
+		if err := page.setFact(fact); err != nil {
 			return err
 		}
 	}
-	return s.nextPageOrFinishAction(ctx, action, "", children...)
+	return page.stage(action, "", children)
 }

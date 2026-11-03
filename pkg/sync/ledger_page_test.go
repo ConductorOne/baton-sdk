@@ -20,7 +20,7 @@ func TestLedgerPageRequiresTransition(t *testing.T) {
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerHandler)
 			_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: op}, func(ctx context.Context, page *ledgerPage) error {
-				return page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "orphan"}.Build())
+				return page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "orphan"}.Build())
 			})
 			f.audit.enter(ledgerLifecycle)
 			require.ErrorIs(t, err, errLedgerPageTransition)
@@ -38,7 +38,7 @@ func TestLedgerPageFailureDoesNotPublish(t *testing.T) {
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerHandler)
 	_, err = runtime.runPage(t.Context(), 0, id, func(ctx context.Context, page *ledgerPage) error {
-		require.NoError(t, page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()))
+		require.NoError(t, page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "discard"}.Build()))
 		require.NoError(t, page.setFact("uncommitted"))
 		page.observations.Counters = map[string]uint64{"resources": 100}
 		require.NoError(t, page.transition("later"))
@@ -51,7 +51,7 @@ func TestLedgerPageFailureDoesNotPublish(t *testing.T) {
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	_, err = runtime.runPage(t.Context(), 0, id, func(ctx context.Context, page *ledgerPage) error {
 		require.False(t, page.hasFact("uncommitted"))
-		require.NoError(t, page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "committed"}.Build()))
+		require.NoError(t, page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "committed"}.Build()))
 		page.observations.Counters = map[string]uint64{"resources": 1}
 		require.NoError(t, page.setFact("committed"))
 		return page.transition("")

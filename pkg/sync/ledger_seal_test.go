@@ -31,7 +31,7 @@ func TestLedgerTerminalPageAndSealStats(t *testing.T) {
 		id := c1zstore.LedgerActionIdentity{Op: "list-resource-types", PageToken: "first-page"}
 		f.audit.enter(ledgerHandler)
 		_, err = runtime.runPage(t.Context(), 0, id, func(ctx context.Context, page *ledgerPage) error {
-			require.NoError(t, page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()))
+			require.NoError(t, page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()))
 			require.NoError(t, page.setFact(ledgerFactIngestKnown))
 			require.NoError(t, page.setFact(ledgerFactIngestBlocked))
 			page.observations = c1zstore.LedgerCounters{

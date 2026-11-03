@@ -149,16 +149,16 @@ type restartRequest struct {
 // restart counters, and the replay block. The handler staged nothing
 // before the connector call failed, and the engine refuses a restart page
 // that carries records, children, or claims.
-func (s *syncer) stageActionRestart(invocation *ledgerInvocation, page *ledgerPage, action *Action, detail *v2.RestartAction, cause error) error {
+func (s *syncer) stageActionRestart(page *ledgerPage, action *Action, detail *v2.RestartAction, cause error) error {
 	if page.transitions != 0 {
 		return errors.New("restart followed an action transition")
 	}
-	if err := invocation.stage(action, detail.GetRestartPageToken(), nil); err != nil {
+	if err := page.stage(action, detail.GetRestartPageToken(), nil); err != nil {
 		return err
 	}
 	page.row.Restarted = true
-	invocation.children = nil
-	invocation.afterCommit = nil
+	page.children = nil
+	page.afterCommit = nil
 	if err := page.writer.SetRestart(s.restartLimits()); err != nil {
 		return err
 	}
@@ -174,9 +174,9 @@ func (s *syncer) stageActionRestart(invocation *ledgerInvocation, page *ledgerPa
 	if err := page.setFact(ledgerFactIngestBlocked); err != nil {
 		return err
 	}
-	invocation.restart = &restartRequest{detail: detail, cause: cause}
+	page.restart = &restartRequest{detail: detail, cause: cause}
 	op := action.Op
-	invocation.afterCommit = append(invocation.afterCommit, func() {
+	page.afterCommit = append(page.afterCommit, func() {
 		s.ingestFilterStats.blockReplay(ingestQualityReasonActionRestarted)
 		s.run.recordRestart(op)
 	})

@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
+	"time"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -38,11 +41,87 @@ func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, workerCount 
 }
 
 type ledgerPage struct {
-	writer       c1zstore.PageWriter
-	row          c1zstore.LedgerRow
-	transitions  int
-	facts        map[string]string
-	observations c1zstore.LedgerCounters
+	writer                c1zstore.PageWriter
+	row                   c1zstore.LedgerRow
+	transitions           int
+	facts                 map[string]string
+	observations          c1zstore.LedgerCounters
+	action                *Action
+	attempts              *ledgerAttempts
+	worker                int
+	children              []Action
+	afterCommit           []func()
+	connectorObservations c1zstore.LedgerCounters
+	// Set when the page is a connector-signaled restart (stageActionRestart).
+	restart *restartRequest
+}
+
+func (p *ledgerPage) recordDuration(start time.Time) {
+	p.row.PageDuration = time.Since(start)
+}
+
+func (p *ledgerPage) markTypeScopedPlanned() {
+	p.row.TypeScopedPlanned = true
+}
+
+func (p *ledgerPage) addObservations(c c1zstore.LedgerCounters) {
+	p.observations = addLedgerCounters(p.observations, c)
+}
+
+func (p *ledgerPage) PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error {
+	return p.writer.PutResourceTypes(ctx, resourceTypes...)
+}
+
+func (p *ledgerPage) PutResources(ctx context.Context, resources ...*v2.Resource) error {
+	return p.writer.PutResources(ctx, resources...)
+}
+
+func (p *ledgerPage) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
+	return p.writer.PutEntitlements(ctx, entitlements...)
+}
+
+func (p *ledgerPage) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return p.writer.PutGrants(ctx, grants...)
+}
+
+func (p *ledgerPage) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
+	return p.writer.PutAsset(ctx, assetRef, contentType, data)
+}
+
+func (p *ledgerPage) GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error) {
+	return p.writer.GetResource(ctx, resourceTypeID, resourceID)
+}
+
+func (p *ledgerPage) stage(action *Action, next string, children []Action) error {
+	if action.ID != p.action.ID {
+		return fmt.Errorf("ledger page for %s %s transitioned %s %s", p.action.Op, p.action.ID, action.Op, action.ID)
+	}
+	scheduled := make(map[string]bool)
+	accepted := make([]Action, 0, len(children))
+	for _, child := range children {
+		key := ledgerSchedulingKey(child)
+		if strings.HasPrefix(key, "resource:") {
+			if scheduled[key] {
+				continue
+			}
+			scheduled[key] = true
+		}
+		accepted = append(accepted, child)
+	}
+	children = accepted
+	rows := make([]c1zstore.LedgerChild, 0, len(children))
+	for index := range children {
+		child := &children[index]
+		if child.ID != "" {
+			return errors.New("action ID must be empty for new actions")
+		}
+		rows = append(rows, c1zstore.LedgerChild{Identity: ledgerIdentity(child), Spawned: child.Spawned})
+	}
+	if err := p.transition(next, rows...); err != nil {
+		return err
+	}
+	p.children = slices.Clone(children)
+	return nil
 }
 
 func (p *ledgerPage) transition(next string, children ...c1zstore.LedgerChild) error {
