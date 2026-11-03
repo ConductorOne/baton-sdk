@@ -34,6 +34,10 @@ const crashSyncID = "000000000000000000000000001"
 
 var errPublicLedgerCut = errors.New("public ledger durable cut")
 
+type writeHookSetter interface {
+	SetWriteHook(c1zstore.WriteHook)
+}
+
 type crashCollectionConnector struct {
 	types.ConnectorClient
 	skipStatic bool
@@ -188,7 +192,9 @@ func runDurableSync(t *testing.T, fs vfs.FS, dir, mode string, workers int, cutO
 				return nil
 			}}
 		})
-		store.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
+		setter, ok := store.(writeHookSetter)
+		require.True(t, ok)
+		setter.SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
 			if event.Bypass == "" {
 				return fmt.Errorf("unregistered page write: %s", event.Method)
 			}
@@ -395,7 +401,9 @@ func TestPublicLedgerCleanupErrorAfterSealKeepsFinishedArtifact(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cleanup-error.c1z")
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
-	store.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
+	setter, ok := store.(writeHookSetter)
+	require.True(t, ok)
+	setter.SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
 		if event.Bypass == "" {
 			return fmt.Errorf("unregistered page write: %s", event.Method)
 		}
@@ -481,7 +489,9 @@ func createPublicLedgerCompactorInput(t *testing.T, ctx context.Context, root st
 			}}
 		})
 	}
-	store.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
+	setter, ok := store.(writeHookSetter)
+	require.True(t, ok)
+	setter.SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
 		if event.Bypass == "" {
 			return fmt.Errorf("unregistered page write: %s", event.Method)
 		}

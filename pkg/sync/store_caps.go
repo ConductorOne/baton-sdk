@@ -28,7 +28,6 @@ import (
 type storeCaps struct {
 	readerCaps
 	pageLedger c1zstore.PageLedgerStore
-	writeHook  c1zstore.WriteHookStore
 	// ingestVerification writes and clears the ingestion-invariant
 	// verification marker. It is a capability of the store's SyncMeta
 	// sub-store, not of the store itself.
@@ -99,7 +98,6 @@ func resolveStoreCaps(store c1zstore.Store) storeCaps {
 	}
 	caps := storeCaps{readerCaps: resolveReaderCaps(store)}
 	caps.pageLedger, _ = store.(c1zstore.PageLedgerStore)
-	caps.writeHook, _ = store.(c1zstore.WriteHookStore)
 	caps.resourceDeleter, _ = store.(resourceRecordDeleter)
 	caps.entitlementDeleter, _ = store.(entitlementRecordDeleter)
 	caps.grantRefsDeleter, _ = store.(grantByRefsDeleter)

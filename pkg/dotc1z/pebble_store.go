@@ -31,7 +31,6 @@ import (
 type pebbleDriver struct{}
 
 var _ c1zstore.Store = (*pebbleStore)(nil)
-var _ c1zstore.WriteHookStore = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
 
 // A promoted Engine method satisfies these while skipping markDirty;

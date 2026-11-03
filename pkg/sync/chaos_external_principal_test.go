@@ -763,9 +763,9 @@ func readExternalPrincipalObservation(
 }
 
 type chaosExternalLedgerCutStore struct {
-	c1zstore.WriteHookStore
 	*chaosExternalPrincipalCutStore
 	c1zstore.PageLedgerStore
+	writeHookSetter
 }
 
 func chaosExternalCutConnectorStore(s *chaosExternalPrincipalCutStore) c1zstore.Store {
@@ -773,5 +773,10 @@ func chaosExternalCutConnectorStore(s *chaosExternalPrincipalCutStore) c1zstore.
 	if ledger == nil {
 		return s
 	}
-	return &chaosExternalLedgerCutStore{chaosExternalPrincipalCutStore: s, PageLedgerStore: ledger, WriteHookStore: resolveStoreCaps(s.Store).writeHook}
+	hook, _ := s.Store.(writeHookSetter)
+	return &chaosExternalLedgerCutStore{
+		chaosExternalPrincipalCutStore: s,
+		PageLedgerStore:                ledger,
+		writeHookSetter:                hook,
+	}
 }

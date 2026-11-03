@@ -27,7 +27,6 @@ import (
 var storeCapsMatrix = map[c1zstore.Engine]map[string]bool{
 	c1zstore.EnginePebble: {
 		"pageLedger":               true,
-		"writeHook":                true,
 		"entitlementGraph":         true,
 		"grantDigest":              true,
 		"ingestFacts":              true,

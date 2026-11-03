@@ -12,13 +12,13 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// ledgeredStore restores PageLedgerStore and WriteHookStore hidden by a
-// double that embeds only c1zstore.Store, and reports Metadata from the
-// source store. setStore requires both.
+// ledgeredStore restores PageLedgerStore hidden by a double that embeds
+// only c1zstore.Store, forwards SetWriteHook, and reports Metadata from
+// the source store. setStore requires the ledger and Pebble metadata.
 type ledgeredStore struct {
 	c1zstore.Store
 	c1zstore.PageLedgerStore
-	c1zstore.WriteHookStore
+	writeHookSetter
 	meta connectorstore.StoreMetadata
 }
 
@@ -30,11 +30,12 @@ func withLedgerCaps(t testing.TB, double, ledgerSource c1zstore.Store) c1zstore.
 	t.Helper()
 	caps := resolveStoreCaps(ledgerSource)
 	require.NotNil(t, caps.pageLedger, "real store does not implement PageLedgerStore")
-	require.NotNil(t, caps.writeHook, "real store does not implement WriteHookStore")
+	hook, ok := ledgerSource.(writeHookSetter)
+	require.True(t, ok, "real store does not implement SetWriteHook")
 	return promoteLedgeredDeletes(&ledgeredStore{
 		Store:           double,
 		PageLedgerStore: caps.pageLedger,
-		WriteHookStore:  caps.writeHook,
+		writeHookSetter: hook,
 		meta:            ledgerSource.Metadata(),
 	}, double)
 }
