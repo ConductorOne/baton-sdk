@@ -2,6 +2,8 @@ package field
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
 
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -9,6 +11,19 @@ import (
 	v1_conf "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+)
+
+// Same pattern as Field.content_type in proto/c1/config/v1/config.proto.
+// Validate isn't always called on the proto, so we validate in schemaFieldToV1().
+var contentTypePattern = regexp.MustCompile(`^[^/]+/[^/]+$`)
+var fieldTagPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+const (
+	// Field.tags in proto/c1/config/v1/config.proto: at most 16 unique items, each 1-128 characters.
+	maxFieldTags   = 16
+	maxFieldTagLen = 128
+	// Field.content_type in proto/c1/config/v1/config.proto: at most 128 characters.
+	maxContentTypeLen = 128
 )
 
 var RelationshipToConstraintKind = map[Relationship]v1_conf.ConstraintKind{
@@ -164,7 +179,43 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		IsRequired:  f.Required,
 		IsOps:       f.ExportTarget == ExportTargetOps,
 		IsSecret:    f.Secret,
+		ContentType: f.ContentType,
+		Tags:        f.Tags,
 	}.Build()
+
+	if f.ContentType != "" {
+		// Only StringVariant, StringSliceVariant, and StringMapVariant fields can have a content type.
+		if !slices.Contains([]Variant{StringVariant, StringSliceVariant, StringMapVariant}, f.Variant) {
+			return nil, fmt.Errorf("content type is not supported for field type '%s' in field '%s'", f.Variant, f.FieldName)
+		}
+		if len(f.ContentType) > maxContentTypeLen {
+			return nil, fmt.Errorf("invalid content type '%s' in field '%s': must be at most %d characters", f.ContentType, f.FieldName, maxContentTypeLen)
+		}
+		if !contentTypePattern.MatchString(f.ContentType) {
+			return nil, fmt.Errorf("invalid content type '%s' in field '%s': expected type/subtype", f.ContentType, f.FieldName)
+		}
+	}
+
+	if len(f.Tags) > maxFieldTags {
+		return nil, fmt.Errorf("field '%s' has too many tags: must be at most %d items", f.FieldName, maxFieldTags)
+	}
+
+	seen := make(map[string]struct{}, len(f.Tags))
+	for _, tag := range f.Tags {
+		if len(tag) == 0 {
+			return nil, fmt.Errorf("empty tag in field '%s'", f.FieldName)
+		}
+		if len(tag) > maxFieldTagLen {
+			return nil, fmt.Errorf("invalid tag '%s' in field '%s': must be at most %d characters", tag, f.FieldName, maxFieldTagLen)
+		}
+		if !fieldTagPattern.MatchString(tag) {
+			return nil, fmt.Errorf("invalid tag '%s' in field '%s': must match pattern ^[a-zA-Z0-9_.-]+$", tag, f.FieldName)
+		}
+		if _, ok := seen[tag]; ok {
+			return nil, fmt.Errorf("duplicate tag '%s' in field '%s'", tag, f.FieldName)
+		}
+		seen[tag] = struct{}{}
+	}
 
 	switch f.Variant {
 	case IntVariant:

@@ -2,6 +2,8 @@ package field
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -212,6 +214,65 @@ func TestSuggestedValuePrecedence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"runtime"}, v1.GetStringSliceField().GetDefaultValue())
 	require.Equal(t, []string{"suggested"}, v1.GetStringSliceField().GetSuggestedValue())
+}
+
+func TestContentType(t *testing.T) {
+	f := StringField("body", WithContentType("application/json"))
+
+	v1, err := schemaFieldToV1(f)
+	require.NoError(t, err)
+	require.Equal(t, "application/json", v1.GetContentType())
+
+	for _, contentType := range []string{"json", "/json", "application/", "application/json/extra"} {
+		_, err := schemaFieldToV1(StringField("body", WithContentType(contentType)))
+		require.EqualError(t, err, fmt.Sprintf("invalid content type '%s' in field 'body': expected type/subtype", contentType))
+	}
+}
+
+func TestTags(t *testing.T) {
+	f := StringField("body", WithTags([]string{"credential", "api.key", "ssh-key_1"}))
+
+	v1, err := schemaFieldToV1(f)
+	require.NoError(t, err)
+	require.Equal(t, []string{"credential", "api.key", "ssh-key_1"}, v1.GetTags())
+
+	_, err = schemaFieldToV1(StringField("body", WithTags([]string{""})))
+	require.EqualError(t, err, "empty tag in field 'body'")
+
+	for _, tag := range []string{"has space", "has/slash", "has!bang"} {
+		_, err := schemaFieldToV1(StringField("body", WithTags([]string{tag})))
+		require.EqualError(t, err, fmt.Sprintf("invalid tag '%s' in field 'body': must match pattern ^[a-zA-Z0-9_.-]+$", tag))
+	}
+
+	longTag := strings.Repeat("a", 128)
+	v1, err = schemaFieldToV1(StringField("body", WithTags([]string{longTag})))
+	require.NoError(t, err)
+	require.Equal(t, []string{longTag}, v1.GetTags())
+
+	tooLong := strings.Repeat("a", 129)
+	_, err = schemaFieldToV1(StringField("body", WithTags([]string{tooLong})))
+	require.EqualError(t, err, fmt.Sprintf("invalid tag '%s' in field 'body': must be at most 128 characters", tooLong))
+
+	atLimit := make([]string, 16)
+	for i := range atLimit {
+		atLimit[i] = fmt.Sprintf("tag-%d", i)
+	}
+	v1, err = schemaFieldToV1(StringField("body", WithTags(atLimit)))
+	require.NoError(t, err)
+	require.Equal(t, atLimit, v1.GetTags())
+
+	tooMany := make([]string, len(atLimit), len(atLimit)+1)
+	copy(tooMany, atLimit)
+	tooMany = append(tooMany, "one-more")
+	_, err = schemaFieldToV1(StringField("body", WithTags(tooMany)))
+	require.EqualError(t, err, "field 'body' has too many tags: must be at most 16 items")
+
+	_, err = schemaFieldToV1(StringField("body", WithTags([]string{"credential", "credential"})))
+	require.EqualError(t, err, "duplicate tag 'credential' in field 'body'")
+
+	v1, err = schemaFieldToV1(StringField("body", WithTags([]string{"credential", "Credential"})))
+	require.NoError(t, err)
+	require.Equal(t, []string{"credential", "Credential"}, v1.GetTags())
 }
 
 func TestMultiSelectField(t *testing.T) {

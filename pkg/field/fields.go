@@ -81,6 +81,8 @@ type SchemaField struct {
 	Rules           FieldRule
 	Secret          bool
 	StructFieldName string
+	ContentType     string
+	Tags            []string
 
 	// Default fields - syncer side
 	SyncerConfig syncerConfig
