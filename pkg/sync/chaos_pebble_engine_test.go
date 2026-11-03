@@ -6,9 +6,11 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 func (s *chaosPebbleStore) Metadata() connectorstore.StoreMetadata {
@@ -144,4 +146,65 @@ func (s *chaosPebbleStore) EnsureGrantIndexes(ctx context.Context) error {
 
 func (s *chaosPebbleStore) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error {
 	return s.engine.ForEachDanglingGrantPrincipal(ctx, visit)
+}
+
+func (s *chaosPebbleStore) GrantGenerationDigest(ctx context.Context) (c1zstore.GrantGenerationDigest, bool, error) {
+	root, ok, err := s.engine.Digests().GetGrantDigestGlobalRoot(ctx)
+	if err != nil || !ok {
+		return c1zstore.GrantGenerationDigest{}, ok, err
+	}
+	return c1zstore.GrantGenerationDigest{
+		Hash:       append([]byte(nil), root.Hash...),
+		Count:      root.Count,
+		ABIVersion: pebble.GrantDigestABIVersion,
+	}, true, nil
+}
+
+func (s *chaosPebbleStore) PutEntitlementGraphBlob(ctx context.Context, data []byte) error {
+	return s.engine.Digests().PutEntitlementGraphSidecar(ctx, data)
+}
+
+func (s *chaosPebbleStore) GetEntitlementGraphBlob(ctx context.Context) ([]byte, error) {
+	return s.engine.Digests().GetEntitlementGraphSidecar(ctx)
+}
+
+func (s *chaosPebbleStore) DeleteEntitlementGraphBlob(ctx context.Context) error {
+	return s.engine.Digests().DeleteEntitlementGraphSidecar(ctx)
+}
+
+func (s *chaosPebbleStore) DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error {
+	resourceID := entitlement.GetResource().GetId()
+	return s.DeleteEntitlementRecordByIdentity(ctx, resourceID.GetResourceType(), resourceID.GetResource(), entitlement.GetId())
+}
+
+func (s *chaosPebbleStore) MarkIngestInvariantsVerified(ctx context.Context, syncID string, verification c1zstore.IngestInvariantVerification) error {
+	return s.SyncMeta().(c1zstore.IngestInvariantVerificationWriter).MarkIngestInvariantsVerified(ctx, syncID, verification)
+}
+
+func (s *chaosPebbleStore) ClearIngestInvariantVerification(ctx context.Context, syncID string) error {
+	return s.SyncMeta().(c1zstore.IngestInvariantVerificationWriter).ClearIngestInvariantVerification(ctx, syncID)
+}
+
+func (s *chaosPebbleStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return s.Grants().(newExpandedGrantStorer).StoreNewExpandedGrants(ctx, grants...)
+}
+
+func (s *chaosPebbleStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	return s.Grants().(newExpandedGrantContributionStorer).StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
+}
+
+func (s *chaosPebbleStore) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	return s.Grants().(expandedGrantLayerStorer).BeginExpandedGrantLayer(ctx)
+}
+
+func (s *chaosPebbleStore) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	return s.Grants().(expandedGrantLayerStorer).AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+
+func (s *chaosPebbleStore) FinishExpandedGrantLayer(ctx context.Context) error {
+	return s.Grants().(expandedGrantLayerStorer).FinishExpandedGrantLayer(ctx)
+}
+
+func (s *chaosPebbleStore) AbortExpandedGrantLayer(ctx context.Context) error {
+	return s.Grants().(expandedGrantLayerStorer).AbortExpandedGrantLayer(ctx)
 }

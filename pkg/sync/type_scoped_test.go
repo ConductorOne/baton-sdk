@@ -106,8 +106,7 @@ type blockingTypeScopedGrantConnector struct {
 // context.AfterFunc(runCtx), preserving the DeadlineExceeded cause. The
 // proof that expiry can interrupt root planner IO is cancellation itself.
 type blockingRootListResourcesStore struct {
-	c1zstore.PageLedgerStore
-	c1zstore.Store
+	syncBackend
 	onReached func()
 	reached   atomic.Bool
 	cancelled atomic.Bool
@@ -174,7 +173,7 @@ func (s *blockingRootListResourcesStore) ListResources(
 			return nil, errors.New("test safety stop: root planner ignored run duration")
 		}
 	}
-	return s.Store.ListResources(ctx, req)
+	return s.syncBackend.ListResources(ctx, req)
 }
 
 func (c *blockingTypeScopedGrantConnector) ListGrants(
@@ -871,7 +870,7 @@ func TestRunDurationCancelsRootPlannerIO(t *testing.T) {
 		dotc1z.WithTmpDir(tmpDir),
 	)
 	require.NoError(t, err)
-	store := &blockingRootListResourcesStore{PageLedgerStore: resolveStoreCaps(baseStore).pageLedger, Store: baseStore, onReached: expire}
+	store := &blockingRootListResourcesStore{syncBackend: baseStore.(syncBackend), onReached: expire}
 	s, err := NewSyncer(ctx, connector,
 		WithConnectorStore(store),
 		WithTmpDir(tmpDir),
@@ -999,7 +998,7 @@ func TestRunDurationTimerCancelsRootPlannerIO(t *testing.T) {
 		dotc1z.WithTmpDir(tmpDir),
 	)
 	require.NoError(t, err)
-	store := &blockingRootListResourcesStore{PageLedgerStore: resolveStoreCaps(baseStore).pageLedger, Store: baseStore}
+	store := &blockingRootListResourcesStore{syncBackend: baseStore.(syncBackend)}
 	s, err := NewSyncer(ctx, connector,
 		WithConnectorStore(store),
 		WithTmpDir(tmpDir),

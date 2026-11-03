@@ -910,7 +910,7 @@ func TestActionInvalidationAbortAtRestartSweep(t *testing.T) {
 					c := newPagedOpsConnector(op, restart)
 					s, err := NewSyncer(ctx, c, WithConnectorStore(f.store), WithWorkerCount(1))
 					require.NoError(t, err)
-					s.(*syncer).caps.pageLedger = ledgerRestartCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) error {
+					s.(*syncer).store = withPageLedger(s.(*syncer).store, ledgerRestartCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) error {
 						if reached != cut {
 							return nil
 						}
@@ -919,7 +919,7 @@ func TestActionInvalidationAbortAtRestartSweep(t *testing.T) {
 						}
 						cancel()
 						return nil
-					}}
+					}})
 					err = s.Sync(ctx)
 					landed := cut == "restart-after"
 					if landed {
@@ -965,7 +965,7 @@ func TestActionInvalidationCrashProcess(t *testing.T) {
 		c := newInvalidatingConnector([]string{"group"}, invalidateOnce("group", ""))
 		s := newInvalidationSyncer(t, f, c)
 		var crash native_sync.Once
-		s.caps.pageLedger = ledgerRestartCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) error {
+		s.store = withPageLedger(s.store, ledgerRestartCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) error {
 			if reached != cut {
 				return nil
 			}
@@ -979,7 +979,7 @@ func TestActionInvalidationCrashProcess(t *testing.T) {
 				os.Exit(76)
 			})
 			select {}
-		}}
+		}})
 		require.NoError(t, s.Sync(t.Context()))
 		t.Fatal("crash cut was not reached")
 	}

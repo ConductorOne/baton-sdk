@@ -39,7 +39,7 @@ func TestPendingSyncResumesWithoutHistoryReads(t *testing.T) {
 	c = &ledgerTypesConnector{mockConnector: newMockConnector()}
 	resumed, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true))
 	require.NoError(t, err)
-	resumed.(*syncer).caps.pageLedger = pendingNoHistoryStore{f.ledger}
+	resumed.(*syncer).store = withPageLedger(resumed.(*syncer).store, pendingNoHistoryStore{f.ledger})
 	require.NoError(t, resumed.Sync(t.Context()))
 	require.Equal(t, []string{"page-2"}, c.calls)
 }
@@ -236,7 +236,7 @@ func TestPendingRefillFailureLeavesChildrenForColdResume(t *testing.T) {
 	created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store), WithSyncID(syncID), WithWorkerCount(4), WithSkipEntitlementsAndGrants(true))
 	require.NoError(t, err)
 	s := created.(*syncer)
-	s.caps.pageLedger = pendingRefillFailure{f.ledger}
+	s.store = withPageLedger(s.store, pendingRefillFailure{f.ledger})
 	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
 		require.Equal(t, "root", action.ResourceID)
 		return s.nextPageOrFinishAction(ctx, action, "", Action{Op: SyncResourcesOp, ResourceTypeID: "group", ResourceID: "child"})
@@ -343,7 +343,7 @@ func TestPendingInvalidDescriptorDoesNotPublishOrWrite(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			s, f := newLedgerSchedulerFixture(t, 1)
 			require.NoError(t, f.ledger.BeginCollecting(t.Context(), pendingSeeds(ledgerListingFixtureRoots()), map[string]string{ledgerFactIngestKnown: ""}))
-			s.caps.pageLedger = pendingInvalidDescriptor{PageLedgerStore: f.ledger, kind: kind}
+			s.store = withPageLedger(s.store, pendingInvalidDescriptor{PageLedgerStore: f.ledger, kind: kind})
 			before := ledgerRawSnapshot(t, f.engine)
 			priorRun, priorStats, priorRuntime := s.run, s.stats, s.ledger
 			observeLedgerRestore(t, s, f)

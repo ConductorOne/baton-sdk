@@ -70,7 +70,7 @@ func TestLedgerExpansionOnlyRefusesIncompleteCollection(t *testing.T) {
 	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "incomplete.c1z"), false)
 	first, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants())
 	require.NoError(t, err)
-	first.(*syncer).caps.pageLedger = ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncGrantsOp}
+	first.(*syncer).store = withPageLedger(first.(*syncer).store, ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncGrantsOp})
 	require.ErrorIs(t, first.Sync(ctx), errLedgerInjectedPage)
 	id := first.(*syncer).syncID
 	pending, phase, err := f.ledger.PendingWork(ctx, 0, 10)
@@ -108,8 +108,8 @@ func TestLedgerDontExpandRefusesPassInExpansion(t *testing.T) {
 
 	_, f := ledgerExpansionFixture(t)
 	first := newLedgerExpansionPublicSyncer(t, f)
-	observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: first.caps.expandedGrantLayer, failFinish: true}
-	first.caps.expandedGrantLayer = observer
+	observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: first.store, failFinish: true}
+	first.store = withGrantLayer(first.store, observer)
 	require.ErrorIs(t, first.Sync(ctx), errLedgerInjectedPage)
 	require.Positive(t, observer.begins, "expansion began")
 	id := first.syncID
@@ -377,7 +377,7 @@ func TestLedgerCollectionFlagsLockedMidCollection(t *testing.T) {
 	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "locked.c1z"), false)
 	first, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants())
 	require.NoError(t, err)
-	first.(*syncer).caps.pageLedger = ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncGrantsOp}
+	first.(*syncer).store = withPageLedger(first.(*syncer).store, ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncGrantsOp})
 	require.ErrorIs(t, first.Sync(ctx), errLedgerInjectedPage)
 	id := first.(*syncer).syncID
 	pending, phase, err := f.ledger.PendingWork(ctx, 0, 10)
@@ -434,7 +434,7 @@ func TestLedgerCollectionFlagsAreThePlanningAttempts(t *testing.T) {
 	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "planned.c1z"), false)
 	dies, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants())
 	require.NoError(t, err)
-	dies.(*syncer).caps.pageLedger = ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: InitOp}
+	dies.(*syncer).store = withPageLedger(dies.(*syncer).store, ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: InitOp})
 	require.ErrorIs(t, dies.Sync(ctx), errLedgerInjectedPage)
 	id := dies.(*syncer).syncID
 	facts, err := f.ledger.LedgerFacts(ctx)
@@ -446,7 +446,7 @@ func TestLedgerCollectionFlagsAreThePlanningAttempts(t *testing.T) {
 	f = openLedgerFixtureAt(t, f.path, false)
 	plans, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants(), WithSkipGrants(true))
 	require.NoError(t, err)
-	plans.(*syncer).caps.pageLedger = ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncResourcesOp}
+	plans.(*syncer).store = withPageLedger(plans.(*syncer).store, ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncResourcesOp})
 	require.ErrorIs(t, plans.Sync(ctx), errLedgerInjectedPage)
 	facts, err = f.ledger.LedgerFacts(ctx)
 	require.NoError(t, err)
@@ -592,7 +592,7 @@ func TestLedgerExpansionPassWithExternalImportResumes(t *testing.T) {
 		expander, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()},
 			WithConnectorStore(f.store), WithSyncID(id), WithOnlyExpandGrants(), WithExternalResourceC1ZPath(external.path))
 		require.NoError(t, err)
-		expander.(*syncer).caps.pageLedger = ledgerCompleteFailsForOp{PageLedgerStore: f.ledger, op: SyncExternalResourcesOp}
+		expander.(*syncer).store = withPageLedger(expander.(*syncer).store, ledgerCompleteFailsForOp{PageLedgerStore: f.ledger, op: SyncExternalResourcesOp})
 		require.ErrorIs(t, expander.Sync(ctx), errLedgerInjectedPage)
 		pending, phase, err := f.ledger.PendingWork(ctx, 0, 10)
 		require.NoError(t, err)

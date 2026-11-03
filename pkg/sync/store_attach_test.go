@@ -28,7 +28,7 @@ func TestNewSyncerStoreEngineRouting(t *testing.T) {
 	for _, engine := range []string{"", "future-engine", string(c1zstore.EnginePebble)} {
 		t.Run("engine="+engine, func(t *testing.T) {
 			_, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(attachOnlyStore{engine: engine}))
-			require.ErrorContains(t, err, "requires Pebble and PageLedgerStore")
+			require.ErrorContains(t, err, "does not implement the Pebble sync backend")
 		})
 	}
 }
@@ -36,14 +36,15 @@ func TestNewSyncerStoreEngineRouting(t *testing.T) {
 func TestNewSyncerRejectsStoreWithoutPageLedger(t *testing.T) {
 	ctx := t.Context()
 	_, err := NewSyncer(ctx, newMockConnector(), WithConnectorStore(attachOnlyStore{engine: ""}))
-	require.ErrorContains(t, err, "requires Pebble and PageLedgerStore")
+	require.ErrorContains(t, err, "does not implement the Pebble sync backend")
 
 	pebbleStore, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "embed.c1z"), dotc1z.WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pebbleStore.Close(ctx)) }()
+	require.Implements(t, (*syncBackend)(nil), pebbleStore)
 
 	_, err = NewSyncer(ctx, newMockConnector(), WithConnectorStore(struct{ c1zstore.Store }{Store: pebbleStore}))
-	require.ErrorContains(t, err, "requires Pebble and PageLedgerStore")
+	require.ErrorContains(t, err, "does not implement the Pebble sync backend")
 }
 
 // withLedgerCaps exposes the real store's PageLedgerStore, SetWriteHook,
@@ -56,13 +57,13 @@ func TestWithLedgerCapsAttachesLedgered(t *testing.T) {
 
 	double := attachOnlyStore{engine: ""}
 	wrapped := withLedgerCaps(t, double, pebbleStore)
+	require.Implements(t, (*syncBackend)(nil), wrapped)
 
-	caps := resolveStoreCaps(wrapped)
-	realCaps := resolveStoreCaps(pebbleStore)
-	require.Same(t, realCaps.pageLedger, caps.pageLedger.(*ledgeredStore).PageLedgerStore)
+	wrappedStore := wrapped.(*ledgeredStore)
+	require.Same(t, pebbleStore.(c1zstore.PageLedgerStore), wrappedStore.PageLedgerStore)
 	realHook, ok := pebbleStore.(writeHookSetter)
 	require.True(t, ok)
-	require.Same(t, realHook, wrapped.(*ledgeredStore).writeHookSetter)
+	require.Same(t, realHook, wrappedStore.writeHookSetter)
 	require.Nil(t, wrapped.SyncMeta(), "non-ledger calls reach the double")
 
 	s, err := NewSyncer(ctx, newMockConnector(), WithConnectorStore(wrapped))

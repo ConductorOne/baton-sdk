@@ -77,7 +77,6 @@ type ledgerGuardedStore struct {
 	connectorstore.DBSizeProvider
 	c1zstore.Store
 	c1zstore.PageLedgerStore
-	caps  storeCaps
 	audit *ledgerWriteAudit
 }
 
@@ -154,8 +153,8 @@ func openLedgerFixtureAt(t *testing.T, path string, start bool) *ledgerFixture {
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(filepath.Dir(path)))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close(context.Background())) })
-	caps := resolveStoreCaps(store)
-	require.NotNil(t, caps.pageLedger)
+	require.Implements(t, (*syncBackend)(nil), store)
+	backend := store.(syncBackend)
 	hook, ok := store.(writeHookSetter)
 	require.True(t, ok)
 	raw, ok := engine.AsEngine(store)
@@ -166,11 +165,12 @@ func openLedgerFixtureAt(t *testing.T, path string, start bool) *ledgerFixture {
 		_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 	}
+	size, ok := store.(connectorstore.DBSizeProvider)
+	require.True(t, ok)
 	guarded := &ledgerGuardedStore{
-		Store: store, PageLedgerStore: caps.pageLedger,
-		caps: caps, audit: audit, EntitlementGraphStore: caps.entitlementGraph,
-		GrantGenerationDigestReader: caps.grantDigest, IngestInvariantStore: caps.ingestFacts,
-		DBSizeProvider: caps.dbSize,
+		Store: store, PageLedgerStore: backend, audit: audit,
+		EntitlementGraphStore: backend, GrantGenerationDigestReader: backend,
+		IngestInvariantStore: backend, DBSizeProvider: size,
 	}
 	f := &ledgerFixture{path: path, store: guarded, ledger: guarded, engine: raw, audit: audit}
 	t.Cleanup(func() {

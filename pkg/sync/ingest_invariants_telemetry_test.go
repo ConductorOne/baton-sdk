@@ -176,49 +176,22 @@ func TestIngestInvariantI5CorruptOnlyWarnTelemetry(t *testing.T) {
 		"artifact damage must not be attributed to merge manufacture")
 }
 
-// readerWithoutIngestFacts hides the optional dotc1z.IngestInvariantStore
-// surface so the referential invariants have nothing to inspect.
+// readerWithoutIngestFacts hides dotc1z.IngestInvariantStore.
 type readerWithoutIngestFacts struct {
 	connectorstore.Reader
 }
 
-// TestIngestInvariantSkipLogTelemetry pins the degradation-visibility
-// line: a store without the inspection surface must say so — a sealed
-// artifact that was never referentially validated must not be
-// indistinguishable from one that passed.
-func TestIngestInvariantSkipLogTelemetry(t *testing.T) {
+func TestRunIngestInvariantsRejectsStoreWithoutInspectionSurface(t *testing.T) {
 	ctx := context.Background()
 	full, syncID := newInvariantTestStore(ctx, t)
-	store := readerWithoutIngestFacts{Reader: full}
-
-	core, entries := newCaptureCore()
-	lctx := ctxzap.ToContext(ctx, zap.New(core))
-
-	require.NoError(t, RunIngestInvariants(lctx, store, IngestInvariantsPolicy{
+	err := RunIngestInvariants(ctx, readerWithoutIngestFacts{Reader: full}, IngestInvariantsPolicy{
 		ActiveSyncID: syncID,
 		SyncType:     connectorstore.SyncTypeFull,
-	}))
-
-	skip := findEntry(entries(), zapcore.InfoLevel, "referential invariants were not evaluated")
-	require.NotNil(t, skip, "the downgrade must be visible in the log stream")
-	var hasField bool
-	for _, f := range skip.fields {
-		if f.Key == "skipped_invariants" {
-			hasField = true
-		}
-	}
-	require.True(t, hasField, "the skip line must name the invariants that did not run")
-	require.Nil(t, findEntry(entries(), zapcore.WarnLevel, "referential invariants were not evaluated"),
-		"a store with no type-scoped exposure keeps the informational level")
+	})
+	require.ErrorContains(t, err, "does not implement ingest invariant inspection")
 }
 
-// TestIngestInvariantSkipLogEscalatesForTypeScopedStores pins the
-// exposure-dependent level of the degradation line: the annotation
-// registry promises I7/I8 for the type-scoped listing annotations, and
-// on an engine without the inspection surface those exact checks are
-// the ones skipped — a connector relying on the promised guard must see
-// a WARNING, not an info line indistinguishable from benign downgrade.
-func TestIngestInvariantSkipLogEscalatesForTypeScopedStores(t *testing.T) {
+func TestRunIngestInvariantsRejectsTypeScopedStoreWithoutInspectionSurface(t *testing.T) {
 	ctx := context.Background()
 	full, syncID := newInvariantTestStore(ctx, t)
 
@@ -228,26 +201,9 @@ func TestIngestInvariantSkipLogEscalatesForTypeScopedStores(t *testing.T) {
 		Annotations: annotations.New(&v2.TypeScopedGrants{}),
 	}.Build()
 	require.NoError(t, full.PutResourceTypes(ctx, scoped))
-	store := readerWithoutIngestFacts{Reader: full}
-
-	core, entries := newCaptureCore()
-	lctx := ctxzap.ToContext(ctx, zap.New(core))
-
-	require.NoError(t, RunIngestInvariants(lctx, store, IngestInvariantsPolicy{
+	err := RunIngestInvariants(ctx, readerWithoutIngestFacts{Reader: full}, IngestInvariantsPolicy{
 		ActiveSyncID: syncID,
 		SyncType:     connectorstore.SyncTypeFull,
-	}))
-
-	warn := findEntry(entries(), zapcore.WarnLevel, "TYPE-SCOPED listing annotations")
-	require.NotNil(t, warn,
-		"skipping I7/I8 on a store that carries the annotations they were promised for must escalate to a warning")
-	var skipped bool
-	for _, f := range warn.fields {
-		if f.Key == "skipped_invariants" {
-			skipped = true
-		}
-	}
-	require.True(t, skipped, "the escalated line must still name the invariants that did not run")
-	require.Nil(t, findEntry(entries(), zapcore.InfoLevel, "referential invariants were not evaluated"),
-		"the verdict is one line at one level, not both")
+	})
+	require.ErrorContains(t, err, "does not implement ingest invariant inspection")
 }

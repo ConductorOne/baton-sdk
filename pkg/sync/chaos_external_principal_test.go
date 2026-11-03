@@ -762,21 +762,35 @@ func readExternalPrincipalObservation(
 	return observation
 }
 
-type chaosExternalLedgerCutStore struct {
-	*chaosExternalPrincipalCutStore
-	c1zstore.PageLedgerStore
-	writeHookSetter
+type chaosCutSyncBackend struct {
+	syncBackend
+	cut *chaosExternalPrincipalCutStore
+}
+
+func (s *chaosCutSyncBackend) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	return s.cut.DeleteGrantByRefs(ctx, grant)
+}
+
+func (s *chaosCutSyncBackend) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
+	return s.cut.DeleteGrantsByRefs(ctx, grants...)
+}
+
+func (s *chaosCutSyncBackend) DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error {
+	return s.cut.DeleteEntitlementByRefs(ctx, entitlement)
+}
+
+func (s *chaosCutSyncBackend) DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error {
+	return s.cut.DeleteResourceRecord(ctx, resourceTypeID, resourceID)
+}
+
+func (s *chaosCutSyncBackend) SetWriteHook(hook c1zstore.WriteHook) {
+	s.syncBackend.(writeHookSetter).SetWriteHook(hook)
 }
 
 func chaosExternalCutConnectorStore(s *chaosExternalPrincipalCutStore) c1zstore.Store {
-	ledger := resolveStoreCaps(s.Store).pageLedger
-	if ledger == nil {
+	backend, ok := s.Store.(syncBackend)
+	if !ok {
 		return s
 	}
-	hook, _ := s.Store.(writeHookSetter)
-	return &chaosExternalLedgerCutStore{
-		chaosExternalPrincipalCutStore: s,
-		PageLedgerStore:                ledger,
-		writeHookSetter:                hook,
-	}
+	return &chaosCutSyncBackend{syncBackend: backend, cut: s}
 }

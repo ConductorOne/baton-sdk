@@ -357,7 +357,7 @@ func runCutAttempt(
 	if syncErr != nil && sc.ledger != nil {
 		var before uint64
 		for {
-			pending, _, readErr := sc.caps.pageLedger.PendingWork(context.Background(), before, 64)
+			pending, _, readErr := sc.store.PendingWork(context.Background(), before, 64)
 			require.NoError(t, readErr)
 			if len(pending) == 0 {
 				break
