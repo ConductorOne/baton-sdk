@@ -114,7 +114,7 @@ service CredentialManagerService {
   // (actions.CredentialIssueSchema).
   rpc IssueCredential(IssueCredentialRequest) returns (IssueCredentialResponse) {
     option deprecated = true;
-  };
+  }
 }
 
 service AccountManagerService {
