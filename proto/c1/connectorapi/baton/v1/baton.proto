@@ -248,6 +248,7 @@ message BatonServiceHelloRequest {
     string lang_version = 1 [(validate.rules).string = {max_len: 256}];
     string package = 2 [(validate.rules).string = {max_len: 256}];
     string package_version = 3 [(validate.rules).string = {max_len: 256}];
+    string sdk_version = 4 [(validate.rules).string = {max_len: 256}];
   }
   BuildInfo build_info = 3;
 

@@ -4977,6 +4977,7 @@ type BatonServiceHelloRequest_BuildInfo struct {
 	xxx_hidden_LangVersion    string                 `protobuf:"bytes,1,opt,name=lang_version,json=langVersion,proto3"`
 	xxx_hidden_Package        string                 `protobuf:"bytes,2,opt,name=package,proto3"`
 	xxx_hidden_PackageVersion string                 `protobuf:"bytes,3,opt,name=package_version,json=packageVersion,proto3"`
+	xxx_hidden_SdkVersion     string                 `protobuf:"bytes,4,opt,name=sdk_version,json=sdkVersion,proto3"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -5027,6 +5028,13 @@ func (x *BatonServiceHelloRequest_BuildInfo) GetPackageVersion() string {
 	return ""
 }
 
+func (x *BatonServiceHelloRequest_BuildInfo) GetSdkVersion() string {
+	if x != nil {
+		return x.xxx_hidden_SdkVersion
+	}
+	return ""
+}
+
 func (x *BatonServiceHelloRequest_BuildInfo) SetLangVersion(v string) {
 	x.xxx_hidden_LangVersion = v
 }
@@ -5039,12 +5047,17 @@ func (x *BatonServiceHelloRequest_BuildInfo) SetPackageVersion(v string) {
 	x.xxx_hidden_PackageVersion = v
 }
 
+func (x *BatonServiceHelloRequest_BuildInfo) SetSdkVersion(v string) {
+	x.xxx_hidden_SdkVersion = v
+}
+
 type BatonServiceHelloRequest_BuildInfo_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	LangVersion    string
 	Package        string
 	PackageVersion string
+	SdkVersion     string
 }
 
 func (b0 BatonServiceHelloRequest_BuildInfo_builder) Build() *BatonServiceHelloRequest_BuildInfo {
@@ -5054,6 +5067,7 @@ func (b0 BatonServiceHelloRequest_BuildInfo_builder) Build() *BatonServiceHelloR
 	x.xxx_hidden_LangVersion = b.LangVersion
 	x.xxx_hidden_Package = b.Package
 	x.xxx_hidden_PackageVersion = b.PackageVersion
+	x.xxx_hidden_SdkVersion = b.SdkVersion
 	return m0
 }
 
@@ -5759,7 +5773,7 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\x10STATUS_SCHEDULED\x10\x02\x12\x12\n" +
 	"\x0eSTATUS_RUNNING\x10\x03\x12\x13\n" +
 	"\x0fSTATUS_FINISHED\x10\x04B\v\n" +
-	"\ttask_typeJ\x04\bw\x10xR\x10create_sync_diff\"\xc9\a\n" +
+	"\ttask_typeJ\x04\bw\x10xR\x10create_sync_diff\"\xf4\a\n" +
 	"\x18BatonServiceHelloRequest\x12#\n" +
 	"\ahost_id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x06hostId\x122\n" +
@@ -5768,11 +5782,13 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"build_info\x18\x03 \x01(\v2<.c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfoR\tbuildInfo\x12R\n" +
 	"\aos_info\x18\x04 \x01(\v29.c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfoR\x06osInfo\x12[\n" +
 	"\x12connector_metadata\x18\x05 \x01(\v2\".c1.connector.v2.ConnectorMetadataB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x11connectorMetadata\x12@\n" +
-	"\vannotations\x18\x06 \x03(\v2\x14.google.protobuf.AnyB\b\xfaB\x05\x92\x01\x02\x10\x10R\vannotations\x1a\x8f\x01\n" +
+	"\vannotations\x18\x06 \x03(\v2\x14.google.protobuf.AnyB\b\xfaB\x05\x92\x01\x02\x10\x10R\vannotations\x1a\xba\x01\n" +
 	"\tBuildInfo\x12+\n" +
 	"\flang_version\x18\x01 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\vlangVersion\x12\"\n" +
 	"\apackage\x18\x02 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\apackage\x121\n" +
-	"\x0fpackage_version\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x0epackageVersion\x1a\xf1\x02\n" +
+	"\x0fpackage_version\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x0epackageVersion\x12)\n" +
+	"\vsdk_version\x18\x04 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\n" +
+	"sdkVersion\x1a\xf1\x02\n" +
 	"\x06OSInfo\x12$\n" +
 	"\bhostname\x18\x01 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\bhostname\x12\x18\n" +
 	"\x02os\x18\x02 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x02os\x12$\n" +
