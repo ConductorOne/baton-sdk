@@ -854,6 +854,10 @@ func (b0 CredentialDetailsCredentialIssue_builder) Build() *CredentialDetailsCre
 	return m0
 }
 
+// For CREDENTIAL_ISSUE action issuers, option parameters are declared as schema
+// arguments; key_profiles, scopes, custom_scopes_allowed,
+// custom_audiences_allowed and audiences are ignored. option, expiry,
+// resource_mode, secret_resource_type_id and output still apply.
 type CredentialIssueOptionDescriptor struct {
 	state                             protoimpl.MessageState           `protogen:"opaque.v1"`
 	xxx_hidden_Option                 CapabilityDetailCredentialOption `protobuf:"varint,1,opt,name=option,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption"`
@@ -1044,10 +1048,8 @@ func (x *CredentialIssueOptionDescriptor) ClearOutput() {
 type CredentialIssueOptionDescriptor_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Option      CapabilityDetailCredentialOption
-	KeyProfiles []*KeyGenerationProfile
-	// Action issuers declare option parameters (scopes, key profiles, audiences)
-	// as schema arguments; these parameter fields are ignored for them.
+	Option                 CapabilityDetailCredentialOption
+	KeyProfiles            []*KeyGenerationProfile
 	Expiry                 *IssuanceExpiryCapability
 	Scopes                 []string
 	CustomScopesAllowed    bool
