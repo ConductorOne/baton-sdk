@@ -1044,8 +1044,10 @@ func (x *CredentialIssueOptionDescriptor) ClearOutput() {
 type CredentialIssueOptionDescriptor_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Option                 CapabilityDetailCredentialOption
-	KeyProfiles            []*KeyGenerationProfile
+	Option      CapabilityDetailCredentialOption
+	KeyProfiles []*KeyGenerationProfile
+	// Action issuers declare option parameters (scopes, key profiles, audiences)
+	// as schema arguments; these parameter fields are ignored for them.
 	Expiry                 *IssuanceExpiryCapability
 	Scopes                 []string
 	CustomScopesAllowed    bool

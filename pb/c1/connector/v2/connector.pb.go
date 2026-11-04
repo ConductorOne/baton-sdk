@@ -856,15 +856,17 @@ func (b0 CredentialDetailsCredentialIssue_builder) Build() *CredentialDetailsCre
 }
 
 type CredentialIssueOptionDescriptor struct {
-	state                  protoimpl.MessageState           `protogen:"hybrid.v1"`
-	Option                 CapabilityDetailCredentialOption `protobuf:"varint,1,opt,name=option,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption" json:"option,omitempty"`
-	KeyProfiles            []*KeyGenerationProfile          `protobuf:"bytes,2,rep,name=key_profiles,json=keyProfiles,proto3" json:"key_profiles,omitempty"`
-	Expiry                 *IssuanceExpiryCapability        `protobuf:"bytes,3,opt,name=expiry,proto3" json:"expiry,omitempty"`
-	Scopes                 []string                         `protobuf:"bytes,4,rep,name=scopes,proto3" json:"scopes,omitempty"`
-	CustomScopesAllowed    bool                             `protobuf:"varint,5,opt,name=custom_scopes_allowed,json=customScopesAllowed,proto3" json:"custom_scopes_allowed,omitempty"`
-	CustomAudiencesAllowed bool                             `protobuf:"varint,6,opt,name=custom_audiences_allowed,json=customAudiencesAllowed,proto3" json:"custom_audiences_allowed,omitempty"`
-	Audiences              []string                         `protobuf:"bytes,7,rep,name=audiences,proto3" json:"audiences,omitempty"`
-	ResourceMode           CredentialResourceMode           `protobuf:"varint,8,opt,name=resource_mode,json=resourceMode,proto3,enum=c1.connector.v2.CredentialResourceMode" json:"resource_mode,omitempty"`
+	state       protoimpl.MessageState           `protogen:"hybrid.v1"`
+	Option      CapabilityDetailCredentialOption `protobuf:"varint,1,opt,name=option,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption" json:"option,omitempty"`
+	KeyProfiles []*KeyGenerationProfile          `protobuf:"bytes,2,rep,name=key_profiles,json=keyProfiles,proto3" json:"key_profiles,omitempty"`
+	// Action issuers declare option parameters (scopes, key profiles, audiences)
+	// as schema arguments; these parameter fields are ignored for them.
+	Expiry                 *IssuanceExpiryCapability `protobuf:"bytes,3,opt,name=expiry,proto3" json:"expiry,omitempty"`
+	Scopes                 []string                  `protobuf:"bytes,4,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	CustomScopesAllowed    bool                      `protobuf:"varint,5,opt,name=custom_scopes_allowed,json=customScopesAllowed,proto3" json:"custom_scopes_allowed,omitempty"`
+	CustomAudiencesAllowed bool                      `protobuf:"varint,6,opt,name=custom_audiences_allowed,json=customAudiencesAllowed,proto3" json:"custom_audiences_allowed,omitempty"`
+	Audiences              []string                  `protobuf:"bytes,7,rep,name=audiences,proto3" json:"audiences,omitempty"`
+	ResourceMode           CredentialResourceMode    `protobuf:"varint,8,opt,name=resource_mode,json=resourceMode,proto3,enum=c1.connector.v2.CredentialResourceMode" json:"resource_mode,omitempty"`
 	// Resource type returned by IssueCredential. It must be registered with a
 	// ResourceDeleterV2 so every issued credential has a provider revoke path,
 	// including virtual credentials that cannot be listed later. Together with
@@ -1058,8 +1060,10 @@ func (x *CredentialIssueOptionDescriptor) ClearOutput() {
 type CredentialIssueOptionDescriptor_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Option                 CapabilityDetailCredentialOption
-	KeyProfiles            []*KeyGenerationProfile
+	Option      CapabilityDetailCredentialOption
+	KeyProfiles []*KeyGenerationProfile
+	// Action issuers declare option parameters (scopes, key profiles, audiences)
+	// as schema arguments; these parameter fields are ignored for them.
 	Expiry                 *IssuanceExpiryCapability
 	Scopes                 []string
 	CustomScopesAllowed    bool

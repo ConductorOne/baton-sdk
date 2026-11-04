@@ -125,6 +125,8 @@ message CredentialDetailsCredentialIssue {
 message CredentialIssueOptionDescriptor {
   CapabilityDetailCredentialOption option = 1;
   repeated KeyGenerationProfile key_profiles = 2;
+  // Action issuers declare option parameters (scopes, key profiles, audiences)
+  // as schema arguments; these parameter fields are ignored for them.
   IssuanceExpiryCapability expiry = 3;
   repeated string scopes = 4;
   bool custom_scopes_allowed = 5;
