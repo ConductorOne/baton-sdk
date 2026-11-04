@@ -39,9 +39,10 @@ func parseTime(timeStr string) (time.Time, error) {
 	var t time.Time
 	res, err := strconv.ParseInt(timeStr, 10, 64)
 	if err != nil {
-		t, err = time.Parse(time.RFC850, timeStr)
+		// HTTP dates (e.g. Retry-After) use IMF-fixdate, RFC 850 or ANSI C format.
+		t, err = http.ParseTime(timeStr)
 		if err != nil {
-			// Datetimes should be RFC850 but some APIs return RFC3339
+			// Some APIs return RFC3339 instead
 			t, err = time.Parse(time.RFC3339, timeStr)
 		}
 		return t, err

@@ -84,3 +84,22 @@ func TestHelpers_ExtractRateLimitData(t *testing.T) {
 	require.Equal(t, int64(0), rl.GetRemaining())
 	require.Equal(t, n.Add(time.Second*60).Unix(), rl.GetResetAt().AsTime().Unix())
 }
+
+func TestExtractRateLimitData_RetryAfterHTTPDate(t *testing.T) {
+	resetAt := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Second)
+
+	for name, value := range map[string]string{
+		"IMF-fixdate": resetAt.Format(http.TimeFormat),
+		"RFC 850":     resetAt.Format(time.RFC850),
+		"ANSI C":      resetAt.Format(time.ANSIC),
+	} {
+		t.Run(name, func(t *testing.T) {
+			header := http.Header{}
+			header.Set("Retry-After", value)
+
+			rl, err := ExtractRateLimitData(http.StatusTooManyRequests, &header)
+			require.NoError(t, err)
+			require.Equal(t, resetAt.Unix(), rl.GetResetAt().AsTime().Unix())
+		})
+	}
+}
