@@ -17,6 +17,7 @@ func TestCredentialIssueOptionDescriptorOutputRoundTrip(t *testing.T) {
 		Output: config.Field_builder{
 			ContentType: "application/vnd.multipass.api_key_v2+json",
 			Tags:        []string{"credential", "multipass", "api_key_v2"},
+			StringField: config.StringField_builder{}.Build(),
 		}.Build(),
 	}.Build()
 	require.NoError(t, descriptor.Validate())
@@ -27,6 +28,7 @@ func TestCredentialIssueOptionDescriptorOutputRoundTrip(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(encoded, decoded))
 
 	require.True(t, proto.Equal(descriptor, decoded))
+	require.True(t, decoded.GetOutput().HasStringField(), "the oneof must survive the wire round trip")
 	require.Equal(t, "application/vnd.multipass.api_key_v2+json", decoded.GetOutput().GetContentType())
 	require.Equal(t, []string{"credential", "multipass", "api_key_v2"}, decoded.GetOutput().GetTags())
 }
