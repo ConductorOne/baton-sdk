@@ -147,6 +147,8 @@ type CredentialIssuerLimited interface {
 	// plaintext per the request's EncryptionConfigs before it leaves the
 	// connector — for client-side keypair generation the returned PlaintextData
 	// carries the private key, which the platform receives only in encrypted form.
+	//
+	// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 	Issue(ctx context.Context, input *CredentialIssueInput) (*CredentialIssueOutput, error)
 	IssueCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error)
 }
@@ -240,7 +242,7 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 			return nil, err
 		}
 	}
-	err = validateCredentialIssueOutput(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
+	err = ValidateIssuedCredential(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
@@ -267,7 +269,11 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	}.Build(), nil
 }
 
-func validateCredentialIssueOutput(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {
+// ValidateIssuedCredential checks an issuance result against what the descriptor
+// advertised and what the caller requested. It is exported so a connector that
+// issues through a CREDENTIAL_ISSUE custom action can run the same checks its
+// tests rely on; C1 performs the authoritative check on the action path.
+func ValidateIssuedCredential(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {
 	if output == nil || output.Secret == nil || output.Secret.GetId() == nil {
 		return fmt.Errorf("secret resource and id are required")
 	}
