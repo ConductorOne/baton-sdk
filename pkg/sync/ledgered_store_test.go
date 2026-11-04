@@ -9,16 +9,28 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// ledgeredStore restores PageLedgerStore and WriteHookStore hidden by a
-// double that embeds only c1zstore.Store, and reports Metadata from the
-// source store. setStore requires both.
+// ledgeredStore restores the sync backend hidden by a double that embeds
+// only c1zstore.Store, forwards SetWriteHook, and reports Metadata from
+// the source store. setStore requires that backend.
 type ledgeredStore struct {
 	c1zstore.Store
 	c1zstore.PageLedgerStore
-	c1zstore.WriteHookStore
+	writeHookSetter
+	EntitlementGraphStore
+	c1zstore.GrantGenerationDigestReader
+	dotc1z.IngestInvariantStore
+	c1zstore.IngestInvariantVerificationWriter
+	expandedGrantLayerStorer
+	newExpandedGrantStorer
+	newExpandedGrantContributionStorer
+	resourceRecordDeleter
+	entitlementRecordDeleter
+	grantByRefsDeleter
+	grantsByRefsBatchDeleter
 	meta connectorstore.StoreMetadata
 }
 
@@ -28,14 +40,22 @@ func (s *ledgeredStore) Metadata() connectorstore.StoreMetadata { return s.meta 
 // ledgerSource, which must be an open Pebble store. Every other call reaches double.
 func withLedgerCaps(t testing.TB, double, ledgerSource c1zstore.Store) c1zstore.Store {
 	t.Helper()
-	caps := resolveStoreCaps(ledgerSource)
-	require.NotNil(t, caps.pageLedger, "real store does not implement PageLedgerStore")
-	require.NotNil(t, caps.writeHook, "real store does not implement WriteHookStore")
+	backend, ok := ledgerSource.(syncBackend)
+	require.True(t, ok, "real store does not implement syncBackend")
+	hook, ok := ledgerSource.(writeHookSetter)
+	require.True(t, ok, "real store does not implement SetWriteHook")
 	return promoteLedgeredDeletes(&ledgeredStore{
-		Store:           double,
-		PageLedgerStore: caps.pageLedger,
-		WriteHookStore:  caps.writeHook,
-		meta:            ledgerSource.Metadata(),
+		Store:                              double,
+		PageLedgerStore:                    backend,
+		writeHookSetter:                    hook,
+		EntitlementGraphStore:              backend,
+		GrantGenerationDigestReader:        backend,
+		IngestInvariantStore:               backend,
+		IngestInvariantVerificationWriter:  backend,
+		expandedGrantLayerStorer:           backend,
+		newExpandedGrantStorer:             backend,
+		newExpandedGrantContributionStorer: backend,
+		meta:                               ledgerSource.Metadata(),
 	}, double)
 }
 

@@ -31,7 +31,6 @@ import (
 type pebbleDriver struct{}
 
 var _ c1zstore.Store = (*pebbleStore)(nil)
-var _ c1zstore.WriteHookStore = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
 
 // A promoted Engine method satisfies these while skipping markDirty;
@@ -310,6 +309,14 @@ func (m pebbleStoreSyncMeta) ClearIngestInvariantVerification(ctx context.Contex
 		return errors.New("pebble sync meta: engine SyncMeta does not implement IngestInvariantVerificationWriter")
 	}
 	return m.store.markDirty(w.ClearIngestInvariantVerification(ctx, syncID))
+}
+
+func (s *pebbleStore) MarkIngestInvariantsVerified(ctx context.Context, syncID string, verification c1zstore.IngestInvariantVerification) error {
+	return pebbleStoreSyncMeta{inner: s.engine.SyncRuns().SyncMeta(), store: s}.MarkIngestInvariantsVerified(ctx, syncID, verification)
+}
+
+func (s *pebbleStore) ClearIngestInvariantVerification(ctx context.Context, syncID string) error {
+	return pebbleStoreSyncMeta{inner: s.engine.SyncRuns().SyncMeta(), store: s}.ClearIngestInvariantVerification(ctx, syncID)
 }
 
 func (m pebbleStoreSyncMeta) RecalculateStats(ctx context.Context, syncID string) error {
@@ -845,6 +852,30 @@ func (g pebbleStoreGrants) AbortExpandedGrantLayer(ctx context.Context) error {
 		return nil
 	}
 	return fast.AbortExpandedGrantLayer(ctx)
+}
+
+func (s *pebbleStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return pebbleStoreGrants{inner: s.engine.Grants(), store: s}.StoreNewExpandedGrants(ctx, grants...)
+}
+
+func (s *pebbleStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	return pebbleStoreGrants{inner: s.engine.Grants(), store: s}.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
+}
+
+func (s *pebbleStore) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	return pebbleStoreGrants{inner: s.engine.Grants(), store: s}.BeginExpandedGrantLayer(ctx)
+}
+
+func (s *pebbleStore) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	return pebbleStoreGrants{inner: s.engine.Grants(), store: s}.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+
+func (s *pebbleStore) FinishExpandedGrantLayer(ctx context.Context) error {
+	return pebbleStoreGrants{inner: s.engine.Grants(), store: s}.FinishExpandedGrantLayer(ctx)
+}
+
+func (s *pebbleStore) AbortExpandedGrantLayer(ctx context.Context) error {
+	return pebbleStoreGrants{inner: s.engine.Grants(), store: s}.AbortExpandedGrantLayer(ctx)
 }
 
 func newPebbleStorePrincipalResource(ref *v3.PrincipalRef) *v2.Resource {

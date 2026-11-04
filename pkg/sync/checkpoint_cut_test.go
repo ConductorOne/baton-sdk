@@ -335,8 +335,9 @@ func runCutAttempt(
 	require.NoError(t, err)
 	sc, ok := s.(*syncer)
 	require.True(t, ok)
-	require.NotNil(t, sc.caps.writeHook)
-	sc.caps.writeHook.SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
+	hook, ok := sc.store.(writeHookSetter)
+	require.True(t, ok)
+	hook.SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
 		if event.Bypass == "" {
 			return fmt.Errorf("unregistered page write: %s", event.Method)
 		}
@@ -356,7 +357,7 @@ func runCutAttempt(
 	if syncErr != nil && sc.ledger != nil {
 		var before uint64
 		for {
-			pending, _, readErr := sc.caps.pageLedger.PendingWork(context.Background(), before, 64)
+			pending, _, readErr := sc.store.PendingWork(context.Background(), before, 64)
 			require.NoError(t, readErr)
 			if len(pending) == 0 {
 				break

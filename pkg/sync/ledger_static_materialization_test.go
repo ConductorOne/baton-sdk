@@ -15,12 +15,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type staticResourcePageStore struct{ c1zstore.Store }
+type staticResourcePageStore struct{ syncBackend }
 
 func (s staticResourcePageStore) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
 	req = proto.Clone(req).(*v2.ResourcesServiceListResourcesRequest)
 	req.SetPageSize(1)
-	return s.Store.ListResources(ctx, req)
+	return s.syncBackend.ListResources(ctx, req)
 }
 
 type staticBoundStore struct {
@@ -57,7 +57,7 @@ func (w *staticBoundWriter) Commit(ctx context.Context, id c1zstore.LedgerAction
 
 func TestLedgerStaticMaterializationBounded(t *testing.T) {
 	s, f, c := staticPageFixture(t)
-	s.store = staticResourcePageStore{Store: f.store}
+	s.store = staticResourcePageStore{syncBackend: f.store}
 	counted := &staticBoundStore{PageLedgerStore: f.ledger}
 	s.ledger.store = counted
 	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
@@ -112,7 +112,7 @@ func entitlementsSortedByID(list []*v2.Entitlement) []*v2.Entitlement {
 func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 	baseline, baseStore, _ := staticPageFixture(t)
 	baseline.connector = &staticOrderConnector{mockConnector: newMockConnector()}
-	baseline.store = staticResourcePageStore{Store: baseStore.store}
+	baseline.store = staticResourcePageStore{syncBackend: baseStore.store}
 	baseline.ledger.store = &staticBoundStore{PageLedgerStore: baseStore.ledger}
 	_, err := runLedgerTestSync(t, baseline, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 				return nil
 			}
 			s.connector = connector
-			s.store = staticResourcePageStore{Store: f.store}
+			s.store = staticResourcePageStore{syncBackend: f.store}
 			counted := &staticBoundStore{PageLedgerStore: f.ledger}
 			if interrupted {
 				counted.failAt = 2
@@ -155,8 +155,7 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 				require.NoError(t, f.store.Close(t.Context()))
 				f = openLedgerFixtureAt(t, f.path, false)
 				require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
-				s.store = staticResourcePageStore{Store: f.store}
-				s.caps = resolveStoreCaps(f.store)
+				s.store = staticResourcePageStore{syncBackend: f.store}
 				s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "static-resume")
 				require.NoError(t, err)
 				seedLedgerTestRun(t, s, nil)
@@ -218,7 +217,7 @@ func TestLedgerStaticMaterializationRejectsInvalidCursor(t *testing.T) {
 
 func TestLedgerStaticMaterializationTokensScrub(t *testing.T) {
 	s, f, _ := staticPageFixture(t)
-	s.store = staticResourcePageStore{Store: f.store}
+	s.store = staticResourcePageStore{syncBackend: f.store}
 	root := ledgerIdentity(s.run.current())
 	var child c1zstore.LedgerActionIdentity
 	s.testHooks.ledgerCommitted = func(row c1zstore.LedgerRow) {
@@ -260,7 +259,7 @@ func TestLedgerStaticMaterializationTokensScrub(t *testing.T) {
 }
 
 type staticInvalidResourcePageStore struct {
-	c1zstore.Store
+	syncBackend
 	oversized bool
 }
 
@@ -273,7 +272,7 @@ func (s staticInvalidResourcePageStore) ListResources(context.Context, *v2.Resou
 func TestLedgerStaticMaterializationRejectsInvalidResourcePage(t *testing.T) {
 	for _, oversized := range []bool{false, true} {
 		s, f, _ := staticPageFixture(t)
-		s.store = staticInvalidResourcePageStore{Store: f.store, oversized: oversized}
+		s.store = staticInvalidResourcePageStore{syncBackend: f.store, oversized: oversized}
 		cursor := staticMaterializationCursor{Version: 1, Origin: make([]byte, 32), ResourceCursor: "stuck"}
 		token, err := cursor.encode()
 		require.NoError(t, err)

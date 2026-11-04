@@ -44,19 +44,7 @@ func (s *batchDeleteRouteStore) DeleteGrant(_ context.Context, grantID string) e
 	return nil
 }
 
-// idOnlyDeleteStore implements neither optional delete interface — the SQLite
-// shape, which must keep working through the plain DeleteGrant loop.
-type idOnlyDeleteStore struct{ *batchDeleteRouteStore }
-
-// refsDeleteStore implements only the singular refs delete.
-type refsDeleteStore struct{ *batchDeleteRouteStore }
-
-func (s *refsDeleteStore) DeleteGrantByRefs(_ context.Context, grant *v2.Grant) error {
-	s.refsDeleted = append(s.refsDeleted, grant.GetId())
-	return nil
-}
-
-// batchDeleteStore implements both, as the Pebble store does.
+// batchDeleteStore implements both ref deletes, as the Pebble store does.
 type batchDeleteStore struct{ *batchDeleteRouteStore }
 
 func (s *batchDeleteStore) DeleteGrantByRefs(_ context.Context, grant *v2.Grant) error {
@@ -110,44 +98,19 @@ func newExternalMatchSyncer(store c1zstore.Store) *syncer {
 	return s
 }
 
-// TestProcessGrantsWithExternalPrincipalsDeleteRouting pins the three-way
-// routing of the apply phase: batch when the store offers it, singular refs
-// when it only offers that, and the plain id delete otherwise. Each case must
-// delete exactly the same grants — the batch is an amortization of the loop,
-// not a change to what gets deleted.
+// TestProcessGrantsWithExternalPrincipalsDeleteRouting pins the apply phase
+// delete: every unmatched carrier goes through one DeleteGrantsByRefs call.
 func TestProcessGrantsWithExternalPrincipalsDeleteRouting(t *testing.T) {
 	ctx := t.Context()
 
-	t.Run("batch-capable store uses one batched call", func(t *testing.T) {
-		base, want := newBatchDeleteRouteStore(5)
-		store := &batchDeleteStore{batchDeleteRouteStore: base}
-		require.NoError(t, newExternalMatchSyncer(store).processGrantsWithExternalPrincipals(ctx, nil))
+	base, want := newBatchDeleteRouteStore(5)
+	store := &batchDeleteStore{batchDeleteRouteStore: base}
+	require.NoError(t, newExternalMatchSyncer(store).processGrantsWithExternalPrincipals(ctx, nil))
 
-		require.Equal(t, [][]string{want}, base.batchDeleted,
-			"every unmatched carrier must be deleted through a single batched call")
-		require.Empty(t, base.refsDeleted, "the batch path must not also delete grant-by-grant")
-		require.Empty(t, base.byIDDeleted)
-	})
-
-	t.Run("refs-only store falls back to the singular loop", func(t *testing.T) {
-		base, want := newBatchDeleteRouteStore(5)
-		store := &refsDeleteStore{batchDeleteRouteStore: base}
-		require.NoError(t, newExternalMatchSyncer(store).processGrantsWithExternalPrincipals(ctx, nil))
-
-		require.Equal(t, want, base.refsDeleted)
-		require.Empty(t, base.batchDeleted)
-		require.Empty(t, base.byIDDeleted)
-	})
-
-	t.Run("store with neither interface falls back to DeleteGrant", func(t *testing.T) {
-		base, want := newBatchDeleteRouteStore(5)
-		store := &idOnlyDeleteStore{batchDeleteRouteStore: base}
-		require.NoError(t, newExternalMatchSyncer(store).processGrantsWithExternalPrincipals(ctx, nil))
-
-		require.Equal(t, want, base.byIDDeleted)
-		require.Empty(t, base.batchDeleted)
-		require.Empty(t, base.refsDeleted)
-	})
+	require.Equal(t, [][]string{want}, base.batchDeleted,
+		"every unmatched carrier must be deleted through a single batched call")
+	require.Empty(t, base.refsDeleted, "the batch path must not also delete grant-by-grant")
+	require.Empty(t, base.byIDDeleted)
 }
 
 // TestProcessGrantsWithExternalPrincipalsBatchSkipsReissuedGrants pins that

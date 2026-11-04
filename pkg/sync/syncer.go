@@ -149,11 +149,8 @@ type syncer struct {
 	storeAttachErr error
 	// cfg is the caller's request: every value set by a With* option and
 	// nothing else, immutable once NewSyncer returns (see config.go).
-	cfg   syncConfig
-	store c1zstore.Store
-	// caps are store's optional capabilities, resolved once by setStore
-	// (see store_caps.go). Always in step with store.
-	caps                   storeCaps
+	cfg                    syncConfig
+	store                  syncBackend
 	externalResourceReader connectorstore.Reader
 	previousSyncReader     connectorstore.Reader
 	// Ingestion-invariant state (see ingest_invariants.go):
@@ -214,34 +211,24 @@ var _ Syncer = (*syncer)(nil)
 // GrantStore.StoreExpandedGrants so the expander package can depend on
 // a single narrow interface without knowing about C1ZStore.
 type expanderStoreAdapter struct {
-	store c1zstore.Store
-	// caps are the store's optional fast paths, resolved once when the
-	// adapter is built (see storeCaps). A nil capability means the engine
-	// does not offer it, and each method below reports that exactly as the
-	// use-site assertion it replaced did. Holding the whole set rather than
-	// one field per capability keeps both construction sites from having to
-	// grow every time the expander learns about another fast path.
-	caps storeCaps
+	store syncBackend
 }
 
-// NewExpanderStore adapts a c1zstore.Store into an expand.ExpanderStore. Use
-// this instead of type-asserting the store, which is unsafe for Pebble — and
-// because this is where the store's optional expansion capabilities are
-// resolved for callers who hand us a bare store. The syncer itself uses
-// (*syncer).expanderStore, which reuses the capabilities it already resolved
-// at attach time.
-func NewExpanderStore(store c1zstore.Store) expand.ExpanderStore {
-	return &expanderStoreAdapter{store: store, caps: resolveStoreCaps(store)}
+// NewExpanderStore adapts a store into an expand.ExpanderStore. The store must
+// satisfy the syncer's backend, which anything dotc1z.NewStore returns does.
+func NewExpanderStore(store c1zstore.Store) (expand.ExpanderStore, error) {
+	if store == nil {
+		return nil, errors.New("NewExpanderStore: store is nil")
+	}
+	backend, ok := store.(syncBackend)
+	if !ok {
+		return nil, fmt.Errorf("NewExpanderStore: store engine %q does not implement the Pebble sync backend the syncer requires", store.Metadata().Engine)
+	}
+	return &expanderStoreAdapter{store: backend}, nil
 }
 
-// expanderStore is the syncer's one construction site for the expansion
-// adapter. It exists so the production expansion path cannot be built with a
-// zero storeCaps by accident: there is no argument to forget, the adapter
-// takes whatever setStore resolved. The adapter is returned by pointer so
-// calls through the expand.ExpanderStore interface do not copy the
-// capability set on every page.
 func (s *syncer) expanderStore() expand.ExpanderStore {
-	return &expanderStoreAdapter{store: s.store, caps: s.caps}
+	return &expanderStoreAdapter{store: s.store}
 }
 
 // persistEntitlementGraphToStore binds the preserved graph to the exact sealed
@@ -250,14 +237,7 @@ func (s *syncer) persistEntitlementGraphToStore(ctx context.Context, syncID stri
 	if g == nil {
 		return
 	}
-	gs := s.caps.entitlementGraph
-	if gs == nil {
-		return
-	}
-	if s.caps.grantDigest == nil {
-		return
-	}
-	digest, found, err := s.caps.grantDigest.GrantGenerationDigest(ctx)
+	digest, found, err := s.store.GrantGenerationDigest(ctx)
 	if err != nil || !found {
 		ctxzap.Extract(ctx).Warn("preserve entitlement graph: sealed grant digest unavailable; graph will not be reusable", zap.Error(err))
 		return
@@ -267,7 +247,7 @@ func (s *syncer) persistEntitlementGraphToStore(ctx context.Context, syncID stri
 		ctxzap.Extract(ctx).Warn("preserve entitlement graph: marshal failed", zap.Error(err))
 		return
 	}
-	if err := gs.PutEntitlementGraphBlob(ctx, data); err != nil {
+	if err := s.store.PutEntitlementGraphBlob(ctx, data); err != nil {
 		ctxzap.Extract(ctx).Warn("preserve entitlement graph: sidecar write failed", zap.Error(err))
 		return
 	}
@@ -309,98 +289,27 @@ func (a *expanderStoreAdapter) StoreExpandedGrants(ctx context.Context, grants .
 }
 
 func (a *expanderStoreAdapter) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
-	if fast := a.caps.newExpandedGrants; fast != nil {
-		return fast.StoreNewExpandedGrants(ctx, grants...)
-	}
-	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
+	return a.store.StoreNewExpandedGrants(ctx, grants...)
 }
 
 func (a *expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error {
-	if fast := a.caps.newExpandedContributions; fast != nil {
-		return fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
-	}
-	grants := make([]*v2.Grant, 0, len(principals))
-	for i, principalRef := range principals {
-		principal := resourceFromPrincipalRef(principalRef)
-		grant, err := expand.NewExpandedGrantForStore(dest, principal, sources[i])
-		if err != nil {
-			return err
-		}
-		grants = append(grants, grant)
-	}
-	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
-}
-
-// newExpandedGrantStorer persists caller-proven-new expanded grants without
-// read-before-write, on the store's GrantStore (Pebble). Without it the
-// adapter falls back to StoreExpandedGrants.
-type newExpandedGrantStorer interface {
-	StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
-}
-
-// newExpandedGrantContributionStorer is the contribution-shaped form of
-// newExpandedGrantStorer: it takes destination plus principal refs and skips
-// materializing v2.Grants. Without it the adapter builds the grants itself.
-type newExpandedGrantContributionStorer interface {
-	StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*storage_v3.PrincipalRef, []batonGrant.Sources) error
-}
-
-// expandedGrantLayerStorer is the layer-scoped synthesized-grant layer session
-// surface the store's GrantStore may implement (Pebble). Local interface so
-// the adapter can pass sessions through without importing engine internals.
-type expandedGrantLayerStorer interface {
-	BeginExpandedGrantLayer(ctx context.Context) (bool, error)
-	AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error
-	FinishExpandedGrantLayer(ctx context.Context) error
-	AbortExpandedGrantLayer(ctx context.Context) error
+	return a.store.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
 }
 
 func (a *expanderStoreAdapter) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
-	if a.caps.expandedGrantLayer != nil {
-		return a.caps.expandedGrantLayer.BeginExpandedGrantLayer(ctx)
-	}
-	return false, nil
+	return a.store.BeginExpandedGrantLayer(ctx)
 }
 
 func (a *expanderStoreAdapter) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error {
-	if a.caps.expandedGrantLayer == nil {
-		return errors.New("expanded grant layer: store does not support layer sessions")
-	}
-	return a.caps.expandedGrantLayer.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+	return a.store.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
 }
 
 func (a *expanderStoreAdapter) FinishExpandedGrantLayer(ctx context.Context) error {
-	if a.caps.expandedGrantLayer == nil {
-		return errors.New("expanded grant layer: store does not support layer sessions")
-	}
-	return a.caps.expandedGrantLayer.FinishExpandedGrantLayer(ctx)
+	return a.store.FinishExpandedGrantLayer(ctx)
 }
 
 func (a *expanderStoreAdapter) AbortExpandedGrantLayer(ctx context.Context) error {
-	if a.caps.expandedGrantLayer != nil {
-		return a.caps.expandedGrantLayer.AbortExpandedGrantLayer(ctx)
-	}
-	return nil
-}
-
-func resourceFromPrincipalRef(ref *storage_v3.PrincipalRef) *v2.Resource {
-	if ref == nil {
-		return nil
-	}
-	var parent *v2.ResourceId
-	if ref.GetParentResourceId() != "" {
-		parent = v2.ResourceId_builder{
-			ResourceType: ref.GetParentResourceTypeId(),
-			Resource:     ref.GetParentResourceId(),
-		}.Build()
-	}
-	return v2.Resource_builder{
-		Id: v2.ResourceId_builder{
-			ResourceType: ref.GetResourceTypeId(),
-			Resource:     ref.GetResourceId(),
-		}.Build(),
-		ParentResourceId: parent,
-	}.Build()
+	return a.store.AbortExpandedGrantLayer(ctx)
 }
 
 func (s *syncer) timedStep(op ActionOp, f func() error) error {
@@ -1808,14 +1717,6 @@ func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resou
 	return resources, nil
 }
 
-type resourceRecordDeleter interface {
-	DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error
-}
-
-type entitlementRecordDeleter interface {
-	DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error
-}
-
 // deleteStaleExternalPrincipals reconciles principal rows copied by an earlier
 // attempt before writing the external source's current answer. Checkpoint
 // resume deliberately retains completed writes, so without this pass a
@@ -1831,12 +1732,6 @@ func (s *syncer) deleteStaleExternalPrincipals(
 		currentIDs[id.GetResourceType()+"\x00"+id.GetResource()] = struct{}{}
 	}
 
-	resourceDeleter := s.caps.resourceDeleter
-	entitlementDeleter := s.caps.entitlementDeleter
-	grantDeleter := s.caps.grantRefsDeleter
-	canDeleteResources := resourceDeleter != nil
-	canDeleteEntitlements := entitlementDeleter != nil
-	canDeleteGrants := grantDeleter != nil
 	var staleIDs []*v2.ResourceId
 	pageToken := ""
 	for {
@@ -1863,15 +1758,6 @@ func (s *syncer) deleteStaleExternalPrincipals(
 		}
 	}
 	if len(staleIDs) == 0 {
-		return nil
-	}
-	if !canDeleteResources || !canDeleteEntitlements || !canDeleteGrants {
-		ctxzap.Extract(ctx).Warn(
-			"stale external principal reconciliation is unavailable for this storage engine",
-			zap.Bool("resource_delete_supported", canDeleteResources),
-			zap.Bool("entitlement_delete_supported", canDeleteEntitlements),
-			zap.Bool("grant_delete_supported", canDeleteGrants),
-		)
 		return nil
 	}
 
@@ -1917,18 +1803,18 @@ func (s *syncer) deleteStaleExternalPrincipals(
 	}
 
 	for _, grant := range staleGrants {
-		if err := grantDeleter.DeleteGrantByRefs(ctx, grant); err != nil {
+		if err := s.store.DeleteGrantByRefs(ctx, grant); err != nil {
 			return fmt.Errorf("delete grant for stale external principal: %w", err)
 		}
 	}
 	for _, entitlement := range staleEntitlements {
-		if err := entitlementDeleter.DeleteEntitlementByRefs(ctx, entitlement); err != nil {
+		if err := s.store.DeleteEntitlementByRefs(ctx, entitlement); err != nil {
 			return fmt.Errorf("delete entitlement for stale external principal %s: %w",
 				entitlement.GetId(), err)
 		}
 	}
 	for _, id := range staleIDs {
-		if err := resourceDeleter.DeleteResourceRecord(ctx, id.GetResourceType(), id.GetResource()); err != nil {
+		if err := s.store.DeleteResourceRecord(ctx, id.GetResourceType(), id.GetResource()); err != nil {
 			return fmt.Errorf("delete stale external principal %s/%s: %w",
 				id.GetResourceType(), id.GetResource(), err)
 		}
@@ -2395,47 +2281,12 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return nil
 	}
 
-	// Prefer the bulk refs-based delete when the store supports it: the
+	// The batch form amortizes the fsync without weakening durability: the
 	// per-grant path commits once per grant with pebble.Sync, so on
-	// network-attached storage this loop cost ~956s for ~90k grants. The
-	// batch form amortizes the fsync without weakening durability.
+	// network-attached storage this loop cost ~956s for ~90k grants.
 	// err is the named value the deferred span reports, so assign it.
-	if batchDeleter := s.caps.grantBatchDeleter; batchDeleter != nil {
-		err = batchDeleter.DeleteGrantsByRefs(ctx, pendingDeletes...)
-		return err
-	}
-
-	// Prefer the refs-based delete (exact structural identity) when the
-	// store supports it; external ids are a lossy external contract and
-	// stores keyed by structural identity cannot always resolve them.
-	refsDeleter := s.caps.grantRefsDeleter
-	for _, grantToDelete := range pendingDeletes {
-		if refsDeleter != nil {
-			err = refsDeleter.DeleteGrantByRefs(ctx, grantToDelete)
-		} else {
-			err = s.store.DeleteGrant(ctx, grantToDelete.GetId())
-		}
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// grantByRefsDeleter is the optional store fast path for deleting a grant
-// by its structured refs instead of its lossy public id (Pebble implements
-// it).
-type grantByRefsDeleter interface {
-	DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error
-}
-
-// grantsByRefsBatchDeleter is the bulk form of grantByRefsDeleter. Stores
-// that implement it delete N grants in a bounded number of commits instead
-// of one durable commit per grant; stores that do not fall through to the
-// per-grant loop unchanged.
-type grantsByRefsBatchDeleter interface {
-	DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error
+	err = s.store.DeleteGrantsByRefs(ctx, pendingDeletes...)
+	return err
 }
 
 func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {
@@ -2500,8 +2351,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 	// Create an expander and run a single step.
 	// The expander needs Reader methods (on s.store) plus StoreExpandedGrants
 	// (on s.store.Grants()). s.expanderStore composes them so expand stays
-	// decoupled from C1ZStore and so the adapter carries the capabilities
-	// setStore resolved.
+	// decoupled from C1ZStore.
 	if s.expandDropStats == nil {
 		s.expandDropStats = &expand.DroppedEdgeStats{}
 	}
@@ -2556,21 +2406,21 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	return nil
 }
 
-// setStore is the only way a store is attached to a syncer: it resolves the
-// store's optional capabilities in the same statement, so s.caps can never
-// describe a different store than s.store. Both attach points (NewSyncer for
-// WithConnectorStore, loadStore for WithC1ZPath) go through here, as do the
-// tests that drive a syncer without NewSyncer.
+// setStore is the only way a store is attached to a syncer. Both attach
+// points (NewSyncer for WithConnectorStore, loadStore for WithC1ZPath) go
+// through here, as do the tests that drive a syncer without NewSyncer.
 func (s *syncer) setStore(store c1zstore.Store) {
-	s.store = store
-	s.caps = resolveStoreCaps(store)
+	s.store = nil
 	s.storeAttachErr = nil
 	if store == nil {
 		return
 	}
-	if c1zstore.Engine(store.Metadata().Engine) != c1zstore.EnginePebble || s.caps.pageLedger == nil {
-		s.storeAttachErr = fmt.Errorf("sync store engine %q requires Pebble and PageLedgerStore", store.Metadata().Engine)
+	backend, ok := store.(syncBackend)
+	if !ok || c1zstore.Engine(store.Metadata().Engine) != c1zstore.EnginePebble {
+		s.storeAttachErr = fmt.Errorf("sync store engine %q does not implement the Pebble sync backend the syncer requires", store.Metadata().Engine)
+		return
 	}
+	s.store = backend
 }
 
 // wireCountsDBSizeProvider attaches the store's DBSizeProvider capability
@@ -2578,10 +2428,12 @@ func (s *syncer) setStore(store c1zstore.Store) {
 // and growth delta during long expansions. Idempotent: may be called from
 // both NewSyncer (WithConnectorStore case) and loadStore (WithC1ZPath case).
 func (s *syncer) wireCountsDBSizeProvider() {
-	if s.counts == nil || s.caps.dbSize == nil {
+	if s.counts == nil || s.store == nil {
 		return
 	}
-	s.counts.SetDBSizeProvider(s.caps.dbSize)
+	if p, ok := s.store.(connectorstore.DBSizeProvider); ok {
+		s.counts.SetDBSizeProvider(p)
+	}
 }
 
 // Close closes the store so the c1z is flushed to disk.

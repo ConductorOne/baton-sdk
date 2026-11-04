@@ -34,8 +34,14 @@ func (s ledgerMetadataStore) Metadata() connectorstore.StoreMetadata {
 }
 
 type ledgerMetadataCapabilityStore struct {
-	ledgerMetadataStore
-	c1zstore.PageLedgerStore
+	syncBackend
+	engine string
+}
+
+func (s ledgerMetadataCapabilityStore) Metadata() connectorstore.StoreMetadata {
+	metadata := s.syncBackend.Metadata()
+	metadata.Engine = s.engine
+	return metadata
 }
 
 func TestLedgerPublicEngineAttachment(t *testing.T) {
@@ -47,10 +53,9 @@ func TestLedgerPublicEngineAttachment(t *testing.T) {
 			}
 			t.Run(label, func(t *testing.T) {
 				f := newLedgerFixture(t)
-				metadataStore := ledgerMetadataStore{Store: f.store, engine: engine}
-				var store c1zstore.Store = metadataStore
+				var store c1zstore.Store = ledgerMetadataStore{Store: f.store, engine: engine}
 				if capability {
-					store = ledgerMetadataCapabilityStore{ledgerMetadataStore: metadataStore, PageLedgerStore: f.ledger}
+					store = ledgerMetadataCapabilityStore{syncBackend: f.store, engine: engine}
 				}
 				before := ledgerRawSnapshot(t, f.engine)
 				f.audit.mu.Lock()
@@ -226,7 +231,7 @@ func TestLedgerPublicReportAccessFailureKeepsSavedReport(t *testing.T) {
 	f := newLedgerFixture(t)
 	created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store))
 	require.NoError(t, err)
-	created.(*syncer).caps.pageLedger = ledgerArchiveAccessFailureStore{f.ledger}
+	created.(*syncer).store = withPageLedger(created.(*syncer).store, ledgerArchiveAccessFailureStore{f.ledger})
 	require.NoError(t, created.Sync(t.Context()))
 	_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: InitOp.String()})
 	require.NoError(t, err)

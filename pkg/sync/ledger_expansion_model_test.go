@@ -41,9 +41,9 @@ func (o *ledgerExpansionLayerObserver) FinishExpandedGrantLayer(ctx context.Cont
 
 func TestLedgerExpansionUsesMainModel(t *testing.T) {
 	s, f := ledgerExpansionFixture(t)
-	observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: s.caps.expandedGrantLayer}
+	observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: s.store}
 	require.NotNil(t, observer.expandedGrantLayerStorer)
-	s.caps.expandedGrantLayer = observer
+	s.store = withGrantLayer(s.store, observer)
 	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	require.Positive(t, observer.begins, "expansion must reach Pebble's layer capability")
@@ -72,8 +72,8 @@ func TestLedgerExpansionPublicReplay(t *testing.T) {
 			before, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
 			require.NoError(t, err)
 			first := newLedgerExpansionPublicSyncer(t, f)
-			observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: first.caps.expandedGrantLayer, failFinish: cut == "layer"}
-			first.caps.expandedGrantLayer = observer
+			observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: first.store, failFinish: cut == "layer"}
+			first.store = withGrantLayer(first.store, observer)
 			if cut == "before-terminal" {
 				first.testHooks.ingestHaltHook = func(stage string) error {
 					if stage == haltStageInvariantsComplete {
@@ -83,7 +83,7 @@ func TestLedgerExpansionPublicReplay(t *testing.T) {
 				}
 			}
 			if cut == "after-terminal" {
-				first.caps.pageLedger = ledgerExpansionSealFailure{PageLedgerStore: f.ledger}
+				first.store = withPageLedger(first.store, ledgerExpansionSealFailure{PageLedgerStore: f.ledger})
 			}
 			require.ErrorIs(t, first.Sync(t.Context()), errLedgerInjectedPage)
 			require.Positive(t, observer.begins)
@@ -102,8 +102,8 @@ func TestLedgerExpansionPublicReplay(t *testing.T) {
 			f = openLedgerFixtureAt(t, f.path, false)
 			require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
 			resumed := newLedgerExpansionPublicSyncer(t, f)
-			healthy := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: resumed.caps.expandedGrantLayer}
-			resumed.caps.expandedGrantLayer = healthy
+			healthy := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: resumed.store}
+			resumed.store = withGrantLayer(resumed.store, healthy)
 			require.NoError(t, resumed.Sync(t.Context()))
 			require.Positive(t, healthy.begins)
 			got, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
@@ -183,8 +183,8 @@ func TestLedgerExpansionSkipHasNoPage(t *testing.T) {
 				s.run = newRunState()
 				s.run.pushAction(t.Context(), Action{Op: SyncGrantExpansionOp})
 			}
-			observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: s.caps.expandedGrantLayer}
-			s.caps.expandedGrantLayer = observer
+			observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: s.store}
+			s.store = withGrantLayer(s.store, observer)
 			_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			require.NoError(t, err)
 			require.Zero(t, observer.begins)
@@ -197,7 +197,7 @@ func TestLedgerExpansionSkipHasNoPage(t *testing.T) {
 	}
 }
 
-type ledgerExpansionReadFailure struct{ c1zstore.Store }
+type ledgerExpansionReadFailure struct{ syncBackend }
 
 func (s ledgerExpansionReadFailure) GetEntitlement(context.Context, *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
 	return nil, errLedgerInjectedPage
@@ -205,7 +205,7 @@ func (s ledgerExpansionReadFailure) GetEntitlement(context.Context, *reader_v2.E
 
 func TestLedgerExpansionReadFailureHasNoPage(t *testing.T) {
 	s, f := ledgerExpansionFixture(t)
-	s.store = ledgerExpansionReadFailure{Store: s.store}
+	s.store = ledgerExpansionReadFailure{syncBackend: s.store}
 	before := ledgerRawSnapshot(t, f.engine)
 	require.ErrorIs(t, s.SyncGrantExpansion(t.Context(), s.run.current()), errLedgerInjectedPage)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
@@ -243,8 +243,8 @@ func TestLedgerExpansionFinishedReplay(t *testing.T) {
 					require.Equal(t, before.GetEndedAt(), bound.GetEndedAt())
 				}
 			}
-			observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: next.caps.expandedGrantLayer}
-			next.caps.expandedGrantLayer = observer
+			observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: next.store}
+			next.store = withGrantLayer(next.store, observer)
 			require.NoError(t, next.Sync(t.Context()))
 			require.Positive(t, observer.begins)
 			got, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})

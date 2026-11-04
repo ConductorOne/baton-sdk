@@ -92,7 +92,7 @@ func runLedgerFamilySync(t *testing.T, path string, workers int, cut func(*ledge
 		created, err := NewSyncer(t.Context(), newLedgerFamilyConnector(t), WithConnectorStore(f.store), WithWorkerCount(workers), WithDontExpandGrants())
 		require.NoError(t, err)
 		s := created.(*syncer)
-		s.caps.pageLedger = source
+		s.store = withPageLedger(s.store, source)
 		var walk []ledgerKV
 		s.testHooks.ledgerWalk = func(enter bool) {
 			if enter {

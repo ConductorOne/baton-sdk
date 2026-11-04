@@ -18,7 +18,7 @@ func TestLedgerDiscardPendingFinishedBindingDoesNotRestartProcessing(t *testing.
 	require.NoError(t, err)
 	second := newLedgerExpansionPublicSyncer(t, f)
 	second.cfg.ledgerDebug = false
-	second.caps.pageLedger = ledgerExpansionSealFailure{PageLedgerStore: f.ledger}
+	second.store = withPageLedger(second.store, ledgerExpansionSealFailure{PageLedgerStore: f.ledger})
 	require.ErrorIs(t, second.Sync(t.Context()), errLedgerInjectedPage)
 	pending, err := f.engine.SyncRuns().GetSyncRunRecord(t.Context(), id)
 	require.NoError(t, err)

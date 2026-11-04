@@ -15,7 +15,11 @@ func runLedgerSchedulerFixture(t *testing.T, runtime *ledgerRuntime, roots []led
 	handler func(context.Context, *ledgerPage, *syncer, *Action) error,
 ) error {
 	t.Helper()
-	s := &syncer{caps: storeCaps{pageLedger: runtime.store}, ledger: runtime, run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: int(workers)}}
+	backend, ok := runtime.store.(syncBackend)
+	if !ok {
+		backend = withPageLedger(nil, runtime.store)
+	}
+	s := &syncer{store: backend, ledger: runtime, run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: int(workers)}}
 	pending, initialized, err := runtime.store.PendingWork(t.Context(), 0, 100)
 	if err != nil {
 		return err

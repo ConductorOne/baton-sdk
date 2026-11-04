@@ -57,7 +57,7 @@ func TestLedgerRunAccountingAcrossAttempts(t *testing.T) {
 	require.EqualValues(t, 3, counts.StepDurationsMs["retry_wait:user"])
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
-	s.store, s.caps = f.store, resolveStoreCaps(f.store)
+	s.store = f.store
 	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "next-attempt")
 	require.NoError(t, err)
 	f.audit.enter(ledgerWalk)
