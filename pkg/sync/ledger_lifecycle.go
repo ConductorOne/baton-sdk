@@ -41,11 +41,7 @@ func (r ledgerResume) preparation(finished bool) ledgerPreparation {
 // Returns the phase the pass was found in, before any write this call makes.
 func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync bool) (c1zstore.LedgerQueuePhase, error) {
 	absent := c1zstore.LedgerQueueAbsent
-	ledger := s.caps.pageLedger
-	if ledger == nil {
-		return absent, errors.New("ledger capability is missing")
-	}
-	state, err := ledger.State(ctx)
+	state, err := s.store.State(ctx)
 	if err != nil {
 		return absent, err
 	}
@@ -61,7 +57,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err != nil {
 		return absent, err
 	}
-	resume, err := loadLedgerResume(ctx, s.store, ledger, runID, firstOptions)
+	resume, err := loadLedgerResume(ctx, s.store, s.store, runID, firstOptions)
 	if err != nil {
 		return absent, err
 	}
@@ -76,7 +72,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 			return absent, fmt.Errorf("%w: sync %s is finished; %s", ErrLedgerStateConflict, s.syncID, finishedSyncHint)
 		}
 		seeds := pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}})
-		if err := ledger.BeginPass(ctx, seeds, []string{c1zstore.LedgerFactDiscardOnSeal, c1zstore.LedgerFactRetainTokens}); err != nil {
+		if err := s.store.BeginPass(ctx, seeds, []string{c1zstore.LedgerFactDiscardOnSeal, c1zstore.LedgerFactRetainTokens}); err != nil {
 			return absent, err
 		}
 	case ledgerSeedPending:
@@ -84,7 +80,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 			resume.actions = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
 		}
 		if !knownEmpty {
-			knownEmpty, err = ledger.BoundSyncUnstarted(ctx)
+			knownEmpty, err = s.store.BoundSyncUnstarted(ctx)
 			if err != nil {
 				return absent, err
 			}
@@ -96,7 +92,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 		if legacyStackHasCollection(resume.actions) {
 			// A frontier's stack seeded here is a plan committing now, as at
 			// takeover; a record already on the file is the earlier plan's.
-			existing, err := ledger.LedgerFacts(ctx)
+			existing, err := s.store.LedgerFacts(ctx)
 			if err != nil {
 				return absent, err
 			}
@@ -104,15 +100,15 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 				seedFacts[c1zstore.LedgerFactFirstReportOptions] = firstOptions
 			}
 		}
-		if err := ledger.BeginCollecting(ctx, pendingSeeds(resume.actions), seedFacts); err != nil {
+		if err := s.store.BeginCollecting(ctx, pendingSeeds(resume.actions), seedFacts); err != nil {
 			return absent, err
 		}
 	case ledgerContinuePending, ledgerFinishSeal:
 	}
-	if err := ledger.FoldLedgerCounters(ctx, runID); err != nil {
+	if err := s.store.FoldLedgerCounters(ctx, runID); err != nil {
 		return absent, err
 	}
-	return resume.phase, s.restoreLedgerStateWithFacts(ctx, ledger, runID, knownEmpty, facts)
+	return resume.phase, s.restoreLedgerStateWithFacts(ctx, s.store, runID, knownEmpty, facts)
 }
 
 const finishedSyncHint = "a finished sync accepts only-expand-grants; start a new sync to collect again"
@@ -179,7 +175,7 @@ func (s *syncer) flagConflict(ctx context.Context, resume ledgerResume, finished
 		// resumer may plan it. The expansion step and the external import
 		// call no connector, so alone or with a drained queue they are a
 		// completed collection.
-		pending, _, err := s.caps.pageLedger.PendingWork(ctx, 0, maxPeekActionsCount)
+		pending, _, err := s.store.PendingWork(ctx, 0, maxPeekActionsCount)
 		if err != nil {
 			return nil, err
 		}
@@ -218,7 +214,7 @@ func (s *syncer) flagConflict(ctx context.Context, resume ledgerResume, finished
 // them: the Init page, or the takeover that adopted a legacy stack. An
 // attempt that finds none has nothing to compare against and continues.
 func (s *syncer) collectionFlagConflict(ctx context.Context) (map[string]string, error) {
-	facts, err := s.caps.pageLedger.LedgerFacts(ctx)
+	facts, err := s.store.LedgerFacts(ctx)
 	if err != nil {
 		return nil, err
 	}

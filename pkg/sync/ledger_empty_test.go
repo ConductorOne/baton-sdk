@@ -77,7 +77,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			require.NoError(t, err)
 			s := ledgerContinuationSyncer(f)
 			if kind == "read-error" {
-				s.caps.pageLedger = ledgerUnstartedFailure{PageLedgerStore: f.ledger}
+				s.store = withPageLedger(s.store, ledgerUnstartedFailure{PageLedgerStore: f.ledger})
 			}
 			if kind == "finished" {
 				s.cfg.onlyExpandGrants = true

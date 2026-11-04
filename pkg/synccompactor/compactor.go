@@ -682,7 +682,13 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 		}
 		return false, fmt.Errorf("incremental expansion: clone base graph: %w", err)
 	}
-	incrementalStore := sync.NewExpanderStore(c.compactedC1z)
+	incrementalStore, err := sync.NewExpanderStore(c.compactedC1z)
+	if err != nil {
+		if endErr := c.restoreEndedSync(ctx); endErr != nil {
+			return false, endErr
+		}
+		return false, fmt.Errorf("incremental expansion: expander store: %w", err)
+	}
 	if c.incrementalTestHook != nil {
 		incrementalStore = &incrementalFaultStore{ExpanderStore: incrementalStore, hook: c.incrementalTestHook}
 	}

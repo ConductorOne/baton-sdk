@@ -216,7 +216,7 @@ func TestLedgerStaticEntitlementReplay(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
-	s.store, s.caps = f.store, resolveStoreCaps(f.store)
+	s.store = f.store
 	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "static-resume")
 	require.NoError(t, err)
 	seedLedgerTestRun(t, s, nil)
@@ -307,7 +307,7 @@ func TestLedgerAssetHandlerReplay(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
-	s.store, s.caps = f.store, resolveStoreCaps(f.store)
+	s.store = f.store
 	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "asset-resume")
 	require.NoError(t, err)
 	seedLedgerTestRun(t, s, nil)
