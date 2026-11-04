@@ -1,7 +1,9 @@
 package actions
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
@@ -39,25 +41,52 @@ const (
 // output field leaves its name unset.
 const defaultCredentialReturnName = "credential"
 
+// standardReturnFields names the return fields CredentialIssueSchema declares
+// itself, so a descriptor's output field cannot claim one of them.
+var standardReturnFields = []string{
+	ReturnSecretResourceTypeID,
+	ReturnSecretResourceID,
+	ReturnIdentityID,
+	ReturnExpiresAt,
+	ReturnResourceMode,
+	ReturnRequestID,
+}
+
 // CredentialIssueSchema builds the schema for an action that mints a
 // credential. The descriptor carries the advertised shape and the declared
-// output type. Pass the result to RegisterResourceActionWithSecrets, and fill
-// the return fields it declares; CredentialIssueResource turns a filled
-// response back into the secret resource.
+// output type. Fill the return fields it declares, and pass
+// CredentialIssueResource the response; it rebuilds the secret resource.
+//
+// It leaves resource_type_id unset and is registered with RegisterWithSecrets,
+// not RegisterResourceActionWithSecrets: registration is scoped by resource
+// type and allows one action per non-dynamic action type within a scope, so a
+// scoped schema would permit only one issuer per secret resource type. The
+// descriptor's secret_resource_type_id already says what the action mints.
 //
 // The schema is metadata only: the SDK does not check what a handler returns or
 // whether the arguments it received are well formed. C1 does both.
-func CredentialIssueSchema(name string, descriptor *v2.CredentialIssueOptionDescriptor) *v2.BatonActionSchema {
+func CredentialIssueSchema(name string, descriptor *v2.CredentialIssueOptionDescriptor) (*v2.BatonActionSchema, error) {
+	if descriptor == nil {
+		return nil, errors.New("credential issue schema: descriptor is required")
+	}
 	output := descriptor.GetOutput()
+	if !output.GetIsSecret() {
+		return nil, errors.New("credential issue schema: descriptor output must be declared secret")
+	}
+	if output.GetStringField() == nil {
+		return nil, errors.New("credential issue schema: descriptor output must be a string field")
+	}
 	returnName := output.GetName()
 	if returnName == "" {
 		returnName = defaultCredentialReturnName
+	}
+	if slices.Contains(standardReturnFields, returnName) {
+		return nil, fmt.Errorf("credential issue schema: output field name %q collides with a standard return field", returnName)
 	}
 	return v2.BatonActionSchema_builder{
 		Name:            name,
 		ActionType:      []v2.ActionType{v2.ActionType_ACTION_TYPE_CREDENTIAL_ISSUE},
 		CredentialIssue: descriptor,
-		ResourceTypeId:  descriptor.GetSecretResourceTypeId(),
 		Arguments:       credentialIssueArguments(descriptor),
 		ReturnTypes: []*config.Field{
 			config.Field_builder{
@@ -104,7 +133,7 @@ func CredentialIssueSchema(name string, descriptor *v2.CredentialIssueOptionDesc
 				StringField: config.StringField_builder{}.Build(),
 			}.Build(),
 		},
-	}.Build()
+	}.Build(), nil
 }
 
 // credentialIssueArguments returns the standard arguments, plus the option
@@ -113,9 +142,10 @@ func CredentialIssueSchema(name string, descriptor *v2.CredentialIssueOptionDesc
 func credentialIssueArguments(descriptor *v2.CredentialIssueOptionDescriptor) []*config.Field {
 	arguments := []*config.Field{
 		config.Field_builder{
-			Name:        ArgIdentityID,
-			IsRequired:  true,
-			StringField: config.StringField_builder{}.Build(),
+			Name:            ArgIdentityID,
+			Description:     "The identity to mint the credential for.",
+			IsRequired:      true,
+			ResourceIdField: config.ResourceIdField_builder{}.Build(),
 		}.Build(),
 		config.Field_builder{
 			Name:        ArgExpiresAt,
@@ -157,7 +187,10 @@ func credentialIssueArguments(descriptor *v2.CredentialIssueOptionDescriptor) []
 // also returns the declared resource mode, so a caller can pass both straight to
 // connectorbuilder.ValidateIssuedCredential.
 //
-// The plaintext secret is the separate secret return field and is not read here.
+// The plaintext secret is the separate secret return field and is not read
+// here. This does not check request_id, scopes, audiences or the key profile
+// against the request: the caller (C1) owns those checks, because only it knows
+// what the issuance asked for.
 func CredentialIssueResource(response *structpb.Struct) (*v2.Resource, v2.CredentialResourceMode, error) {
 	fields := response.GetFields()
 	secretTypeID, err := requiredStringReturn(fields, ReturnSecretResourceTypeID)

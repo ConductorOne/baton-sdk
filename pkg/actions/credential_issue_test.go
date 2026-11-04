@@ -30,20 +30,25 @@ func apiKeyOutputDescriptor() *v2.CredentialIssueOptionDescriptor {
 
 func TestCredentialIssueSchemaDescribesTheIssuance(t *testing.T) {
 	descriptor := apiKeyOutputDescriptor()
-	schema := CredentialIssueSchema("issue_api_key", descriptor)
+	schema := mustCredentialIssueSchema(t, "issue_api_key", descriptor)
 
 	require.Equal(t, "issue_api_key", schema.GetName())
 	require.Equal(t, []v2.ActionType{v2.ActionType_ACTION_TYPE_CREDENTIAL_ISSUE}, schema.GetActionType())
 	require.True(t, proto.Equal(descriptor, schema.GetCredentialIssue()), "the descriptor travels unmodified")
-	require.Equal(t, "organization-api-key", schema.GetResourceTypeId(), "resource_type_id is the secret resource type")
+	require.Empty(t, schema.GetResourceTypeId(),
+		"the schema is global: resource scoping allows one action per type per resource type")
 
 	arguments := schema.GetArguments()
 	require.Len(t, arguments, 3, "a descriptor with no scopes, audiences or key profiles declares only the base arguments")
 	for _, arg := range arguments {
-		require.NotNil(t, arg.GetStringField(), "argument %q is a string", arg.GetName())
 		require.False(t, arg.GetIsSecret(), "argument %q is not a secret", arg.GetName())
 		require.NoError(t, arg.Validate(), "argument %q", arg.GetName())
 	}
+	byName := argumentsByName(schema)
+	require.NotNil(t, byName[ArgIdentityID].GetResourceIdField(),
+		"identity_id is a ResourceId, as in IssueCredentialRequest")
+	require.NotNil(t, byName[ArgExpiresAt].GetStringField())
+	require.NotNil(t, byName[ArgRequestID].GetStringField())
 	require.Equal(t, []string{ArgIdentityID, ArgExpiresAt, ArgRequestID}, []string{
 		arguments[0].GetName(), arguments[1].GetName(), arguments[2].GetName(),
 	})
@@ -65,15 +70,14 @@ func TestCredentialIssueSchemaNamesTheReturnWhenTheOutputHasNoName(t *testing.T)
 	descriptor := apiKeyOutputDescriptor()
 	descriptor.GetOutput().SetName("")
 
-	schema := CredentialIssueSchema("issue_api_key", descriptor)
+	schema := mustCredentialIssueSchema(t, "issue_api_key", descriptor)
 	secret := secretReturnField(schema)
 	require.Equal(t, defaultCredentialReturnName, secret.GetName())
 }
 
-func TestCredentialIssueSchemaRegistersAsAResourceAction(t *testing.T) {
+func TestCredentialIssueSchemasRegisterGlobally(t *testing.T) {
 	ctx := context.Background()
 	manager := NewActionManager(ctx)
-	schema := CredentialIssueSchema("issue_api_key", apiKeyOutputDescriptor())
 	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
 		response, err := structpb.NewStruct(map[string]any{"success": true})
 		if err != nil {
@@ -88,13 +92,23 @@ func TestCredentialIssueSchemaRegistersAsAResourceAction(t *testing.T) {
 		}, nil, nil
 	}
 
-	require.NoError(t, manager.RegisterResourceActionWithSecrets(ctx, schema.GetResourceTypeId(), schema, handler))
+	// Two issuers for the same secret resource type, which a resource-scoped
+	// registration would refuse: the duplicate-action-type check compares action
+	// types within one resource type.
+	orgKey := mustCredentialIssueSchema(t, "issue_org_api_key", apiKeyOutputDescriptor())
+	serviceKey := mustCredentialIssueSchema(t, "issue_service_account_key", apiKeyOutputDescriptor())
 
-	registered := manager.resourceSchemas[schema.GetResourceTypeId()]["issue_api_key"]
-	require.NotNil(t, registered, "the schema registers under its resource type and name")
-	require.Equal(t, schema.GetResourceTypeId(), registered.GetResourceTypeId())
-	require.Equal(t, []v2.ActionType{v2.ActionType_ACTION_TYPE_CREDENTIAL_ISSUE}, registered.GetActionType())
-	require.True(t, proto.Equal(schema.GetCredentialIssue(), registered.GetCredentialIssue()))
+	require.NoError(t, manager.RegisterWithSecrets(ctx, orgKey, handler))
+	require.NoError(t, manager.RegisterWithSecrets(ctx, serviceKey, handler))
+
+	for _, schema := range []*v2.BatonActionSchema{orgKey, serviceKey} {
+		registered := manager.schemas[schema.GetName()]
+		require.NotNil(t, registered, "the schema registers by name")
+		require.Equal(t, schema.GetName(), registered.GetName())
+		require.Empty(t, registered.GetResourceTypeId(), "a global schema carries no resource scope")
+		require.Equal(t, []v2.ActionType{v2.ActionType_ACTION_TYPE_CREDENTIAL_ISSUE}, registered.GetActionType())
+		require.True(t, proto.Equal(schema.GetCredentialIssue(), registered.GetCredentialIssue()))
+	}
 }
 
 // secretReturnField picks the one secret return field, so a test names the
@@ -120,7 +134,7 @@ func returnFieldByName(schema *v2.BatonActionSchema, name string) *config.Field 
 }
 
 func TestCredentialIssueSchemaDeclaresTheStandardReturnFields(t *testing.T) {
-	schema := CredentialIssueSchema("issue_api_key", apiKeyOutputDescriptor())
+	schema := mustCredentialIssueSchema(t, "issue_api_key", apiKeyOutputDescriptor())
 
 	for _, name := range []string{
 		ReturnSecretResourceTypeID,
@@ -136,8 +150,7 @@ func TestCredentialIssueSchemaDeclaresTheStandardReturnFields(t *testing.T) {
 	}
 	require.NotNil(t, returnFieldByName(schema, ReturnIdentityID).GetResourceIdField(),
 		"the echoed identity is a ResourceId, not a string")
-	require.True(t, returnFieldByName(schema, ReturnExpiresAt).GetIsRequired() == false,
-		"expiry is optional")
+	require.False(t, returnFieldByName(schema, ReturnExpiresAt).GetIsRequired(), "expiry is optional")
 
 	// The plaintext stays the only secret return field.
 	secretCount := 0
@@ -150,11 +163,9 @@ func TestCredentialIssueSchemaDeclaresTheStandardReturnFields(t *testing.T) {
 }
 
 func TestCredentialIssueSchemaAddsOnlyTheAdvertisedOptions(t *testing.T) {
-	base := CredentialIssueSchema("issue_api_key", apiKeyOutputDescriptor()).GetArguments()
-
 	withScopes := apiKeyOutputDescriptor()
 	withScopes.SetScopes([]string{"read", "write"})
-	scoped := argumentsByName(CredentialIssueSchema("issue_api_key", withScopes))
+	scoped := argumentsByName(mustCredentialIssueSchema(t, "issue_api_key", withScopes))
 	require.NotNil(t, scoped[ArgScopes], "scopes are declared when the descriptor advertises them")
 	require.NotNil(t, scoped[ArgScopes].GetStringSliceField())
 	require.Nil(t, scoped[ArgAudiences], "audiences stay undeclared")
@@ -162,7 +173,7 @@ func TestCredentialIssueSchemaAddsOnlyTheAdvertisedOptions(t *testing.T) {
 
 	withAudiences := apiKeyOutputDescriptor()
 	withAudiences.SetAudiences([]string{"api.example.test"})
-	audienced := argumentsByName(CredentialIssueSchema("issue_api_key", withAudiences))
+	audienced := argumentsByName(mustCredentialIssueSchema(t, "issue_api_key", withAudiences))
 	require.NotNil(t, audienced[ArgAudiences])
 	require.Nil(t, audienced[ArgScopes])
 
@@ -170,11 +181,12 @@ func TestCredentialIssueSchemaAddsOnlyTheAdvertisedOptions(t *testing.T) {
 	withProfile.SetKeyProfiles([]*v2.KeyGenerationProfile{
 		v2.KeyGenerationProfile_builder{Kty: "RSA"}.Build(),
 	})
-	profiled := argumentsByName(CredentialIssueSchema("issue_api_key", withProfile))
+	profiled := argumentsByName(mustCredentialIssueSchema(t, "issue_api_key", withProfile))
 	require.NotNil(t, profiled[ArgProfile])
 	require.Nil(t, profiled[ArgScopes])
 
-	require.Len(t, base, 3, "the base descriptor declares no optional arguments")
+	require.Len(t, mustCredentialIssueSchema(t, "issue_api_key", apiKeyOutputDescriptor()).GetArguments(), 3,
+		"the base descriptor declares no optional arguments")
 }
 
 func argumentsByName(schema *v2.BatonActionSchema) map[string]*config.Field {
@@ -271,6 +283,45 @@ func TestCredentialIssueResourceRejectsIncompleteResponses(t *testing.T) {
 			_, _, err = CredentialIssueResource(response)
 			require.Error(t, err)
 			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+// mustCredentialIssueSchema builds a schema or fails the test, so each test
+// names only the input it cares about.
+func mustCredentialIssueSchema(t *testing.T, name string, descriptor *v2.CredentialIssueOptionDescriptor) *v2.BatonActionSchema {
+	t.Helper()
+	schema, err := CredentialIssueSchema(name, descriptor)
+	require.NoError(t, err)
+	return schema
+}
+
+func TestCredentialIssueSchemaRejectsUnusableInput(t *testing.T) {
+	unsecret := apiKeyOutputDescriptor()
+	unsecret.GetOutput().SetIsSecret(false)
+
+	notString := apiKeyOutputDescriptor()
+	notString.GetOutput().ClearStringField()
+	notString.GetOutput().SetBoolField(config.BoolField_builder{}.Build())
+
+	colliding := apiKeyOutputDescriptor()
+	colliding.GetOutput().SetName(ReturnRequestID)
+
+	for _, tc := range []struct {
+		name       string
+		descriptor *v2.CredentialIssueOptionDescriptor
+		want       string
+	}{
+		{"nil descriptor", nil, "descriptor is required"},
+		{"output not secret", unsecret, "must be declared secret"},
+		{"output not a string", notString, "must be a string field"},
+		{"output name collides", colliding, "collides with a standard return field"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			schema, err := CredentialIssueSchema("issue_api_key", tc.descriptor)
+			require.Error(t, err)
+			require.ErrorContains(t, err, tc.want)
+			require.Nil(t, schema)
 		})
 	}
 }
