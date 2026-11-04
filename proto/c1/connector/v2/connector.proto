@@ -72,7 +72,10 @@ enum Capability {
   CAPABILITY_SERVICE_MODE_TARGETED_SYNC = 13;
   // The connector can mint new credentials for an existing identity via
   // CredentialManagerService.IssueCredential.
-  CAPABILITY_CREDENTIAL_ISSUE = 14;
+  //
+  // Deprecated: advertise ACTION_TYPE_CREDENTIAL_ISSUE on an action schema
+  // instead.
+  CAPABILITY_CREDENTIAL_ISSUE = 14 [deprecated = true];
   // IssueCredential supports the baton/jwe/v1 X-Wing recipient with one config
   // and one plaintext value. This names that one suite, not JWE in general;
   // another suite needs its own capability value.
@@ -108,7 +111,10 @@ message CredentialDetailsCredentialRotation {
 
 // Advertises which credential options CredentialManagerService.IssueCredential
 // supports for this identity type.
+//
+// Deprecated: use ACTION_TYPE_CREDENTIAL_ISSUE on an action schema instead.
 message CredentialDetailsCredentialIssue {
+  option deprecated = true;
   // Advertised issuance options, unique on (option, secret_resource_type_id).
   // Several descriptors may share an option when they mint different secret
   // resource types -- an organization-wide API key and a per-identity API key,
@@ -195,7 +201,8 @@ message ResourceTypeCapability {
   CapabilityPermissions permissions = 3;
   bool opt_in_required = 4;
   bool skip_sync_anomaly_detection = 5;
-  CredentialDetailsCredentialIssue credential_issue = 6;
+  // Deprecated: use ACTION_TYPE_CREDENTIAL_ISSUE on an action schema instead.
+  CredentialDetailsCredentialIssue credential_issue = 6 [deprecated = true];
   bool deprecated = 7;
 }
 

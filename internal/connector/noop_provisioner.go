@@ -34,6 +34,7 @@ func (n *noopProvisioner) RotateCredential(ctx context.Context, request *v2.Rota
 	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
 }
 
+//nolint:staticcheck // implements the deprecated interface method it must still satisfy
 func (n *noopProvisioner) IssueCredential(ctx context.Context, request *v2.IssueCredentialRequest) (*v2.IssueCredentialResponse, error) {
 	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
 }

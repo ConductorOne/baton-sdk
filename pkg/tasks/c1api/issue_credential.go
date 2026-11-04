@@ -26,6 +26,9 @@ type issueCredentialTaskHandler struct {
 	helpers issueCredentialHelpers
 }
 
+// HandleTask serves the deprecated IssueCredential task type.
+//
+// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 func (h *issueCredentialTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "issueCredentialTaskHandler.HandleTask")
 	var err error

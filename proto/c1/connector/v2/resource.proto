@@ -109,7 +109,12 @@ service CredentialManagerService {
   // credential on a resource in place — IssueCredential models minting an
   // additional, distinct secret, so an identity can hold multiple coexisting
   // keys (e.g. cloud service-account key #1 and #2).
-  rpc IssueCredential(IssueCredentialRequest) returns (IssueCredentialResponse);
+  //
+  // Deprecated: use a CREDENTIAL_ISSUE custom action
+  // (actions.CredentialIssueSchema).
+  rpc IssueCredential(IssueCredentialRequest) returns (IssueCredentialResponse) {
+    option deprecated = true;
+  };
 }
 
 service AccountManagerService {
@@ -155,7 +160,10 @@ message RotateCredentialResponse {
   repeated google.protobuf.Any annotations = 3;
 }
 
+// Deprecated: use a CREDENTIAL_ISSUE custom action
+// (actions.CredentialIssueSchema).
 message IssueCredentialRequest {
+  option deprecated = true;
   // The existing identity (e.g. service account) to mint the credential for.
   ResourceId identity_id = 1;
   // What kind of credential to mint (api_key / keypair / token / ...).
@@ -185,7 +193,10 @@ enum CredentialResourceMode {
   CREDENTIAL_RESOURCE_MODE_VIRTUAL = 2;
 }
 
+// Deprecated: use a CREDENTIAL_ISSUE custom action
+// (actions.CredentialIssueSchema).
 message IssueCredentialResponse {
+  option deprecated = true;
   // The newly minted secret modeled as a resource. Carries SecretTrait, whose
   // identity_id back-references the IssueCredentialRequest.identity_id, so the
   // platform can link the secret to the identity that owns it.

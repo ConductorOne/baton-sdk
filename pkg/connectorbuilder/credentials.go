@@ -128,6 +128,8 @@ func (b *builder) addCredentialManager(_ context.Context, typeId string, in inte
 // distinct from rotating the single credential on a resource. It is a separate,
 // additive interface so existing CredentialManager implementations are
 // unaffected — a connector opts in to issuance only by implementing it.
+//
+// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 type CredentialIssuer interface {
 	ResourceSyncer
 	CredentialIssuerLimited
@@ -136,11 +138,14 @@ type CredentialIssuer interface {
 // CredentialIssuerV2 is the ResourceSyncerV2 variant implemented by modern
 // connectors. It advertises the same issuance contract without forcing a V2
 // syncer to also implement the legacy pagination interface.
+//
+// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 type CredentialIssuerV2 interface {
 	ResourceSyncerV2
 	CredentialIssuerLimited
 }
 
+// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 type CredentialIssuerLimited interface {
 	// Issue mints a new credential for identityId and returns the newly created
 	// secret resource alongside the plaintext material. The builder encrypts the
@@ -150,6 +155,7 @@ type CredentialIssuerLimited interface {
 	//
 	// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 	Issue(ctx context.Context, input *CredentialIssueInput) (*CredentialIssueOutput, error)
+	//nolint:staticcheck // the deprecated contract connectors still implement
 	IssueCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error)
 }
 
@@ -170,6 +176,9 @@ type CredentialIssueOutput struct {
 	ResourceMode  v2.CredentialResourceMode
 }
 
+// IssueCredential serves the deprecated IssueCredential RPC.
+//
+// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredentialRequest) (*v2.IssueCredentialResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.IssueCredential")
 	var err error

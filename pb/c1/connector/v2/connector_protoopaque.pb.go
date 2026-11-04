@@ -46,6 +46,11 @@ const (
 	Capability_CAPABILITY_SERVICE_MODE_TARGETED_SYNC Capability = 13
 	// The connector can mint new credentials for an existing identity via
 	// CredentialManagerService.IssueCredential.
+	//
+	// Deprecated: advertise ACTION_TYPE_CREDENTIAL_ISSUE on an action schema
+	// instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 	Capability_CAPABILITY_CREDENTIAL_ISSUE Capability = 14
 	// IssueCredential supports the baton/jwe/v1 X-Wing recipient with one config
 	// and one plaintext value. This names that one suite, not JWE in general;
@@ -772,6 +777,10 @@ func (b0 CredentialDetailsCredentialRotation_builder) Build() *CredentialDetails
 
 // Advertises which credential options CredentialManagerService.IssueCredential
 // supports for this identity type.
+//
+// Deprecated: use ACTION_TYPE_CREDENTIAL_ISSUE on an action schema instead.
+//
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 type CredentialDetailsCredentialIssue struct {
 	state                      protoimpl.MessageState              `protogen:"opaque.v1"`
 	xxx_hidden_Options         *[]*CredentialIssueOptionDescriptor `protobuf:"bytes,1,rep,name=options,proto3"`
@@ -829,6 +838,7 @@ func (x *CredentialDetailsCredentialIssue) SetPreferredOption(v CapabilityDetail
 	x.xxx_hidden_PreferredOption = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 type CredentialDetailsCredentialIssue_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1609,6 +1619,7 @@ func (x *ResourceTypeCapability) GetSkipSyncAnomalyDetection() bool {
 	return false
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *ResourceTypeCapability) GetCredentialIssue() *CredentialDetailsCredentialIssue {
 	if x != nil {
 		return x.xxx_hidden_CredentialIssue
@@ -1643,6 +1654,7 @@ func (x *ResourceTypeCapability) SetSkipSyncAnomalyDetection(v bool) {
 	x.xxx_hidden_SkipSyncAnomalyDetection = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *ResourceTypeCapability) SetCredentialIssue(v *CredentialDetailsCredentialIssue) {
 	x.xxx_hidden_CredentialIssue = v
 }
@@ -1665,6 +1677,7 @@ func (x *ResourceTypeCapability) HasPermissions() bool {
 	return x.xxx_hidden_Permissions != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *ResourceTypeCapability) HasCredentialIssue() bool {
 	if x == nil {
 		return false
@@ -1680,6 +1693,7 @@ func (x *ResourceTypeCapability) ClearPermissions() {
 	x.xxx_hidden_Permissions = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *ResourceTypeCapability) ClearCredentialIssue() {
 	x.xxx_hidden_CredentialIssue = nil
 }
@@ -1692,8 +1706,11 @@ type ResourceTypeCapability_builder struct {
 	Permissions              *CapabilityPermissions
 	OptInRequired            bool
 	SkipSyncAnomalyDetection bool
-	CredentialIssue          *CredentialDetailsCredentialIssue
-	Deprecated               bool
+	// Deprecated: use ACTION_TYPE_CREDENTIAL_ISSUE on an action schema instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
+	CredentialIssue *CredentialDetailsCredentialIssue
+	Deprecated      bool
 }
 
 func (b0 ResourceTypeCapability_builder) Build() *ResourceTypeCapability {
@@ -2761,10 +2778,10 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\x8d\x02\n" +
 	"#CredentialDetailsCredentialRotation\x12s\n" +
 	"\x1csupported_credential_options\x18\x01 \x03(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x1asupportedCredentialOptions\x12q\n" +
-	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xcc\x01\n" +
+	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xd0\x01\n" +
 	" CredentialDetailsCredentialIssue\x12J\n" +
 	"\aoptions\x18\x01 \x03(\v20.c1.connector.v2.CredentialIssueOptionDescriptorR\aoptions\x12\\\n" +
-	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xf9\x04\n" +
+	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption:\x02\x18\x01\"\xf9\x04\n" +
 	"\x1fCredentialIssueOptionDescriptor\x12I\n" +
 	"\x06option\x18\x01 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x06option\x12H\n" +
 	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12A\n" +
@@ -2795,14 +2812,14 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\rOptInRequired\"\f\n" +
 	"\n" +
 	"Deprecated\"\x1a\n" +
-	"\x18SkipSyncAnomalyDetection\"\xcc\x03\n" +
+	"\x18SkipSyncAnomalyDetection\"\xd0\x03\n" +
 	"\x16ResourceTypeCapability\x12B\n" +
 	"\rresource_type\x18\x01 \x01(\v2\x1d.c1.connector.v2.ResourceTypeR\fresourceType\x12?\n" +
 	"\fcapabilities\x18\x02 \x03(\x0e2\x1b.c1.connector.v2.CapabilityR\fcapabilities\x12H\n" +
 	"\vpermissions\x18\x03 \x01(\v2&.c1.connector.v2.CapabilityPermissionsR\vpermissions\x12&\n" +
 	"\x0fopt_in_required\x18\x04 \x01(\bR\roptInRequired\x12=\n" +
-	"\x1bskip_sync_anomaly_detection\x18\x05 \x01(\bR\x18skipSyncAnomalyDetection\x12\\\n" +
-	"\x10credential_issue\x18\x06 \x01(\v21.c1.connector.v2.CredentialDetailsCredentialIssueR\x0fcredentialIssue\x12\x1e\n" +
+	"\x1bskip_sync_anomaly_detection\x18\x05 \x01(\bR\x18skipSyncAnomalyDetection\x12`\n" +
+	"\x10credential_issue\x18\x06 \x01(\v21.c1.connector.v2.CredentialDetailsCredentialIssueB\x02\x18\x01R\x0fcredentialIssue\x12\x1e\n" +
 	"\n" +
 	"deprecated\x18\a \x01(\bR\n" +
 	"deprecated\"$\n" +
@@ -2850,7 +2867,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\rdefault_value\x18\x01 \x03(\v2J.c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntryR\fdefaultValue\x1av\n" +
 	"\x11DefaultValueEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12K\n" +
-	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\x85\x04\n" +
+	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\x89\x04\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12\x18\n" +
@@ -2867,8 +2884,8 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x12\x1c\n" +
 	"\x18CAPABILITY_TARGETED_SYNC\x10\v\x12\x1c\n" +
 	"\x18CAPABILITY_EVENT_FEED_V2\x10\f\x12)\n" +
-	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r\x12\x1f\n" +
-	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e\x121\n" +
+	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r\x12#\n" +
+	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e\x1a\x02\b\x01\x121\n" +
 	"-CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1\x10\x10*\xf6\x03\n" +
 	" CapabilityDetailCredentialOption\x123\n" +
 	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED\x10\x00\x123\n" +

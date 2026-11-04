@@ -419,6 +419,7 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 		}
 
 		if _, exists := b.credentialIssuers[resourceTypeID]; exists {
+			//nolint:staticcheck // the deprecated capability is still advertised while connectors use the RPC
 			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ISSUE, v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1)
 		}
 
@@ -434,7 +435,7 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 		if err != nil {
 			return nil, err
 		}
-		var issueDetails *v2.CredentialDetailsCredentialIssue
+		var issueDetails *v2.CredentialDetailsCredentialIssue //nolint:staticcheck // carries the deprecated advertisement
 		if issuer, exists := b.credentialIssuers[resourceTypeID]; exists {
 			issueDetails, _, err = issuer.IssueCapabilityDetails(ctx)
 			if err != nil {
@@ -459,7 +460,7 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 			Permissions:              p,
 			OptInRequired:            annos.Contains(&v2.OptInRequired{}),
 			SkipSyncAnomalyDetection: annos.Contains(&v2.SkipSyncAnomalyDetection{}),
-			CredentialIssue:          issueDetails,
+			CredentialIssue:          issueDetails, //nolint:staticcheck // carries the deprecated advertisement
 			Deprecated:               annos.Contains(&v2.Deprecated{}),
 		}.Build())
 	}
@@ -526,6 +527,7 @@ func validateCapabilityDetails(_ context.Context, credDetails *v2.CredentialDeta
 	return nil
 }
 
+//nolint:staticcheck // validates the deprecated advertisement it still publishes
 func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredentialIssue) error {
 	if issue == nil || issue.GetPreferredOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 		return status.Error(codes.InvalidArgument, "preferred credential issue option is not set")
