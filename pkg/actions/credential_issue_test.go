@@ -46,6 +46,8 @@ func TestCredentialIssueSchemaDescribesTheIssuance(t *testing.T) {
 	require.NotNil(t, byName[ArgIdentityID].GetResourceIdField(),
 		"identity_id is a ResourceId, as in IssueCredentialRequest")
 	require.True(t, byName[ArgIdentityID].GetIsRequired())
+	require.Equal(t, []string{"user"}, byName[ArgIdentityID].GetResourceIdField().GetRules().GetAllowedResourceTypeIds(),
+		"the identity argument names the one resource type this action mints for")
 	require.NotNil(t, byName[ArgRequestID].GetStringField())
 	require.True(t, byName[ArgRequestID].GetIsRequired())
 	require.Nil(t, byName[ArgExpiresAt], "no expiry capability means no expiry argument")
@@ -152,7 +154,7 @@ func TestCredentialIssueSchemaRejectsUnusableInput(t *testing.T) {
 		{"output name collides", colliding, "collides with a standard return field"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			schema, err := CredentialIssueSchema("issue_api_key", tc.descriptor)
+			schema, err := CredentialIssueSchema("issue_api_key", testIdentityResourceTypeID, tc.descriptor)
 			require.Error(t, err)
 			require.ErrorContains(t, err, tc.want)
 			require.Nil(t, schema)
@@ -167,7 +169,7 @@ func TestCredentialIssueSchemaRejectsAProviderArgumentCollision(t *testing.T) {
 				Name:        fixed,
 				StringField: config.StringField_builder{}.Build(),
 			}.Build()
-			schema, err := CredentialIssueSchema("issue_api_key", apiKeyOutputDescriptor(), providerArg)
+			schema, err := CredentialIssueSchema("issue_api_key", testIdentityResourceTypeID, apiKeyOutputDescriptor(), providerArg)
 			require.Error(t, err)
 			require.ErrorContains(t, err, "collides with a fixed argument")
 			require.Nil(t, schema)
@@ -272,10 +274,12 @@ func TestCredentialIssueResourceRejectsIncompleteInput(t *testing.T) {
 	}
 }
 
+const testIdentityResourceTypeID = "user"
+
 // mustCredentialIssueSchema builds a schema or fails the test.
 func mustCredentialIssueSchema(t *testing.T, name string, descriptor *v2.CredentialIssueOptionDescriptor, args ...*config.Field) *v2.BatonActionSchema {
 	t.Helper()
-	schema, err := CredentialIssueSchema(name, descriptor, args...)
+	schema, err := CredentialIssueSchema(name, testIdentityResourceTypeID, descriptor, args...)
 	require.NoError(t, err)
 	return schema
 }
@@ -312,4 +316,25 @@ func returnFieldByName(schema *v2.BatonActionSchema, name string) *config.Field 
 func argByName(t *testing.T, descriptor *v2.CredentialIssueOptionDescriptor, name string) *config.Field {
 	t.Helper()
 	return argumentsByName(mustCredentialIssueSchema(t, "issue", descriptor))[name]
+}
+
+func TestCredentialIssueSchemaRequiresAnIdentityResourceType(t *testing.T) {
+	schema, err := CredentialIssueSchema("issue_api_key", "", apiKeyOutputDescriptor())
+	require.Error(t, err)
+	require.ErrorContains(t, err, "identity resource type id is required")
+	require.Nil(t, schema)
+}
+
+func TestCredentialIssueSchemaCarriesEachIdentityType(t *testing.T) {
+	// A connector issuing for several identity types registers one action per
+	// type, so each schema allows exactly the type it was built with.
+	for _, identityType := range []string{"user", "service_account"} {
+		t.Run(identityType, func(t *testing.T) {
+			schema, err := CredentialIssueSchema("issue_"+identityType, identityType, apiKeyOutputDescriptor())
+			require.NoError(t, err)
+			identityArg := argumentsByName(schema)[ArgIdentityID]
+			require.Equal(t, []string{identityType},
+				identityArg.GetResourceIdField().GetRules().GetAllowedResourceTypeIds())
+		})
+	}
 }

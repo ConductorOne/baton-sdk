@@ -59,9 +59,17 @@ var standardReturnFields = []string{ReturnSecretResourceID, ReturnExpiresAt}
 // scoped schema would permit only one issuer per secret resource type. The
 // descriptor's secret_resource_type_id already says what the action mints.
 //
+// An issuer action mints for one identity resource type, which C1 needs: the
+// RPC implied it through the ResourceTypeCapability carrying the options, and an
+// unscoped action schema has nowhere else to say it. A connector that issues for
+// several identity types registers one action per type.
+//
 // The schema is metadata only: the SDK does not check what a handler returns or
 // whether the arguments it received are well formed. C1 does both.
-func CredentialIssueSchema(name string, descriptor *v2.CredentialIssueOptionDescriptor, args ...*config.Field) (*v2.BatonActionSchema, error) {
+func CredentialIssueSchema(name string, identityResourceTypeID string, descriptor *v2.CredentialIssueOptionDescriptor, args ...*config.Field) (*v2.BatonActionSchema, error) {
+	if identityResourceTypeID == "" {
+		return nil, errors.New("credential issue schema: identity resource type id is required")
+	}
 	if descriptor == nil {
 		return nil, errors.New("credential issue schema: descriptor is required")
 	}
@@ -79,7 +87,7 @@ func CredentialIssueSchema(name string, descriptor *v2.CredentialIssueOptionDesc
 	if slices.Contains(standardReturnFields, returnName) {
 		return nil, fmt.Errorf("credential issue schema: output field name %q collides with a standard return field", returnName)
 	}
-	arguments, err := credentialIssueArguments(descriptor, args)
+	arguments, err := credentialIssueArguments(identityResourceTypeID, descriptor, args)
 	if err != nil {
 		return nil, err
 	}
@@ -115,13 +123,17 @@ func CredentialIssueSchema(name string, descriptor *v2.CredentialIssueOptionDesc
 
 // credentialIssueArguments returns the fixed arguments followed by the
 // connector's own, refusing a provider field that would shadow one of them.
-func credentialIssueArguments(descriptor *v2.CredentialIssueOptionDescriptor, providerArgs []*config.Field) ([]*config.Field, error) {
+func credentialIssueArguments(identityResourceTypeID string, descriptor *v2.CredentialIssueOptionDescriptor, providerArgs []*config.Field) ([]*config.Field, error) {
 	arguments := []*config.Field{
 		config.Field_builder{
-			Name:            ArgIdentityID,
-			Description:     "The identity to mint the credential for.",
-			IsRequired:      true,
-			ResourceIdField: config.ResourceIdField_builder{}.Build(),
+			Name:        ArgIdentityID,
+			Description: "The identity to mint the credential for.",
+			IsRequired:  true,
+			ResourceIdField: config.ResourceIdField_builder{
+				Rules: config.ResourceIDRules_builder{
+					AllowedResourceTypeIds: []string{identityResourceTypeID},
+				}.Build(),
+			}.Build(),
 		}.Build(),
 		config.Field_builder{
 			Name:        ArgRequestID,

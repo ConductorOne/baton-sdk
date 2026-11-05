@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -21,6 +22,12 @@ func testDescriptor() *v2.CredentialIssueOptionDescriptor {
 		Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
 		ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
 		SecretResourceTypeId: "organization-api-key",
+		Output: config.Field_builder{
+			Name:        "api_key",
+			ContentType: "application/vnd.multipass.api_key_v2+json",
+			IsSecret:    true,
+			StringField: config.StringField_builder{}.Build(),
+		}.Build(),
 	}.Build()
 }
 
@@ -54,12 +61,32 @@ func issuedOutput(t *testing.T, response *structpb.Struct) *connectorbuilder.Cre
 	}
 }
 
+// testSchema builds the action schema the round trip's response is meant to
+// answer, so the identity the response echoes is the one the schema allows.
+func testSchema(t *testing.T) *v2.BatonActionSchema {
+	t.Helper()
+	schema, err := actions.CredentialIssueSchema("issue_api_key", testIdentityID.GetResourceType(), testDescriptor())
+	require.NoError(t, err)
+	return schema
+}
+
 func TestCredentialIssueActionOutputPassesTheValidator(t *testing.T) {
 	requested := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	output := issuedOutput(t, actionResponse(t, "key-1", requested.Format(time.RFC3339)))
 
 	require.NoError(t, connectorbuilder.ValidateIssuedCredential(
 		testIdentityID, timestamppb.New(requested), output, testDescriptor()))
+
+	// The schema this response answers admits the identity it was minted for.
+	var identityArg *config.Field
+	for _, argument := range testSchema(t).GetArguments() {
+		if argument.GetName() == actions.ArgIdentityID {
+			identityArg = argument
+		}
+	}
+	require.NotNil(t, identityArg)
+	require.Equal(t, []string{testIdentityID.GetResourceType()},
+		identityArg.GetResourceIdField().GetRules().GetAllowedResourceTypeIds())
 }
 
 func TestCredentialIssueActionOutputRoundTripsSubSecondExpiry(t *testing.T) {
