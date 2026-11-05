@@ -42,6 +42,13 @@ func main() {
 	needle := strings.ToLower(*principal)
 	matched := map[string]*v2.Resource{} // key: type|id
 	key := func(id *v2.ResourceId) string { return id.GetResourceType() + "|" + id.GetResource() }
+	type typeSummary struct {
+		name    string
+		count   int
+		samples []string
+	}
+	summary := map[string]*typeSummary{}
+	var typeOrder []string
 
 	for tok := ""; ; {
 		resp, err := store.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageSize: 1000, PageToken: tok})
@@ -50,6 +57,9 @@ func main() {
 			os.Exit(1)
 		}
 		for _, rt := range resp.GetList() {
+			ts := &typeSummary{name: rt.GetDisplayName()}
+			summary[rt.GetId()] = ts
+			typeOrder = append(typeOrder, rt.GetId())
 			for rtok := ""; ; {
 				rresp, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{ResourceTypeId: rt.GetId(), PageSize: 1000, PageToken: rtok})
 				if err != nil {
@@ -57,6 +67,10 @@ func main() {
 					os.Exit(1)
 				}
 				for _, r := range rresp.GetList() {
+					ts.count++
+					if len(ts.samples) < 3 {
+						ts.samples = append(ts.samples, fmt.Sprintf("%q id=%s %s", r.GetDisplayName(), r.GetId().GetResource(), principalIdentity(r)))
+					}
 					if resourceMatches(r, needle) {
 						matched[key(r.GetId())] = r
 					}
@@ -72,6 +86,14 @@ func main() {
 	}
 	if len(matched) == 0 {
 		fmt.Println("no principal matched", *principal)
+		fmt.Println("resource types in this file (count, then up to three samples):")
+		for _, id := range typeOrder {
+			ts := summary[id]
+			fmt.Printf("  %s (%q): %d\n", id, ts.name, ts.count)
+			for _, smp := range ts.samples {
+				fmt.Printf("      %s\n", smp)
+			}
+		}
 		return
 	}
 	for k, r := range matched {
