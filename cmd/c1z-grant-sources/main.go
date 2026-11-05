@@ -17,6 +17,8 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/sqlite"
 )
 
 func main() {
@@ -29,11 +31,12 @@ func main() {
 		os.Exit(2)
 	}
 	ctx := context.Background()
-	store, err := dotc1z.NewStore(ctx, *path, dotc1z.WithReadOnly(true))
+	store, cleanup, err := openStore(ctx, *path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "open:", err)
 		os.Exit(1)
 	}
+	defer cleanup()
 	defer store.Close(ctx)
 
 	needle := strings.ToLower(*principal)
@@ -175,4 +178,43 @@ func principalIdentity(r *v2.Resource) string {
 		parts = append(parts, "email="+e.GetAddress())
 	}
 	return strings.Join(parts, " ")
+}
+
+// openStore opens a v3 (pebble) c1z directly. A v1 (sqlite) c1z is converted
+// into a temporary pebble file first, since the store registry refuses v1.
+func openStore(ctx context.Context, path string) (c1zstore.Store, func(), error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	format, err := dotc1z.ReadHeaderFormat(f)
+	f.Close()
+	if err != nil {
+		return nil, nil, err
+	}
+	if format != dotc1z.C1ZFormatV1 {
+		store, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+		return store, func() {}, err
+	}
+	src, err := sqlite.Open(ctx, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer src.Close(ctx)
+	syncID, err := src.ResolveSyncID(ctx, sqlite.ResolveNewest)
+	if err != nil {
+		return nil, nil, err
+	}
+	tmp, err := os.MkdirTemp("", "c1z-grant-sources-")
+	if err != nil {
+		return nil, nil, err
+	}
+	out := tmp + "/converted.c1z"
+	fmt.Fprintf(os.Stderr, "v1 (sqlite) c1z: converting sync %s to a temporary pebble file\n", syncID)
+	store, _, err := src.ToPebbleOpen(ctx, out, syncID)
+	if err != nil {
+		os.RemoveAll(tmp)
+		return nil, nil, err
+	}
+	return store, func() { os.RemoveAll(tmp) }, nil
 }
