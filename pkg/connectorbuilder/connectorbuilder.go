@@ -144,7 +144,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	}
 
 	if b.m == nil {
-		b.m = metrics.New(metrics.NewNoOpHandler(ctx))
+		b.m = metrics.New(metrics.NewDefaultHandler(ctx))
 	}
 
 	if err := b.addConnectorBuilderProviders(ctx, in); err != nil {

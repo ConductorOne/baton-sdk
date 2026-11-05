@@ -60,12 +60,9 @@ type ProgressLog struct {
 	lastLoggedDBSize int64
 	hasLoggedDBSize  bool // false until the first successful size read; gates the delta field
 
-	// Optional OTel metrics handler. Mirrors the fields emitted by
-	// LogExpandProgress so operators don't have to back trends out of log
-	// timestamps. Initialized once in NewProgressCounts (default no-op);
-	// callers wire a real handler via WithMetricsHandler. The expand metrics
-	// are looked up lazily on first emission so the no-op path costs nothing
-	// when expand never runs (e.g. resource-only syncs).
+	// Mirrors the fields emitted by LogExpandProgress. NewProgressCounts creates
+	// the four instruments up front; with the default handler they record
+	// nothing until a global MeterProvider is installed.
 	metricsHandler         metrics.Handler
 	metricsExpandRemaining metrics.Int64Gauge
 	metricsExpandBurned    metrics.Int64Counter
@@ -124,7 +121,7 @@ func WithDBSizeProvider(p connectorstore.DBSizeProvider) Option {
 //
 // The handler should be pre-tagged by the caller (e.g. via Handler.WithTags
 // for connector_id / tenant_id) so emitted metrics carry the dimensions
-// operators want to slice by. nil is treated as "no metrics" (default).
+// operators want to slice by. nil keeps the default (metrics.NewDefaultHandler).
 func WithMetricsHandler(h metrics.Handler) Option {
 	return func(p *ProgressLog) {
 		if h != nil {
@@ -157,14 +154,12 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 		l:                     ctxzap.Extract(ctx),
 		maxLogFrequency:       defaultMaxLogFrequency,
 		mu:                    sync.RWMutex{},
-		metricsHandler:        metrics.NewNoOpHandler(ctx),
+		metricsHandler:        metrics.NewDefaultHandler(ctx),
 	}
 	for _, o := range opts {
 		o(p)
 	}
-	// Resolve metric instruments after options apply. Counters/gauges are
-	// idempotent within a Handler (otelHandler caches by name), so re-resolving
-	// here is safe even if the no-op handler was replaced via WithMetricsHandler.
+	// Resolve metric instruments after options apply.
 	p.metricsExpandRemaining = p.metricsHandler.Int64Gauge(
 		metricActionsRemaining,
 		"Current entitlement-graph actions queued for grant expansion",

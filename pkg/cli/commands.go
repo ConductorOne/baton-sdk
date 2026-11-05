@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
@@ -44,7 +45,7 @@ import (
 )
 
 const (
-	otelShutdownTimeout = 5 * time.Second
+	otelShutdownTimeout = connector.ServiceOtelShutdownTimeout
 )
 
 // eventLogEnabledKey marks the context when the user passed --log-event-log.
@@ -148,17 +149,7 @@ func MakeMainCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
-		defer func() {
-			if otelShutdown == nil {
-				return
-			}
-			shutdownCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(otelShutdownTimeout))
-			defer cancel()
-			err := otelShutdown(shutdownCtx)
-			if err != nil {
-				zap.L().Error("error shutting down otel", zap.Error(err))
-			}
-		}()
+		defer onceOtelShutdown(otelShutdown)()
 
 		// NOTE: initOtel may do stuff with the logger
 		l := ctxzap.Extract(runCtx)
@@ -521,6 +512,10 @@ func initOtel(ctx context.Context, name string, v *viper.Viper, initialLogFields
 		otelOpts = append(otelOpts, uotel.WithLoggingDisabled())
 	}
 
+	if v.GetBool(field.OtelMetricsDisabledFieldName) {
+		otelOpts = append(otelOpts, uotel.WithMetricsDisabled())
+	}
+
 	otelTLSInsecure := v.GetBool(field.OtelCollectorEndpointTLSInsecureFieldName)
 	if otelTLSInsecure {
 		otelOpts = append(otelOpts, uotel.WithInsecureOtelEndpoint(otelEndpoint))
@@ -564,17 +559,9 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
-		defer func() {
-			if otelShutdown == nil {
-				return
-			}
-			shutdownCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(otelShutdownTimeout))
-			defer cancel()
-			err := otelShutdown(shutdownCtx)
-			if err != nil {
-				zap.L().Error("error shutting down otel", zap.Error(err))
-			}
-		}()
+		// Shared with the stdin watcher below, whose os.Exit skips this defer.
+		flushOtel := onceOtelShutdown(otelShutdown)
+		defer flushOtel()
 
 		l := ctxzap.Extract(runCtx)
 		l.Debug("starting grpc server")
@@ -605,16 +592,9 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return err
 		}
 
-		// Avoid zombie processes. If the parent dies, this
-		// will cause Stdin on the child to close, and then
-		// the child will exit itself.
-		go func() {
-			in := make([]byte, 1)
-			_, err := os.Stdin.Read(in)
-			if err != nil {
-				os.Exit(0)
-			}
-		}()
+		// Exit when stdin closes: the parent stops the service that way, and
+		// it also closes if the parent dies (no zombie processes).
+		go watchParentStdin(os.Stdin, flushOtel, os.Exit)
 
 		if len(cfgBytes) == 0 {
 			return fmt.Errorf("unexpected empty input")
@@ -911,4 +891,36 @@ func defaultConnectorBuilder(ctx context.Context, opts ...connectorrunner.Option
 		return nil, err
 	}
 	return c, nil
+}
+
+// onceOtelShutdown returns a func that runs shutdown (when non-nil) at most
+// once, bounded by otelShutdownTimeout.
+func onceOtelShutdown(shutdown func(context.Context) error) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			if shutdown == nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+			defer cancel()
+			if err := shutdown(ctx); err != nil {
+				zap.L().Error("error shutting down otel", zap.Error(err))
+			}
+		})
+	}
+}
+
+// watchParentStdin reads and discards stdin until a read fails (the parent
+// closed it or died), then flushes telemetry and exits 0. Data on stdin does
+// not end the watch.
+func watchParentStdin(stdin io.Reader, flush func(), exit func(int)) {
+	in := make([]byte, 512)
+	for {
+		if _, err := stdin.Read(in); err != nil {
+			flush()
+			exit(0)
+			return
+		}
+	}
 }

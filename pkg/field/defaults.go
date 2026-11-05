@@ -15,6 +15,7 @@ const (
 	OtelCollectorEndpointTLSInsecureFieldName = "otel-collector-endpoint-tls-insecure"
 	OtelTracingDisabledFieldName              = "otel-tracing-disabled"
 	OtelLoggingDisabledFieldName              = "otel-logging-disabled"
+	OtelMetricsDisabledFieldName              = "otel-metrics-disabled"
 
 	// LogEventLogFieldName is the name of the flag that redirects logging to
 	// the Windows event log. The field is only registered on Windows builds
@@ -246,6 +247,9 @@ var (
 	otelLoggingDisabled = BoolField(OtelLoggingDisabledFieldName,
 		WithDescription("Disable OpenTelemetry logging"), WithDefaultValue(false),
 		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
+	otelMetricsDisabled = BoolField(OtelMetricsDisabledFieldName,
+		WithDescription("Disable OpenTelemetry metrics"), WithDefaultValue(false),
+		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
 
 	externalResourceC1ZField = StringField("external-resource-c1z",
 		WithDescription("The path to the c1z file to sync external baton resources with"),
@@ -451,6 +455,7 @@ var DefaultFields = append([]SchemaField{
 	otelCollectorEndpointTlSInsecure,
 	otelTracingDisabled,
 	otelLoggingDisabled,
+	otelMetricsDisabled,
 
 	authMethod,
 
