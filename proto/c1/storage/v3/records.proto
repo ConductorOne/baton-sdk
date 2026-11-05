@@ -314,6 +314,13 @@ message SyncRunRecord {
   // "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
   // Empty when ingest_invariant_generation is empty.
   string ingest_invariant_mode = 12;
+
+  // connector_version is the connector release that started this sync,
+  // as supplied by the opener (pebble.WithConnectorVersion). An
+  // unfinished sync is resumed only by the same version: resuming one a
+  // different release started would mix both releases' data in one sync.
+  // Empty means unknown and matches any version.
+  string connector_version = 13;
 }
 
 // SyncStatsRecord is the engine-internal sidecar populated at

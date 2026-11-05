@@ -17,6 +17,10 @@ type c1zOptions struct {
 	// See WithGrantDigestIndex.
 	disableGrantDigestIndex bool
 
+	// connectorVersion is passed to the Pebble engine as
+	// pebble.WithConnectorVersion. See WithConnectorVersion.
+	connectorVersion string
+
 	// engine is the storage engine to use for newly created files.
 	// Reads dispatch on magic byte regardless. NewStore defaults an
 	// unset engine to EnginePebble.
@@ -90,6 +94,17 @@ func WithEngine(engine c1zstore.Engine) C1ZOption {
 func WithGrantDigestIndex(enabled bool) C1ZOption {
 	return func(o *c1zOptions) {
 		o.disableGrantDigestIndex = !enabled
+	}
+}
+
+// WithConnectorVersion names the connector release driving the sync.
+// The Pebble engine records it on each sync it starts and resumes an
+// unfinished sync only if that sync was started by the same version;
+// otherwise StartOrResumeSync discards it and starts a new sync. Empty
+// (the default) matches any version.
+func WithConnectorVersion(version string) C1ZOption {
+	return func(o *c1zOptions) {
+		o.connectorVersion = version
 	}
 }
 

@@ -67,6 +67,11 @@ type Options struct {
 	// that parks the goroutine and signals the harness on injected
 	// engines, and a fail-fast panicking logger on clean ones.
 	pebbleLogger pebble.Logger
+
+	// connectorVersion is stamped on the SyncRunRecord of every sync
+	// this engine starts and gates which unfinished sync
+	// StartOrResumeSync may resume. See WithConnectorVersion.
+	connectorVersion string
 }
 
 // Option is a functional option passed to Open.
@@ -131,6 +136,16 @@ func WithVFS(fs vfs.FS) Option {
 // crash; production callers should retain the default logger.
 func WithLogger(logger pebble.Logger) Option {
 	return func(o *Options) { o.pebbleLogger = logger }
+}
+
+// WithConnectorVersion names the connector release driving syncs on
+// this engine. StartNewSync records it on the new SyncRunRecord, and
+// StartOrResumeSync resumes an unfinished sync only when the stored
+// version equals it; on a mismatch it starts a new sync, which wipes the
+// stale one. Empty (the default) on either side matches anything, so
+// files and callers that predate the field keep resuming as before.
+func WithConnectorVersion(version string) Option {
+	return func(o *Options) { o.connectorVersion = version }
 }
 
 // newPebbleOptions builds the *pebble.Options for the Engine. The
