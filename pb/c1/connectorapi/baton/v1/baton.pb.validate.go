@@ -7690,6 +7690,17 @@ func (m *BatonServiceHelloRequest_BuildInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
+	if utf8.RuneCountInString(m.GetSdkVersion()) > 256 {
+		err := BatonServiceHelloRequest_BuildInfoValidationError{
+			field:  "SdkVersion",
+			reason: "value length must be at most 256 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if len(errors) > 0 {
 		return BatonServiceHelloRequest_BuildInfoMultiError(errors)
 	}

@@ -12,6 +12,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
@@ -87,6 +88,7 @@ func collectBuildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInf
 		LangVersion:    "0.0.0",
 		Package:        "/dummy/path",
 		PackageVersion: "0.0.0",
+		SdkVersion:     sdk.Version,
 	}.Build()
 
 	bi, ok := debug.ReadBuildInfo()
