@@ -1,9 +1,9 @@
-// INC-1154 helper: print every grant held by one principal in a c1z sync file,
-// with the connector's grant sources and any grant-expansion annotations, so a
-// grant can be classified direct or inherited as of that sync.
-// Lives in the sdk module. Not for merge.
+// INC-1154 helper: print every grant held by one or more principals in one or
+// more c1z sync files, with the connector's grant sources and any
+// grant-expansion annotations, so a grant can be classified direct or
+// inherited as of that sync. Lives in the sdk module. Not for merge.
 //
-//	go run ./cmd/c1z-grant-sources -file sync.c1z -principal jdoe
+//	go run ./cmd/c1z-grant-sources -file a.c1z,b.c1z -principal jdoe,asmith -entitlement :member
 package main
 
 import (
@@ -21,58 +21,76 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/sqlite"
 )
 
+type totals struct{ direct, inherited, shown, unmatched int }
+
 func main() {
-	path := flag.String("file", "", "path to .c1z")
-	principal := flag.String("principal", "", "case-insensitive substring of the principal's id, display name, login or email")
+	files := flag.String("file", "", "comma-separated paths to .c1z files")
+	principals := flag.String("principal", "", "comma-separated case-insensitive substrings of principal id, display name, login or email")
 	entFilter := flag.String("entitlement", "", "optional case-insensitive substring of the entitlement id or display name")
 	flag.Parse()
-	if *path == "" || *principal == "" {
-		fmt.Fprintln(os.Stderr, "usage: -file sync.c1z -principal <substring> [-entitlement <substring>]")
+	if *files == "" || *principals == "" {
+		fmt.Fprintln(os.Stderr, "usage: -file a.c1z[,b.c1z] -principal <substr>[,<substr>] [-entitlement <substr>]")
 		os.Exit(2)
 	}
 	ctx := context.Background()
-	store, cleanup, err := openStore(ctx, *path)
+	var needles []string
+	for _, p := range strings.Split(*principals, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			needles = append(needles, strings.ToLower(p))
+		}
+	}
+	var sum totals
+	for _, path := range strings.Split(*files, ",") {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		fmt.Printf("==== %s\n", path)
+		t, err := runFile(ctx, path, needles, strings.ToLower(*entFilter))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, path+":", err)
+			os.Exit(1)
+		}
+		sum.direct += t.direct
+		sum.inherited += t.inherited
+		sum.shown += t.shown
+		sum.unmatched += t.unmatched
+	}
+	fmt.Printf("\nTOTAL: %d grants shown, DIRECT=%d INHERITED=%d, principals not found=%d\n", sum.shown, sum.direct, sum.inherited, sum.unmatched)
+}
+
+func runFile(ctx context.Context, path string, needles []string, ef string) (totals, error) {
+	var t totals
+	store, cleanup, err := openStore(ctx, path)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "open:", err)
-		os.Exit(1)
+		return t, err
 	}
 	defer cleanup()
 	defer store.Close(ctx)
 
-	needle := strings.ToLower(*principal)
-	matched := map[string]*v2.Resource{} // key: type|id
 	key := func(id *v2.ResourceId) string { return id.GetResourceType() + "|" + id.GetResource() }
-	type typeSummary struct {
-		name    string
-		count   int
-		samples []string
-	}
-	summary := map[string]*typeSummary{}
-	var typeOrder []string
-
+	matched := map[string]*v2.Resource{}
+	matchedBy := map[string]string{}
+	found := map[string]bool{}
 	for tok := ""; ; {
 		resp, err := store.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageSize: 1000, PageToken: tok})
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "resource types:", err)
-			os.Exit(1)
+			return t, fmt.Errorf("resource types: %w", err)
 		}
 		for _, rt := range resp.GetList() {
-			ts := &typeSummary{name: rt.GetDisplayName()}
-			summary[rt.GetId()] = ts
-			typeOrder = append(typeOrder, rt.GetId())
 			for rtok := ""; ; {
 				rresp, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{ResourceTypeId: rt.GetId(), PageSize: 1000, PageToken: rtok})
 				if err != nil {
-					fmt.Fprintln(os.Stderr, "resources:", err)
-					os.Exit(1)
+					return t, fmt.Errorf("resources: %w", err)
 				}
 				for _, r := range rresp.GetList() {
-					ts.count++
-					if len(ts.samples) < 3 {
-						ts.samples = append(ts.samples, fmt.Sprintf("%q id=%s %s", r.GetDisplayName(), r.GetId().GetResource(), principalIdentity(r)))
-					}
-					if resourceMatches(r, needle) {
-						matched[key(r.GetId())] = r
+					for _, n := range needles {
+						if resourceMatches(r, n) {
+							matched[key(r.GetId())] = r
+							matchedBy[key(r.GetId())] = n
+							found[n] = true
+							break
+						}
 					}
 				}
 				if rtok = rresp.GetNextPageToken(); rtok == "" {
@@ -84,28 +102,21 @@ func main() {
 			break
 		}
 	}
-	if len(matched) == 0 {
-		fmt.Println("no principal matched", *principal)
-		fmt.Println("resource types in this file (count, then up to three samples):")
-		for _, id := range typeOrder {
-			ts := summary[id]
-			fmt.Printf("  %s (%q): %d\n", id, ts.name, ts.count)
-			for _, smp := range ts.samples {
-				fmt.Printf("      %s\n", smp)
-			}
+	for _, n := range needles {
+		if !found[n] {
+			fmt.Printf("  (no principal matched %q in this file)\n", n)
+			t.unmatched++
 		}
-		return
 	}
-	for k, r := range matched {
-		fmt.Printf("principal %s: %q %s\n", k, r.GetDisplayName(), principalIdentity(r))
+	if len(matched) == 0 {
+		return t, nil
 	}
 
 	entNames := map[string]string{}
 	for tok := ""; ; {
 		resp, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{PageSize: 1000, PageToken: tok})
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "entitlements:", err)
-			os.Exit(1)
+			return t, fmt.Errorf("entitlements: %w", err)
 		}
 		for _, e := range resp.GetList() {
 			entNames[e.GetId()] = e.GetDisplayName()
@@ -115,16 +126,16 @@ func main() {
 		}
 	}
 
-	var held []*v2.Grant
+	held := map[string][]*v2.Grant{}
 	for tok := ""; ; {
 		resp, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageSize: 1000, PageToken: tok})
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "grants:", err)
-			os.Exit(1)
+			return t, fmt.Errorf("grants: %w", err)
 		}
 		for _, g := range resp.GetList() {
-			if _, ok := matched[key(g.GetPrincipal().GetId())]; ok {
-				held = append(held, g)
+			k := key(g.GetPrincipal().GetId())
+			if _, ok := matched[k]; ok {
+				held[k] = append(held[k], g)
 			}
 		}
 		if tok = resp.GetNextPageToken(); tok == "" {
@@ -132,54 +143,63 @@ func main() {
 		}
 	}
 
-	// expandedFrom[E] = entitlements held by the principal whose grants carry a
-	// GrantExpandable annotation naming E. C1 records such E grants as sourced
-	// from those entitlements (inherited).
-	expandedFrom := map[string][]string{}
-	for _, g := range held {
-		annos := annotations.Annotations(g.GetAnnotations())
-		ge := &v2.GrantExpandable{}
-		ok, err := annos.Pick(ge)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "annotations:", err)
-			os.Exit(1)
+	keys := make([]string, 0, len(matched))
+	for k := range matched {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		r := matched[k]
+		grants := held[k]
+		fmt.Printf("\n  principal %s: %q %s (matched %q, %d grants in file)\n", k, r.GetDisplayName(), principalIdentity(r), matchedBy[k], len(grants))
+		// expandedFrom[E] = entitlements this principal holds whose grants carry a
+		// GrantExpandable annotation naming E; C1 records E grants as inherited.
+		expandedFrom := map[string][]string{}
+		for _, g := range grants {
+			annos := annotations.Annotations(g.GetAnnotations())
+			ge := &v2.GrantExpandable{}
+			ok, err := annos.Pick(ge)
+			if err != nil {
+				return t, fmt.Errorf("annotations: %w", err)
+			}
+			if !ok {
+				continue
+			}
+			for _, target := range ge.GetEntitlementIds() {
+				expandedFrom[target] = append(expandedFrom[target], g.GetEntitlement().GetId())
+			}
 		}
-		if !ok {
-			continue
-		}
-		for _, target := range ge.GetEntitlementIds() {
-			expandedFrom[target] = append(expandedFrom[target], g.GetEntitlement().GetId())
+		sort.Slice(grants, func(i, j int) bool { return grants[i].GetEntitlement().GetId() < grants[j].GetEntitlement().GetId() })
+		for _, g := range grants {
+			eid := g.GetEntitlement().GetId()
+			name := entNames[eid]
+			if name == "" {
+				name = g.GetEntitlement().GetDisplayName()
+			}
+			if ef != "" && !strings.Contains(strings.ToLower(eid), ef) && !strings.Contains(strings.ToLower(name), ef) {
+				continue
+			}
+			var srcs []string
+			for s := range g.GetSources().GetSources() {
+				srcs = append(srcs, s)
+			}
+			sort.Strings(srcs)
+			verdict := "DIRECT"
+			switch {
+			case len(srcs) > 0:
+				verdict = "INHERITED (connector sources)"
+				t.inherited++
+			case len(expandedFrom[eid]) > 0:
+				verdict = "INHERITED (expanded from " + strings.Join(expandedFrom[eid], ", ") + ")"
+				t.inherited++
+			default:
+				t.direct++
+			}
+			t.shown++
+			fmt.Printf("    %-32s entitlement=%s %q sources=%v\n", verdict, eid, name, srcs)
 		}
 	}
-
-	sort.Slice(held, func(i, j int) bool { return held[i].GetEntitlement().GetId() < held[j].GetEntitlement().GetId() })
-	ef := strings.ToLower(*entFilter)
-	shown := 0
-	for _, g := range held {
-		eid := g.GetEntitlement().GetId()
-		name := entNames[eid]
-		if name == "" {
-			name = g.GetEntitlement().GetDisplayName()
-		}
-		if ef != "" && !strings.Contains(strings.ToLower(eid), ef) && !strings.Contains(strings.ToLower(name), ef) {
-			continue
-		}
-		shown++
-		var srcs []string
-		for s := range g.GetSources().GetSources() {
-			srcs = append(srcs, s)
-		}
-		sort.Strings(srcs)
-		verdict := "DIRECT"
-		switch {
-		case len(srcs) > 0:
-			verdict = "INHERITED (connector sources)"
-		case len(expandedFrom[eid]) > 0:
-			verdict = "INHERITED (expanded from " + strings.Join(expandedFrom[eid], ", ") + ")"
-		}
-		fmt.Printf("%-32s grant=%s entitlement=%s %q sources=%v\n", verdict, g.GetId(), eid, name, srcs)
-	}
-	fmt.Printf("%d grants held by matched principal(s), %d shown\n", len(held), shown)
+	return t, nil
 }
 
 func resourceMatches(r *v2.Resource, needle string) bool {
