@@ -52,8 +52,8 @@ const (
 	//
 	// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 	Capability_CAPABILITY_CREDENTIAL_ISSUE Capability = 14
-	// IssueCredential supports the baton/jwe/v1 X-Wing recipient with one config
-	// and one plaintext value. This names that one suite, not JWE in general;
+	// The issuer supports the baton/jwe/v1 X-Wing recipient with one config and
+	// one plaintext value. This names that one suite, not JWE in general;
 	// another suite needs its own capability value.
 	Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1 Capability = 16
 )
@@ -868,7 +868,7 @@ func (b0 CredentialDetailsCredentialIssue_builder) Build() *CredentialDetailsCre
 // For CREDENTIAL_ISSUE action issuers, option parameters are declared as schema
 // arguments; key_profiles, scopes, custom_scopes_allowed,
 // custom_audiences_allowed and audiences are ignored. option, expiry,
-// resource_mode, secret_resource_type_id and output still apply.
+// resource_mode, secret_resource_type_id, preferred and output still apply.
 type CredentialIssueOptionDescriptor struct {
 	state                  protoimpl.MessageState           `protogen:"hybrid.v1"`
 	Option                 CapabilityDetailCredentialOption `protobuf:"varint,1,opt,name=option,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption" json:"option,omitempty"`
@@ -879,7 +879,7 @@ type CredentialIssueOptionDescriptor struct {
 	CustomAudiencesAllowed bool                             `protobuf:"varint,6,opt,name=custom_audiences_allowed,json=customAudiencesAllowed,proto3" json:"custom_audiences_allowed,omitempty"`
 	Audiences              []string                         `protobuf:"bytes,7,rep,name=audiences,proto3" json:"audiences,omitempty"`
 	ResourceMode           CredentialResourceMode           `protobuf:"varint,8,opt,name=resource_mode,json=resourceMode,proto3,enum=c1.connector.v2.CredentialResourceMode" json:"resource_mode,omitempty"`
-	// Resource type returned by IssueCredential. It must be registered with a
+	// Resource type of the issued secret. It must be registered with a
 	// ResourceDeleterV2 so every issued credential has a provider revoke path,
 	// including virtual credentials that cannot be listed later. Together with
 	// option it identifies this descriptor, so two credential kinds sharing one
@@ -891,11 +891,12 @@ type CredentialIssueOptionDescriptor struct {
 	// declaration order would not be stable. It selects nothing at issue time --
 	// CredentialIssueOptions.secret_resource_type_id is still required.
 	Preferred bool `protobuf:"varint,10,opt,name=preferred,proto3" json:"preferred,omitempty"`
-	// The credential IssueCredential returns, declared because C1 binds the type
-	// before issuance. Meaningful members: name (the returned
-	// PlaintextData.name), string_field (the value is a string), is_secret,
-	// content_type (decides the type) and tags (informational). Other members
-	// are ignored and should be left unset.
+	// The credential the issuer returns, declared because C1 binds the type
+	// before issuance. is_secret and string_field are required. name is the
+	// secret return field's name (default "credential") and, on the deprecated
+	// IssueCredential RPC, the returned PlaintextData.name. content_type decides
+	// the type; tags are informational. Other members are ignored and should be
+	// left unset.
 	Output        *v1.Field `protobuf:"bytes,11,opt,name=output,proto3" json:"output,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1080,7 +1081,7 @@ type CredentialIssueOptionDescriptor_builder struct {
 	CustomAudiencesAllowed bool
 	Audiences              []string
 	ResourceMode           CredentialResourceMode
-	// Resource type returned by IssueCredential. It must be registered with a
+	// Resource type of the issued secret. It must be registered with a
 	// ResourceDeleterV2 so every issued credential has a provider revoke path,
 	// including virtual credentials that cannot be listed later. Together with
 	// option it identifies this descriptor, so two credential kinds sharing one
@@ -1092,11 +1093,12 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// declaration order would not be stable. It selects nothing at issue time --
 	// CredentialIssueOptions.secret_resource_type_id is still required.
 	Preferred bool
-	// The credential IssueCredential returns, declared because C1 binds the type
-	// before issuance. Meaningful members: name (the returned
-	// PlaintextData.name), string_field (the value is a string), is_secret,
-	// content_type (decides the type) and tags (informational). Other members
-	// are ignored and should be left unset.
+	// The credential the issuer returns, declared because C1 binds the type
+	// before issuance. is_secret and string_field are required. name is the
+	// secret return field's name (default "credential") and, on the deprecated
+	// IssueCredential RPC, the returned PlaintextData.name. content_type decides
+	// the type; tags are informational. Other members are ignored and should be
+	// left unset.
 	Output *v1.Field
 }
 
