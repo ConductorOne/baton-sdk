@@ -143,11 +143,19 @@ func TestCredentialIssueSchemaRejectsUnusableInput(t *testing.T) {
 	colliding := apiKeyOutputDescriptor()
 	colliding.GetOutput().SetName(ReturnSecretResourceID)
 
+	noSecretType := apiKeyOutputDescriptor()
+	noSecretType.SetSecretResourceTypeId("")
+
+	badContentType := apiKeyOutputDescriptor()
+	badContentType.GetOutput().SetContentType("nope")
+
 	for _, tc := range []struct {
 		name       string
 		descriptor *v2.CredentialIssueOptionDescriptor
 		want       string
 	}{
+		{"empty secret resource type", noSecretType, "invalid descriptor"},
+		{"bad content type", badContentType, "invalid descriptor"},
 		{"nil descriptor", nil, "descriptor is required"},
 		{"output not secret", unsecret, "must be declared secret"},
 		{"output not a string", notString, "must be a string field"},
@@ -236,6 +244,24 @@ func TestCredentialIssueResourceRebuildsTheSecret(t *testing.T) {
 	require.NotNil(t, trait.GetExpiresAt(), "an expiry in the response reaches the trait")
 }
 
+func TestCredentialIssueResourceKeepsSubSecondExpiry(t *testing.T) {
+	expiry := time.Date(2027, 1, 1, 0, 0, 0, 123456789, time.UTC)
+	response, err := structpb.NewStruct(map[string]any{
+		ReturnSecretResourceID: "key-123",
+		ReturnExpiresAt:        expiry.Format(time.RFC3339Nano),
+	})
+	require.NoError(t, err)
+
+	secret, err := CredentialIssueResource(response, v2.ResourceId_builder{ResourceType: "user", Resource: "u-1"}.Build(), apiKeyOutputDescriptor())
+	require.NoError(t, err)
+	trait := &v2.SecretTrait{}
+	annos := annotations.Annotations(secret.GetAnnotations())
+	found, err := annos.Pick(trait)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, expiry.UnixNano(), trait.GetExpiresAt().AsTime().UnixNano())
+}
+
 func TestCredentialIssueResourceOmitsAnAbsentExpiry(t *testing.T) {
 	identityID := v2.ResourceId_builder{ResourceType: "user", Resource: "u-1"}.Build()
 	response, err := structpb.NewStruct(map[string]any{ReturnSecretResourceID: "key-123"})
@@ -262,6 +288,7 @@ func TestCredentialIssueResourceRejectsIncompleteInput(t *testing.T) {
 		{"missing secret_resource_id", map[string]any{}, identityID, ReturnSecretResourceID},
 		{"empty secret_resource_id", map[string]any{ReturnSecretResourceID: ""}, identityID, ReturnSecretResourceID},
 		{"bad expiry", map[string]any{ReturnSecretResourceID: "k", ReturnExpiresAt: "yesterday"}, identityID, ReturnExpiresAt},
+		{"numeric expiry", map[string]any{ReturnSecretResourceID: "k", ReturnExpiresAt: 1798761600}, identityID, "must be an RFC 3339 string"},
 		{"no identity", map[string]any{ReturnSecretResourceID: "k"}, nil, "identity id is required"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

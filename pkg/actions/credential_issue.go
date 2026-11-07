@@ -73,6 +73,9 @@ func CredentialIssueSchema(name string, identityResourceTypeID string, descripto
 	if descriptor == nil {
 		return nil, errors.New("credential issue schema: descriptor is required")
 	}
+	if err := descriptor.Validate(); err != nil {
+		return nil, fmt.Errorf("credential issue schema: invalid descriptor: %w", err)
+	}
 	output := descriptor.GetOutput()
 	if !output.GetIsSecret() {
 		return nil, errors.New("credential issue schema: descriptor output must be declared secret")
@@ -167,7 +170,7 @@ func credentialIssueArguments(identityResourceTypeID string, descriptor *v2.Cred
 // public response, including the SecretTrait the return fields cannot carry.
 // The resource type comes from the descriptor and the identity from the request,
 // so neither is returned. A descriptor resource mode travels with the resource;
-// pass it to connectorbuilder.ValidateIssuedCredential along with this result.
+// C1 checks it against the descriptor.
 //
 // The plaintext secret is the separate secret return field and is not read
 // here. This does not check request_id or any provider argument (scopes,
@@ -186,12 +189,18 @@ func CredentialIssueResource(response *structpb.Struct, identityID *v2.ResourceI
 		return nil, err
 	}
 	traitOptions := []resource.SecretTraitOption{resource.WithSecretIdentityID(identityID)}
-	if value, ok := fields[ReturnExpiresAt]; ok && value.GetStringValue() != "" {
-		parsed, err := parseTimestamp(value.GetStringValue())
-		if err != nil {
-			return nil, fmt.Errorf("credential issue response: %s: %w", ReturnExpiresAt, err)
+	if value, ok := fields[ReturnExpiresAt]; ok {
+		text, isString := value.GetKind().(*structpb.Value_StringValue)
+		if !isString {
+			return nil, fmt.Errorf("credential issue response: %s must be an RFC 3339 string", ReturnExpiresAt)
 		}
-		traitOptions = append(traitOptions, resource.WithSecretExpiresAt(parsed))
+		if text.StringValue != "" {
+			parsed, err := parseTimestamp(text.StringValue)
+			if err != nil {
+				return nil, fmt.Errorf("credential issue response: %s: %w", ReturnExpiresAt, err)
+			}
+			traitOptions = append(traitOptions, resource.WithSecretExpiresAt(parsed))
+		}
 	}
 
 	secret, err := resource.NewSecretResource(
