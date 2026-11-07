@@ -1232,6 +1232,10 @@ func (b0 RotateCredentialResponse_builder) Build() *RotateCredentialResponse {
 	return m0
 }
 
+// Deprecated: use a CREDENTIAL_ISSUE custom action
+// (actions.CredentialIssueSchema).
+//
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 type IssueCredentialRequest struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// The existing identity (e.g. service account) to mint the credential for.
@@ -1365,6 +1369,7 @@ func (x *IssueCredentialRequest) ClearExpiresAt() {
 	x.ExpiresAt = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 type IssueCredentialRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1396,6 +1401,10 @@ func (b0 IssueCredentialRequest_builder) Build() *IssueCredentialRequest {
 	return m0
 }
 
+// Deprecated: use a CREDENTIAL_ISSUE custom action
+// (actions.CredentialIssueSchema).
+//
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 type IssueCredentialResponse struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// The newly minted secret modeled as a resource. Carries SecretTrait, whose
@@ -1503,6 +1512,7 @@ func (x *IssueCredentialResponse) ClearSecret() {
 	x.Secret = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 type IssueCredentialResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -6074,7 +6084,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x0eencrypted_data\x18\x01 \x03(\v2\x1e.c1.connector.v2.EncryptedDataR\rencryptedData\x12<\n" +
 	"\vresource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"resourceId\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xf8\x02\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xfc\x02\n" +
 	"\x16IssueCredentialRequest\x12<\n" +
 	"\videntity_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"identityId\x12V\n" +
@@ -6083,14 +6093,14 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x04 \x01(\tB\x1c\xfaB\x19r\x17 \x01(\x80\x012\x10^[A-Za-z0-9_-]+$R\trequestId\x129\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xb8\x02\n" +
+	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt:\x02\x18\x01\"\xbc\x02\n" +
 	"\x17IssueCredentialResponse\x121\n" +
 	"\x06secret\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x06secret\x12E\n" +
 	"\x0eencrypted_data\x18\x02 \x03(\v2\x1e.c1.connector.v2.EncryptedDataR\rencryptedData\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12L\n" +
 	"\rresource_mode\x18\x04 \x01(\x0e2'.c1.connector.v2.CredentialResourceModeR\fresourceMode\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x05 \x01(\tR\trequestId\"\x82\x02\n" +
+	"request_id\x18\x05 \x01(\tR\trequestId:\x02\x18\x01\"\x82\x02\n" +
 	"\vAccountInfo\x12:\n" +
 	"\x06emails\x18\x01 \x03(\v2\".c1.connector.v2.AccountInfo.EmailR\x06emails\x12\x14\n" +
 	"\x05login\x18\x02 \x01(\tR\x05login\x12#\n" +
@@ -6297,10 +6307,10 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x0eCreateResource\x12&.c1.connector.v2.CreateResourceRequest\x1a'.c1.connector.v2.CreateResourceResponse\x12a\n" +
 	"\x0eDeleteResource\x12&.c1.connector.v2.DeleteResourceRequest\x1a'.c1.connector.v2.DeleteResourceResponse2\x81\x01\n" +
 	"\x16ResourceDeleterService\x12g\n" +
-	"\x10DeleteResourceV2\x12(.c1.connector.v2.DeleteResourceV2Request\x1a).c1.connector.v2.DeleteResourceV2Response2\xe9\x01\n" +
+	"\x10DeleteResourceV2\x12(.c1.connector.v2.DeleteResourceV2Request\x1a).c1.connector.v2.DeleteResourceV2Response2\xee\x01\n" +
 	"\x18CredentialManagerService\x12g\n" +
-	"\x10RotateCredential\x12(.c1.connector.v2.RotateCredentialRequest\x1a).c1.connector.v2.RotateCredentialResponse\x12d\n" +
-	"\x0fIssueCredential\x12'.c1.connector.v2.IssueCredentialRequest\x1a(.c1.connector.v2.IssueCredentialResponse2w\n" +
+	"\x10RotateCredential\x12(.c1.connector.v2.RotateCredentialRequest\x1a).c1.connector.v2.RotateCredentialResponse\x12i\n" +
+	"\x0fIssueCredential\x12'.c1.connector.v2.IssueCredentialRequest\x1a(.c1.connector.v2.IssueCredentialResponse\"\x03\x88\x02\x012w\n" +
 	"\x15AccountManagerService\x12^\n" +
 	"\rCreateAccount\x12%.c1.connector.v2.CreateAccountRequest\x1a&.c1.connector.v2.CreateAccountResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 

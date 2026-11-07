@@ -32,6 +32,8 @@ type credentialIssueDescriptorKey struct {
 // CredentialIssueOptions selects: the oneof arm gives the shape, and
 // secret_resource_type_id gives the kind within that shape. Both halves are
 // required, so the pair always names at most one advertised descriptor.
+//
+//nolint:staticcheck // resolves against the deprecated advertisement it still serves
 func resolveCredentialIssueDescriptor(
 	details *v2.CredentialDetailsCredentialIssue,
 	options *v2.CredentialIssueOptions,
@@ -82,6 +84,7 @@ func credentialIssueOptionKind(options *v2.CredentialIssueOptions) v2.Capability
 	}
 }
 
+//nolint:staticcheck // validates against the deprecated advertisement it still serves
 func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.CredentialDetailsCredentialIssue, now time.Time) (*v2.CredentialIssueOptionDescriptor, error) {
 	if input == nil || input.IdentityID == nil {
 		return nil, fmt.Errorf("identity id is required")

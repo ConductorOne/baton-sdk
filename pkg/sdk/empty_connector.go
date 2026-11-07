@@ -128,6 +128,7 @@ func (n *emptyConnector) RotateCredential(ctx context.Context, request *v2.Rotat
 	return nil, status.Errorf(codes.Unimplemented, "empty connector")
 }
 
+//nolint:staticcheck // implements the deprecated RPC method it must still satisfy
 func (n *emptyConnector) IssueCredential(ctx context.Context, request *v2.IssueCredentialRequest, opts ...grpc.CallOption) (*v2.IssueCredentialResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "empty connector")
 }

@@ -307,11 +307,12 @@ func (s *fullSyncer) RotateCapabilityDetails(
 	}.Build(), nil, nil
 }
 
+//nolint:staticcheck // reimplements the deprecated issue path so it keeps working
 func (s *fullSyncer) IssueCapabilityDetails(
 	context.Context,
 ) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error) {
 	option := v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN
-	return v2.CredentialDetailsCredentialIssue_builder{
+	return v2.CredentialDetailsCredentialIssue_builder{ //nolint:staticcheck // reimplements the deprecated issue path so it keeps working
 		Options: []*v2.CredentialIssueOptionDescriptor{
 			v2.CredentialIssueOptionDescriptor_builder{
 				Option:               option,

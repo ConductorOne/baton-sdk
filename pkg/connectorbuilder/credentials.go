@@ -128,6 +128,8 @@ func (b *builder) addCredentialManager(_ context.Context, typeId string, in inte
 // distinct from rotating the single credential on a resource. It is a separate,
 // additive interface so existing CredentialManager implementations are
 // unaffected — a connector opts in to issuance only by implementing it.
+//
+// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 type CredentialIssuer interface {
 	ResourceSyncer
 	CredentialIssuerLimited
@@ -136,18 +138,24 @@ type CredentialIssuer interface {
 // CredentialIssuerV2 is the ResourceSyncerV2 variant implemented by modern
 // connectors. It advertises the same issuance contract without forcing a V2
 // syncer to also implement the legacy pagination interface.
+//
+// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 type CredentialIssuerV2 interface {
 	ResourceSyncerV2
 	CredentialIssuerLimited
 }
 
+// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 type CredentialIssuerLimited interface {
 	// Issue mints a new credential for identityId and returns the newly created
 	// secret resource alongside the plaintext material. The builder encrypts the
 	// plaintext per the request's EncryptionConfigs before it leaves the
 	// connector — for client-side keypair generation the returned PlaintextData
 	// carries the private key, which the platform receives only in encrypted form.
+	//
+	// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 	Issue(ctx context.Context, input *CredentialIssueInput) (*CredentialIssueOutput, error)
+	//nolint:staticcheck // the deprecated contract connectors still implement
 	IssueCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error)
 }
 
@@ -168,6 +176,9 @@ type CredentialIssueOutput struct {
 	ResourceMode  v2.CredentialResourceMode
 }
 
+// IssueCredential serves the deprecated IssueCredential RPC.
+//
+// Deprecated: use a CREDENTIAL_ISSUE custom action (actions.CredentialIssueSchema).
 func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredentialRequest) (*v2.IssueCredentialResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.IssueCredential")
 	var err error
@@ -240,7 +251,7 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 			return nil, err
 		}
 	}
-	err = validateCredentialIssueOutput(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
+	err = validateIssuedCredential(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
@@ -267,7 +278,9 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	}.Build(), nil
 }
 
-func validateCredentialIssueOutput(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {
+// ValidateIssuedCredential checks an issuance result against what the descriptor
+// advertised and what the caller requested, for the IssueCredential RPC path.
+func validateIssuedCredential(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {
 	if output == nil || output.Secret == nil || output.Secret.GetId() == nil {
 		return fmt.Errorf("secret resource and id are required")
 	}

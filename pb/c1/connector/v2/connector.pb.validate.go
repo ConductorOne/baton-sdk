@@ -1299,6 +1299,35 @@ func (m *CredentialIssueOptionDescriptor) validate(all bool) error {
 
 	// no validation rules for Preferred
 
+	if all {
+		switch v := interface{}(m.GetOutput()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
+					field:  "Output",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
+					field:  "Output",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetOutput()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialIssueOptionDescriptorValidationError{
+				field:  "Output",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return CredentialIssueOptionDescriptorMultiError(errors)
 	}

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
+import "c1/config/v1/config.proto";
 import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
@@ -71,9 +72,12 @@ enum Capability {
   CAPABILITY_SERVICE_MODE_TARGETED_SYNC = 13;
   // The connector can mint new credentials for an existing identity via
   // CredentialManagerService.IssueCredential.
-  CAPABILITY_CREDENTIAL_ISSUE = 14;
-  // IssueCredential supports the baton/jwe/v1 X-Wing recipient with one config
-  // and one plaintext value. This names that one suite, not JWE in general;
+  //
+  // Deprecated: advertise ACTION_TYPE_CREDENTIAL_ISSUE on an action schema
+  // instead.
+  CAPABILITY_CREDENTIAL_ISSUE = 14 [deprecated = true];
+  // The issuer supports the baton/jwe/v1 X-Wing recipient with one config and
+  // one plaintext value. This names that one suite, not JWE in general;
   // another suite needs its own capability value.
   CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1 = 16;
 }
@@ -107,7 +111,10 @@ message CredentialDetailsCredentialRotation {
 
 // Advertises which credential options CredentialManagerService.IssueCredential
 // supports for this identity type.
+//
+// Deprecated: use ACTION_TYPE_CREDENTIAL_ISSUE on an action schema instead.
 message CredentialDetailsCredentialIssue {
+  option deprecated = true;
   // Advertised issuance options, unique on (option, secret_resource_type_id).
   // Several descriptors may share an option when they mint different secret
   // resource types -- an organization-wide API key and a per-identity API key,
@@ -121,6 +128,10 @@ message CredentialDetailsCredentialIssue {
   CapabilityDetailCredentialOption preferred_option = 2;
 }
 
+// For CREDENTIAL_ISSUE action issuers, option parameters are declared as schema
+// arguments; key_profiles, scopes, custom_scopes_allowed,
+// custom_audiences_allowed and audiences are ignored. option, expiry,
+// resource_mode, secret_resource_type_id, preferred and output still apply.
 message CredentialIssueOptionDescriptor {
   CapabilityDetailCredentialOption option = 1;
   repeated KeyGenerationProfile key_profiles = 2;
@@ -130,7 +141,7 @@ message CredentialIssueOptionDescriptor {
   bool custom_audiences_allowed = 6;
   repeated string audiences = 7;
   CredentialResourceMode resource_mode = 8;
-  // Resource type returned by IssueCredential. It must be registered with a
+  // Resource type of the issued secret. It must be registered with a
   // ResourceDeleterV2 so every issued credential has a provider revoke path,
   // including virtual credentials that cannot be listed later. Together with
   // option it identifies this descriptor, so two credential kinds sharing one
@@ -145,6 +156,13 @@ message CredentialIssueOptionDescriptor {
   // declaration order would not be stable. It selects nothing at issue time --
   // CredentialIssueOptions.secret_resource_type_id is still required.
   bool preferred = 10;
+  // The credential the issuer returns, declared because C1 binds the type
+  // before issuance. is_secret and string_field are required. name is the
+  // secret return field's name (default "credential") and, on the deprecated
+  // IssueCredential RPC, the returned PlaintextData.name. content_type decides
+  // the type; tags are informational. Other members are ignored and should be
+  // left unset.
+  c1.config.v1.Field output = 11;
 }
 
 message IssuanceExpiryCapability {
@@ -184,7 +202,8 @@ message ResourceTypeCapability {
   CapabilityPermissions permissions = 3;
   bool opt_in_required = 4;
   bool skip_sync_anomaly_detection = 5;
-  CredentialDetailsCredentialIssue credential_issue = 6;
+  // Deprecated: use ACTION_TYPE_CREDENTIAL_ISSUE on an action schema instead.
+  CredentialDetailsCredentialIssue credential_issue = 6 [deprecated = true];
   bool deprecated = 7;
 }
 

@@ -566,12 +566,16 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CredentialManagerServiceClient interface {
 	RotateCredential(ctx context.Context, in *RotateCredentialRequest, opts ...grpc.CallOption) (*RotateCredentialResponse, error)
+	// Deprecated: Do not use.
 	// IssueCredential mints a NEW credential (key/token) for an EXISTING
 	// identity, returning the new secret as a first-class Resource plus the
 	// encrypted material. Unlike RotateCredential — which replaces the single
 	// credential on a resource in place — IssueCredential models minting an
 	// additional, distinct secret, so an identity can hold multiple coexisting
 	// keys (e.g. cloud service-account key #1 and #2).
+	//
+	// Deprecated: use a CREDENTIAL_ISSUE custom action
+	// (actions.CredentialIssueSchema).
 	IssueCredential(ctx context.Context, in *IssueCredentialRequest, opts ...grpc.CallOption) (*IssueCredentialResponse, error)
 }
 
@@ -593,6 +597,7 @@ func (c *credentialManagerServiceClient) RotateCredential(ctx context.Context, i
 	return out, nil
 }
 
+// Deprecated: Do not use.
 func (c *credentialManagerServiceClient) IssueCredential(ctx context.Context, in *IssueCredentialRequest, opts ...grpc.CallOption) (*IssueCredentialResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(IssueCredentialResponse)
@@ -608,12 +613,16 @@ func (c *credentialManagerServiceClient) IssueCredential(ctx context.Context, in
 // for forward compatibility.
 type CredentialManagerServiceServer interface {
 	RotateCredential(context.Context, *RotateCredentialRequest) (*RotateCredentialResponse, error)
+	// Deprecated: Do not use.
 	// IssueCredential mints a NEW credential (key/token) for an EXISTING
 	// identity, returning the new secret as a first-class Resource plus the
 	// encrypted material. Unlike RotateCredential — which replaces the single
 	// credential on a resource in place — IssueCredential models minting an
 	// additional, distinct secret, so an identity can hold multiple coexisting
 	// keys (e.g. cloud service-account key #1 and #2).
+	//
+	// Deprecated: use a CREDENTIAL_ISSUE custom action
+	// (actions.CredentialIssueSchema).
 	IssueCredential(context.Context, *IssueCredentialRequest) (*IssueCredentialResponse, error)
 }
 

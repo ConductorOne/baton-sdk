@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "c1/config/v1/config.proto";
+import "c1/connector/v2/connector.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
@@ -41,6 +42,10 @@ message BatonActionSchema {
 
   // Optional: if set, this action is scoped to a specific resource type
   string resource_type_id = 8;
+
+  // The credential this action issues. Meaningful only when action_type
+  // contains ACTION_TYPE_CREDENTIAL_ISSUE.
+  CredentialIssueOptionDescriptor credential_issue = 9;
 }
 
 // This defines the action type.
@@ -57,6 +62,9 @@ enum ActionType {
   ACTION_TYPE_RESOURCE_DELETE = 7;
   ACTION_TYPE_RESOURCE_ENABLE = 8;
   ACTION_TYPE_RESOURCE_DISABLE = 9;
+
+  // Credential issuance, described by BatonActionSchema.credential_issue.
+  ACTION_TYPE_CREDENTIAL_ISSUE = 10;
 }
 
 message InvokeActionRequest {

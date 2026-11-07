@@ -953,6 +953,7 @@ func (a *ActionManager) invokeRegisteredAction(
 		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
 		result := handler.invoke(handlerCtx, args)
+		warnPlaintextSchemaMismatch(handlerCtx, schema, result.plaintextData)
 		encryptedData, resultErr := prepareActionResult(
 			handlerCtx,
 			handler,
@@ -1043,6 +1044,31 @@ func cloneEncryptionConfigs(configs []*v2.EncryptionConfig) []*v2.EncryptionConf
 		}
 	}
 	return cloned
+}
+
+// warnPlaintextSchemaMismatch logs each returned plaintext whose Schema differs
+// from the ContentType its secret return field declares. It only warns: failing
+// here would drop the response and with it the ID of an already-minted
+// credential, which the caller needs to revoke it. The caller enforces the
+// match.
+func warnPlaintextSchemaMismatch(ctx context.Context, schema *v2.BatonActionSchema, plaintextData []*v2.PlaintextData) {
+	for _, plaintext := range plaintextData {
+		if plaintext == nil {
+			continue
+		}
+		for _, field := range schema.GetReturnTypes() {
+			if !field.GetIsSecret() || field.GetName() != plaintext.GetName() || field.GetContentType() == "" {
+				continue
+			}
+			if plaintext.GetSchema() != field.GetContentType() {
+				ctxzap.Extract(ctx).Warn("plaintext schema does not match the secret return field content type",
+					zap.String("action", schema.GetName()),
+					zap.String("return_field", field.GetName()),
+					zap.String("declared_content_type", field.GetContentType()),
+					zap.String("returned_schema", plaintext.GetSchema()))
+			}
+		}
+	}
 }
 
 func prepareActionResult(

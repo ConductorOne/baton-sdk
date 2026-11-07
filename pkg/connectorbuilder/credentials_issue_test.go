@@ -429,8 +429,8 @@ func TestValidateCredentialIssueOutputLifecycle(t *testing.T) {
 	expiresAt := timestamppb.New(requestedExpiry)
 	virtual := v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_VIRTUAL
 	discoverable := v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE
-	require.NoError(t, validateCredentialIssueOutput(identityID, expiresAt, newOutput("secret", requestedExpiry, virtual), descriptor))
-	require.ErrorContains(t, validateCredentialIssueOutput(identityID, expiresAt, newOutput("other", requestedExpiry, virtual), descriptor), "resource type")
-	require.ErrorContains(t, validateCredentialIssueOutput(identityID, expiresAt, newOutput("secret", requestedExpiry, discoverable), descriptor), "resource mode")
-	require.ErrorContains(t, validateCredentialIssueOutput(identityID, expiresAt, newOutput("secret", requestedExpiry.Add(time.Minute), virtual), descriptor), "exceeds requested expiry")
+	require.NoError(t, validateIssuedCredential(identityID, expiresAt, newOutput("secret", requestedExpiry, virtual), descriptor))
+	require.ErrorContains(t, validateIssuedCredential(identityID, expiresAt, newOutput("other", requestedExpiry, virtual), descriptor), "resource type")
+	require.ErrorContains(t, validateIssuedCredential(identityID, expiresAt, newOutput("secret", requestedExpiry, discoverable), descriptor), "resource mode")
+	require.ErrorContains(t, validateIssuedCredential(identityID, expiresAt, newOutput("secret", requestedExpiry.Add(time.Minute), virtual), descriptor), "exceeds requested expiry")
 }

@@ -9,6 +9,7 @@
 package v2
 
 import (
+	v1 "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -45,9 +46,14 @@ const (
 	Capability_CAPABILITY_SERVICE_MODE_TARGETED_SYNC Capability = 13
 	// The connector can mint new credentials for an existing identity via
 	// CredentialManagerService.IssueCredential.
+	//
+	// Deprecated: advertise ACTION_TYPE_CREDENTIAL_ISSUE on an action schema
+	// instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 	Capability_CAPABILITY_CREDENTIAL_ISSUE Capability = 14
-	// IssueCredential supports the baton/jwe/v1 X-Wing recipient with one config
-	// and one plaintext value. This names that one suite, not JWE in general;
+	// The issuer supports the baton/jwe/v1 X-Wing recipient with one config and
+	// one plaintext value. This names that one suite, not JWE in general;
 	// another suite needs its own capability value.
 	Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1 Capability = 16
 )
@@ -765,6 +771,10 @@ func (b0 CredentialDetailsCredentialRotation_builder) Build() *CredentialDetails
 
 // Advertises which credential options CredentialManagerService.IssueCredential
 // supports for this identity type.
+//
+// Deprecated: use ACTION_TYPE_CREDENTIAL_ISSUE on an action schema instead.
+//
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 type CredentialDetailsCredentialIssue struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// Advertised issuance options, unique on (option, secret_resource_type_id).
@@ -829,6 +839,7 @@ func (x *CredentialDetailsCredentialIssue) SetPreferredOption(v CapabilityDetail
 	x.PreferredOption = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 type CredentialDetailsCredentialIssue_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -854,6 +865,10 @@ func (b0 CredentialDetailsCredentialIssue_builder) Build() *CredentialDetailsCre
 	return m0
 }
 
+// For CREDENTIAL_ISSUE action issuers, option parameters are declared as schema
+// arguments; key_profiles, scopes, custom_scopes_allowed,
+// custom_audiences_allowed and audiences are ignored. option, expiry,
+// resource_mode, secret_resource_type_id, preferred and output still apply.
 type CredentialIssueOptionDescriptor struct {
 	state                  protoimpl.MessageState           `protogen:"hybrid.v1"`
 	Option                 CapabilityDetailCredentialOption `protobuf:"varint,1,opt,name=option,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption" json:"option,omitempty"`
@@ -864,7 +879,7 @@ type CredentialIssueOptionDescriptor struct {
 	CustomAudiencesAllowed bool                             `protobuf:"varint,6,opt,name=custom_audiences_allowed,json=customAudiencesAllowed,proto3" json:"custom_audiences_allowed,omitempty"`
 	Audiences              []string                         `protobuf:"bytes,7,rep,name=audiences,proto3" json:"audiences,omitempty"`
 	ResourceMode           CredentialResourceMode           `protobuf:"varint,8,opt,name=resource_mode,json=resourceMode,proto3,enum=c1.connector.v2.CredentialResourceMode" json:"resource_mode,omitempty"`
-	// Resource type returned by IssueCredential. It must be registered with a
+	// Resource type of the issued secret. It must be registered with a
 	// ResourceDeleterV2 so every issued credential has a provider revoke path,
 	// including virtual credentials that cannot be listed later. Together with
 	// option it identifies this descriptor, so two credential kinds sharing one
@@ -875,7 +890,14 @@ type CredentialIssueOptionDescriptor struct {
 	// must whenever several descriptors share that option: a default taken from
 	// declaration order would not be stable. It selects nothing at issue time --
 	// CredentialIssueOptions.secret_resource_type_id is still required.
-	Preferred     bool `protobuf:"varint,10,opt,name=preferred,proto3" json:"preferred,omitempty"`
+	Preferred bool `protobuf:"varint,10,opt,name=preferred,proto3" json:"preferred,omitempty"`
+	// The credential the issuer returns, declared because C1 binds the type
+	// before issuance. is_secret and string_field are required. name is the
+	// secret return field's name (default "credential") and, on the deprecated
+	// IssueCredential RPC, the returned PlaintextData.name. content_type decides
+	// the type; tags are informational. Other members are ignored and should be
+	// left unset.
+	Output        *v1.Field `protobuf:"bytes,11,opt,name=output,proto3" json:"output,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -975,6 +997,13 @@ func (x *CredentialIssueOptionDescriptor) GetPreferred() bool {
 	return false
 }
 
+func (x *CredentialIssueOptionDescriptor) GetOutput() *v1.Field {
+	if x != nil {
+		return x.Output
+	}
+	return nil
+}
+
 func (x *CredentialIssueOptionDescriptor) SetOption(v CapabilityDetailCredentialOption) {
 	x.Option = v
 }
@@ -1015,6 +1044,10 @@ func (x *CredentialIssueOptionDescriptor) SetPreferred(v bool) {
 	x.Preferred = v
 }
 
+func (x *CredentialIssueOptionDescriptor) SetOutput(v *v1.Field) {
+	x.Output = v
+}
+
 func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
 	if x == nil {
 		return false
@@ -1022,8 +1055,19 @@ func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
 	return x.Expiry != nil
 }
 
+func (x *CredentialIssueOptionDescriptor) HasOutput() bool {
+	if x == nil {
+		return false
+	}
+	return x.Output != nil
+}
+
 func (x *CredentialIssueOptionDescriptor) ClearExpiry() {
 	x.Expiry = nil
+}
+
+func (x *CredentialIssueOptionDescriptor) ClearOutput() {
+	x.Output = nil
 }
 
 type CredentialIssueOptionDescriptor_builder struct {
@@ -1037,7 +1081,7 @@ type CredentialIssueOptionDescriptor_builder struct {
 	CustomAudiencesAllowed bool
 	Audiences              []string
 	ResourceMode           CredentialResourceMode
-	// Resource type returned by IssueCredential. It must be registered with a
+	// Resource type of the issued secret. It must be registered with a
 	// ResourceDeleterV2 so every issued credential has a provider revoke path,
 	// including virtual credentials that cannot be listed later. Together with
 	// option it identifies this descriptor, so two credential kinds sharing one
@@ -1049,6 +1093,13 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// declaration order would not be stable. It selects nothing at issue time --
 	// CredentialIssueOptions.secret_resource_type_id is still required.
 	Preferred bool
+	// The credential the issuer returns, declared because C1 binds the type
+	// before issuance. is_secret and string_field are required. name is the
+	// secret return field's name (default "credential") and, on the deprecated
+	// IssueCredential RPC, the returned PlaintextData.name. content_type decides
+	// the type; tags are informational. Other members are ignored and should be
+	// left unset.
+	Output *v1.Field
 }
 
 func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOptionDescriptor {
@@ -1065,6 +1116,7 @@ func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOption
 	x.ResourceMode = b.ResourceMode
 	x.SecretResourceTypeId = b.SecretResourceTypeId
 	x.Preferred = b.Preferred
+	x.Output = b.Output
 	return m0
 }
 
@@ -1507,16 +1559,19 @@ func (b0 SkipSyncAnomalyDetection_builder) Build() *SkipSyncAnomalyDetection {
 }
 
 type ResourceTypeCapability struct {
-	state                    protoimpl.MessageState            `protogen:"hybrid.v1"`
-	ResourceType             *ResourceType                     `protobuf:"bytes,1,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
-	Capabilities             []Capability                      `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=c1.connector.v2.Capability" json:"capabilities,omitempty"`
-	Permissions              *CapabilityPermissions            `protobuf:"bytes,3,opt,name=permissions,proto3" json:"permissions,omitempty"`
-	OptInRequired            bool                              `protobuf:"varint,4,opt,name=opt_in_required,json=optInRequired,proto3" json:"opt_in_required,omitempty"`
-	SkipSyncAnomalyDetection bool                              `protobuf:"varint,5,opt,name=skip_sync_anomaly_detection,json=skipSyncAnomalyDetection,proto3" json:"skip_sync_anomaly_detection,omitempty"`
-	CredentialIssue          *CredentialDetailsCredentialIssue `protobuf:"bytes,6,opt,name=credential_issue,json=credentialIssue,proto3" json:"credential_issue,omitempty"`
-	Deprecated               bool                              `protobuf:"varint,7,opt,name=deprecated,proto3" json:"deprecated,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"hybrid.v1"`
+	ResourceType             *ResourceType          `protobuf:"bytes,1,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
+	Capabilities             []Capability           `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=c1.connector.v2.Capability" json:"capabilities,omitempty"`
+	Permissions              *CapabilityPermissions `protobuf:"bytes,3,opt,name=permissions,proto3" json:"permissions,omitempty"`
+	OptInRequired            bool                   `protobuf:"varint,4,opt,name=opt_in_required,json=optInRequired,proto3" json:"opt_in_required,omitempty"`
+	SkipSyncAnomalyDetection bool                   `protobuf:"varint,5,opt,name=skip_sync_anomaly_detection,json=skipSyncAnomalyDetection,proto3" json:"skip_sync_anomaly_detection,omitempty"`
+	// Deprecated: use ACTION_TYPE_CREDENTIAL_ISSUE on an action schema instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
+	CredentialIssue *CredentialDetailsCredentialIssue `protobuf:"bytes,6,opt,name=credential_issue,json=credentialIssue,proto3" json:"credential_issue,omitempty"`
+	Deprecated      bool                              `protobuf:"varint,7,opt,name=deprecated,proto3" json:"deprecated,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ResourceTypeCapability) Reset() {
@@ -1579,6 +1634,7 @@ func (x *ResourceTypeCapability) GetSkipSyncAnomalyDetection() bool {
 	return false
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *ResourceTypeCapability) GetCredentialIssue() *CredentialDetailsCredentialIssue {
 	if x != nil {
 		return x.CredentialIssue
@@ -1613,6 +1669,7 @@ func (x *ResourceTypeCapability) SetSkipSyncAnomalyDetection(v bool) {
 	x.SkipSyncAnomalyDetection = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *ResourceTypeCapability) SetCredentialIssue(v *CredentialDetailsCredentialIssue) {
 	x.CredentialIssue = v
 }
@@ -1635,6 +1692,7 @@ func (x *ResourceTypeCapability) HasPermissions() bool {
 	return x.Permissions != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *ResourceTypeCapability) HasCredentialIssue() bool {
 	if x == nil {
 		return false
@@ -1650,6 +1708,7 @@ func (x *ResourceTypeCapability) ClearPermissions() {
 	x.Permissions = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
 func (x *ResourceTypeCapability) ClearCredentialIssue() {
 	x.CredentialIssue = nil
 }
@@ -1662,8 +1721,11 @@ type ResourceTypeCapability_builder struct {
 	Permissions              *CapabilityPermissions
 	OptInRequired            bool
 	SkipSyncAnomalyDetection bool
-	CredentialIssue          *CredentialDetailsCredentialIssue
-	Deprecated               bool
+	// Deprecated: use ACTION_TYPE_CREDENTIAL_ISSUE on an action schema instead.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/connector.proto.
+	CredentialIssue *CredentialDetailsCredentialIssue
+	Deprecated      bool
 }
 
 func (b0 ResourceTypeCapability_builder) Build() *ResourceTypeCapability {
@@ -2692,7 +2754,7 @@ var File_c1_connector_v2_connector_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\n" +
-	"\x1fc1/connector/v2/connector.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\x8d\x01\n" +
+	"\x1fc1/connector/v2/connector.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\x8d\x01\n" +
 	"\x1eConnectorServiceCleanupRequest\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
 	"\x0eactive_sync_id\x18\x02 \x01(\tB\r\xfaB\n" +
@@ -2719,10 +2781,10 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\x8d\x02\n" +
 	"#CredentialDetailsCredentialRotation\x12s\n" +
 	"\x1csupported_credential_options\x18\x01 \x03(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x1asupportedCredentialOptions\x12q\n" +
-	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xcc\x01\n" +
+	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xd0\x01\n" +
 	" CredentialDetailsCredentialIssue\x12J\n" +
 	"\aoptions\x18\x01 \x03(\v20.c1.connector.v2.CredentialIssueOptionDescriptorR\aoptions\x12\\\n" +
-	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xcc\x04\n" +
+	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption:\x02\x18\x01\"\xf9\x04\n" +
 	"\x1fCredentialIssueOptionDescriptor\x12I\n" +
 	"\x06option\x18\x01 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x06option\x12H\n" +
 	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12A\n" +
@@ -2735,7 +2797,8 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x17secret_resource_type_id\x18\t \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x14secretResourceTypeId\x12\x1c\n" +
 	"\tpreferred\x18\n" +
-	" \x01(\bR\tpreferred\"t\n" +
+	" \x01(\bR\tpreferred\x12+\n" +
+	"\x06output\x18\v \x01(\v2\x13.c1.config.v1.FieldR\x06output\"t\n" +
 	"\x18IssuanceExpiryCapability\x12+\n" +
 	"\x03min\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03min\x12+\n" +
 	"\x03max\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03max\"\xa5\x02\n" +
@@ -2752,14 +2815,14 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\rOptInRequired\"\f\n" +
 	"\n" +
 	"Deprecated\"\x1a\n" +
-	"\x18SkipSyncAnomalyDetection\"\xcc\x03\n" +
+	"\x18SkipSyncAnomalyDetection\"\xd0\x03\n" +
 	"\x16ResourceTypeCapability\x12B\n" +
 	"\rresource_type\x18\x01 \x01(\v2\x1d.c1.connector.v2.ResourceTypeR\fresourceType\x12?\n" +
 	"\fcapabilities\x18\x02 \x03(\x0e2\x1b.c1.connector.v2.CapabilityR\fcapabilities\x12H\n" +
 	"\vpermissions\x18\x03 \x01(\v2&.c1.connector.v2.CapabilityPermissionsR\vpermissions\x12&\n" +
 	"\x0fopt_in_required\x18\x04 \x01(\bR\roptInRequired\x12=\n" +
-	"\x1bskip_sync_anomaly_detection\x18\x05 \x01(\bR\x18skipSyncAnomalyDetection\x12\\\n" +
-	"\x10credential_issue\x18\x06 \x01(\v21.c1.connector.v2.CredentialDetailsCredentialIssueR\x0fcredentialIssue\x12\x1e\n" +
+	"\x1bskip_sync_anomaly_detection\x18\x05 \x01(\bR\x18skipSyncAnomalyDetection\x12`\n" +
+	"\x10credential_issue\x18\x06 \x01(\v21.c1.connector.v2.CredentialDetailsCredentialIssueB\x02\x18\x01R\x0fcredentialIssue\x12\x1e\n" +
 	"\n" +
 	"deprecated\x18\a \x01(\bR\n" +
 	"deprecated\"$\n" +
@@ -2807,7 +2870,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\rdefault_value\x18\x01 \x03(\v2J.c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntryR\fdefaultValue\x1av\n" +
 	"\x11DefaultValueEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12K\n" +
-	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\x85\x04\n" +
+	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\x89\x04\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12\x18\n" +
@@ -2824,8 +2887,8 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x12\x1c\n" +
 	"\x18CAPABILITY_TARGETED_SYNC\x10\v\x12\x1c\n" +
 	"\x18CAPABILITY_EVENT_FEED_V2\x10\f\x12)\n" +
-	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r\x12\x1f\n" +
-	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e\x121\n" +
+	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r\x12#\n" +
+	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e\x1a\x02\b\x01\x121\n" +
 	"-CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1\x10\x10*\xf6\x03\n" +
 	" CapabilityDetailCredentialOption\x123\n" +
 	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED\x10\x00\x123\n" +
@@ -2881,8 +2944,9 @@ var file_c1_connector_v2_connector_proto_goTypes = []any{
 	(*structpb.Struct)(nil),      // 33: google.protobuf.Struct
 	(*KeyGenerationProfile)(nil), // 34: c1.connector.v2.KeyGenerationProfile
 	(CredentialResourceMode)(0),  // 35: c1.connector.v2.CredentialResourceMode
-	(*durationpb.Duration)(nil),  // 36: google.protobuf.Duration
-	(*ResourceType)(nil),         // 37: c1.connector.v2.ResourceType
+	(*v1.Field)(nil),             // 36: c1.config.v1.Field
+	(*durationpb.Duration)(nil),  // 37: google.protobuf.Duration
+	(*ResourceType)(nil),         // 38: c1.connector.v2.ResourceType
 }
 var file_c1_connector_v2_connector_proto_depIdxs = []int32{
 	31, // 0: c1.connector.v2.ConnectorServiceCleanupRequest.annotations:type_name -> google.protobuf.Any
@@ -2905,38 +2969,39 @@ var file_c1_connector_v2_connector_proto_depIdxs = []int32{
 	34, // 17: c1.connector.v2.CredentialIssueOptionDescriptor.key_profiles:type_name -> c1.connector.v2.KeyGenerationProfile
 	10, // 18: c1.connector.v2.CredentialIssueOptionDescriptor.expiry:type_name -> c1.connector.v2.IssuanceExpiryCapability
 	35, // 19: c1.connector.v2.CredentialIssueOptionDescriptor.resource_mode:type_name -> c1.connector.v2.CredentialResourceMode
-	36, // 20: c1.connector.v2.IssuanceExpiryCapability.min:type_name -> google.protobuf.Duration
-	36, // 21: c1.connector.v2.IssuanceExpiryCapability.max:type_name -> google.protobuf.Duration
-	17, // 22: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
-	0,  // 23: c1.connector.v2.ConnectorCapabilities.connector_capabilities:type_name -> c1.connector.v2.Capability
-	5,  // 24: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
-	12, // 25: c1.connector.v2.CapabilityPermissions.permissions:type_name -> c1.connector.v2.CapabilityPermission
-	37, // 26: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
-	0,  // 27: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
-	13, // 28: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
-	8,  // 29: c1.connector.v2.ResourceTypeCapability.credential_issue:type_name -> c1.connector.v2.CredentialDetailsCredentialIssue
-	4,  // 30: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
-	31, // 31: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
-	23, // 32: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
-	24, // 33: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	25, // 34: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
-	26, // 35: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
-	27, // 36: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
-	28, // 37: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
-	29, // 38: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
-	30, // 39: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
-	24, // 40: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	18, // 41: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
-	20, // 42: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
-	2,  // 43: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
-	19, // 44: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
-	21, // 45: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
-	3,  // 46: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
-	44, // [44:47] is the sub-list for method output_type
-	41, // [41:44] is the sub-list for method input_type
-	41, // [41:41] is the sub-list for extension type_name
-	41, // [41:41] is the sub-list for extension extendee
-	0,  // [0:41] is the sub-list for field type_name
+	36, // 20: c1.connector.v2.CredentialIssueOptionDescriptor.output:type_name -> c1.config.v1.Field
+	37, // 21: c1.connector.v2.IssuanceExpiryCapability.min:type_name -> google.protobuf.Duration
+	37, // 22: c1.connector.v2.IssuanceExpiryCapability.max:type_name -> google.protobuf.Duration
+	17, // 23: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
+	0,  // 24: c1.connector.v2.ConnectorCapabilities.connector_capabilities:type_name -> c1.connector.v2.Capability
+	5,  // 25: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
+	12, // 26: c1.connector.v2.CapabilityPermissions.permissions:type_name -> c1.connector.v2.CapabilityPermission
+	38, // 27: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
+	0,  // 28: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
+	13, // 29: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
+	8,  // 30: c1.connector.v2.ResourceTypeCapability.credential_issue:type_name -> c1.connector.v2.CredentialDetailsCredentialIssue
+	4,  // 31: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
+	31, // 32: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
+	23, // 33: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
+	24, // 34: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	25, // 35: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
+	26, // 36: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
+	27, // 37: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
+	28, // 38: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
+	29, // 39: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
+	30, // 40: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
+	24, // 41: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	18, // 42: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
+	20, // 43: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
+	2,  // 44: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
+	19, // 45: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
+	21, // 46: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
+	3,  // 47: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
+	45, // [45:48] is the sub-list for method output_type
+	42, // [42:45] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_connector_proto_init() }
