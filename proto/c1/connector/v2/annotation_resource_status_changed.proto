@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "c1/connector/v2/resource.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// ResourceStatusChanged is attached by a connector to a Grant or Revoke
+// response when the operation changed a resource's status in the downstream
+// system as a side effect, e.g. revoking a principal's last role deactivates
+// the account (RESOURCE_STATUS_DISABLED), or granting a role reactivates a
+// deactivated account (RESOURCE_STATUS_ENABLED). The resource still exists;
+// use ResourceDeleted for deletions. Consumers update the resource's status to
+// the supplied value.
+message ResourceStatusChanged {
+  // The resource whose status changed as a side effect of the operation.
+  ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
+  // The resource's status after the operation.
+  Status status = 2 [(validate.rules).message = {required: true}];
+}
