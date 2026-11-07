@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -23,6 +24,8 @@ type lambdaTransport struct {
 	lambdaClient *lambda.Client
 	functionName string
 }
+
+const lambdaInvokeRequestIDMetadataKey = "x-amzn-requestid"
 
 func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Response, error) {
 	payload, frameOnly, err := req.marshalPayload()
@@ -82,7 +85,17 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 		return nil, fmt.Errorf("lambda_transport: failed to unmarshal response: %w", err)
 	}
 
-	return resp, err
+	if requestID, ok := awsmiddleware.GetRequestIDMetadata(invokeResp.ResultMetadata); ok && requestID != "" {
+		headers := resp.Headers()
+		headers.Set(lambdaInvokeRequestIDMetadataKey, requestID)
+		respHeaders, err := MarshalMetadata(headers)
+		if err != nil {
+			return nil, fmt.Errorf("lambda_transport: failed to encode response metadata: %w", err)
+		}
+		resp.msg.SetHeaders(respHeaders)
+	}
+
+	return resp, nil
 }
 
 // NewLambdaClientTransport returns a new client transport that invokes a lambda function.
@@ -136,6 +149,8 @@ func (c *clientConn) Invoke(ctx context.Context, method string, args any, reply 
 		return err
 	}
 
+	populateResponseMetadata(tresp, opts)
+
 	if st.Code() != codes.OK {
 		return st.Err()
 	}
@@ -145,21 +160,33 @@ func (c *clientConn) Invoke(ctx context.Context, method string, args any, reply 
 		return err
 	}
 
-	// TODO(morgabra): call opts here, some are probably important (e.g. PerRPCCredsCallOption, etc)
+	return nil
+}
+
+func populateResponseMetadata(resp *Response, opts []grpc.CallOption) {
+	var headers metadata.MD
+	var trailers metadata.MD
+
 	for _, opt := range opts {
 		switch o := opt.(type) {
 		case grpc.HeaderCallOption:
-			for k, v := range tresp.Headers() {
-				o.HeaderAddr.Append(k, v...)
+			if o.HeaderAddr == nil {
+				continue
 			}
+			if headers == nil {
+				headers = resp.Headers()
+			}
+			*o.HeaderAddr = headers
 		case grpc.TrailerCallOption:
-			for k, v := range tresp.Trailers() {
-				o.TrailerAddr.Append(k, v...)
+			if o.TrailerAddr == nil {
+				continue
 			}
+			if trailers == nil {
+				trailers = resp.Trailers()
+			}
+			*o.TrailerAddr = trailers
 		}
 	}
-
-	return nil
 }
 
 func (c *clientConn) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
