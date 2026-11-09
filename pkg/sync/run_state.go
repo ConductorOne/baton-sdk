@@ -469,7 +469,6 @@ func (r *runState) transitionActionWithCompletion(
 	if nextPageToken != "" {
 		updated := r.actions[parent.ID]
 		updated.PageToken = nextPageToken
-		updated.WindowPages = parent.WindowPages
 		r.actions[parent.ID] = updated
 		return pushed, nil
 	}

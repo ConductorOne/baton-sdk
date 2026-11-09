@@ -2,6 +2,7 @@ package c1zstore
 
 import (
 	"maps"
+	"math"
 	"strings"
 )
 
@@ -15,6 +16,18 @@ const (
 
 func SampledFromCounters(counters map[string]uint64) bool {
 	return counters[ListPageWindowCounterPrefix+"sampled"] > 0
+}
+
+// ReaderCounters saturates unsigned storage counters at the reader API's signed maximum.
+func ReaderCounters(counters map[string]uint64) map[string]int64 {
+	if len(counters) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(counters))
+	for name, value := range counters {
+		out[name] = int64(min(value, math.MaxInt64))
+	}
+	return out
 }
 
 func LedgerSyncStats(facts map[string]string, counters LedgerCounters) SyncStats {

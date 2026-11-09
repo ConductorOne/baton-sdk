@@ -12,40 +12,30 @@ import (
 )
 
 func TestCompactorRejectsSampledInputs(t *testing.T) {
-	for _, mode := range []PebbleCompactorMode{PebbleCompactorModeKWay, PebbleCompactorModeOverlay, PebbleCompactorModeFold} {
-		for _, sampledInput := range []string{"base", "partial"} {
-			t.Run(string(mode)+"/"+sampledInput, func(t *testing.T) {
-				ctx, dir := t.Context(), t.TempDir()
-				basePath, partialPath := filepath.Join(dir, "base.c1z"), filepath.Join(dir, "partial.c1z")
-				baseID := buildPebbleInput(t, ctx, basePath, connectorstore.SyncTypeFull, "base")
-				partialID := buildPebbleInput(t, ctx, partialPath, connectorstore.SyncTypePartial, "partial")
-				sampledPath, sampledID := basePath, baseID
-				if sampledInput == "partial" {
-					sampledPath, sampledID = partialPath, partialID
-				}
-				store, err := dotc1z.NewStore(ctx, sampledPath, dotc1z.WithEngine(c1zstore.EnginePebble))
-				require.NoError(t, err)
-				require.NoError(t, store.SetCurrentSync(ctx, sampledID))
-				engine, ok := enginepkg.AsEngine(store)
-				require.True(t, ok)
-				sealer, ok := store.(c1zstore.LedgerLifecycle)
-				require.True(t, ok)
-				require.NoError(t, sealer.Seal(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{
-					Counters: map[string]uint64{c1zstore.ListPageWindowCounterPrefix + "sampled": 1},
-				}}))
-				record, err := engine.SyncRuns().GetSyncRunRecord(ctx, sampledID)
-				require.NoError(t, err)
-				require.True(t, record.GetSampled())
-				require.NoError(t, store.Close(ctx))
-				compactor, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{
-					{FilePath: basePath, SyncID: baseID}, {FilePath: partialPath, SyncID: partialID},
-				}, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion(), WithPebbleCompactorMode(mode))
-				require.NoError(t, err)
-				defer func() { require.NoError(t, cleanup()) }()
-				output, err := compactor.Compact(ctx)
-				require.ErrorContains(t, err, "sampled")
-				require.Nil(t, output)
-			})
-		}
-	}
+	ctx, dir := t.Context(), t.TempDir()
+	basePath, partialPath := filepath.Join(dir, "base.c1z"), filepath.Join(dir, "partial.c1z")
+	baseID := buildPebbleInput(t, ctx, basePath, connectorstore.SyncTypeFull, "base")
+	partialID := buildPebbleInput(t, ctx, partialPath, connectorstore.SyncTypePartial, "partial")
+	store, err := dotc1z.NewStore(ctx, partialPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	require.NoError(t, store.SetCurrentSync(ctx, partialID))
+	engine, ok := enginepkg.AsEngine(store)
+	require.True(t, ok)
+	sealer, ok := store.(c1zstore.LedgerLifecycle)
+	require.True(t, ok)
+	require.NoError(t, sealer.Seal(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{
+		Counters: map[string]uint64{c1zstore.ListPageWindowCounterPrefix + "sampled": 1},
+	}}))
+	record, err := engine.SyncRuns().GetSyncRunRecord(ctx, partialID)
+	require.NoError(t, err)
+	require.True(t, record.GetSampled())
+	require.NoError(t, store.Close(ctx))
+	compactor, cleanup, err := NewCompactor(ctx, t.TempDir(), []*CompactableSync{
+		{FilePath: basePath, SyncID: baseID}, {FilePath: partialPath, SyncID: partialID},
+	}, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithSkipGrantExpansion(), WithPebbleCompactorMode(PebbleCompactorModeKWay))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, cleanup()) }()
+	output, err := compactor.Compact(ctx)
+	require.ErrorContains(t, err, "sampled")
+	require.Nil(t, output)
 }

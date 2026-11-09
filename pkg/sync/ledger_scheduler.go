@@ -115,7 +115,6 @@ func (s *syncer) invokeActionPage(
 		if err == nil && page.transitions == 1 && !page.row.Restarted {
 			s.stageListPageWindow(page, action)
 		}
-		page.row.WindowPages = action.WindowPages
 		if page.transitions == 1 && page.row.NextPageToken == "" && !page.row.Restarted {
 			if page.observations.Counters == nil {
 				page.observations.Counters = make(map[string]uint64)

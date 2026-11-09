@@ -2,7 +2,6 @@ package c1zstore
 
 import (
 	"encoding/json"
-	"math"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -85,18 +84,6 @@ func ApplySyncTokenStatsRecord(rec *v3.SyncStatsRecord, syncToken string) {
 	if quality := toStorageIngestQuality(timing.IngestQuality); quality != nil {
 		rec.SetIngestQuality(quality)
 	}
-}
-
-// ReaderCounters saturates unsigned storage counters at the reader API's signed maximum.
-func ReaderCounters(counters map[string]uint64) map[string]int64 {
-	if len(counters) == 0 {
-		return nil
-	}
-	out := make(map[string]int64, len(counters))
-	for name, value := range counters {
-		out[name] = int64(min(value, math.MaxInt64))
-	}
-	return out
 }
 
 func addCallStat(cur, add *v3.CallStat) {
