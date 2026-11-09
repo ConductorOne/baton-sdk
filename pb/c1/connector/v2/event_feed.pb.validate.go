@@ -1290,6 +1290,8 @@ func (m *UsageEvent) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for TargetKind
+
 	if len(errors) > 0 {
 		return UsageEventMultiError(errors)
 	}
