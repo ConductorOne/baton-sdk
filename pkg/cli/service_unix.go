@@ -20,6 +20,9 @@ func runService(ctx context.Context, _ string) (context.Context, error) {
 }
 
 func initLogger(ctx context.Context, _ string, opts ...logging.Option) (context.Context, error) {
+	if rotation, ok := ctx.Value(logRotationContextKey{}).(logging.RotationConfig); ok && rotation.MaxSizeMB > 0 {
+		return logging.InitWithRotation(ctx, rotation, opts...)
+	}
 	return logging.Init(ctx, opts...)
 }
 
