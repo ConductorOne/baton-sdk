@@ -1555,6 +1555,8 @@ func (m *SyncRunRecord) validate(all bool) error {
 
 	// no validation rules for IngestInvariantMode
 
+	// no validation rules for ConnectorVersion
+
 	if len(errors) > 0 {
 		return SyncRunRecordMultiError(errors)
 	}

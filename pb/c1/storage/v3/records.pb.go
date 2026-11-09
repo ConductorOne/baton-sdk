@@ -1512,8 +1512,14 @@ type SyncRunRecord struct {
 	// "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
 	// Empty when ingest_invariant_generation is empty.
 	IngestInvariantMode string `protobuf:"bytes,12,opt,name=ingest_invariant_mode,json=ingestInvariantMode,proto3" json:"ingest_invariant_mode,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// connector_version is the connector release that started this sync,
+	// as supplied by the opener (pebble.WithConnectorVersion). An
+	// unfinished sync is resumed only by the same version: resuming one a
+	// different release started would mix both releases' data in one sync.
+	// Empty means unknown and matches any version.
+	ConnectorVersion string `protobuf:"bytes,13,opt,name=connector_version,json=connectorVersion,proto3" json:"connector_version,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SyncRunRecord) Reset() {
@@ -1618,6 +1624,13 @@ func (x *SyncRunRecord) GetIngestInvariantMode() string {
 	return ""
 }
 
+func (x *SyncRunRecord) GetConnectorVersion() string {
+	if x != nil {
+		return x.ConnectorVersion
+	}
+	return ""
+}
+
 func (x *SyncRunRecord) SetSyncId(v string) {
 	x.SyncId = v
 }
@@ -1660,6 +1673,10 @@ func (x *SyncRunRecord) SetIngestInvariantCoverage(v []string) {
 
 func (x *SyncRunRecord) SetIngestInvariantMode(v string) {
 	x.IngestInvariantMode = v
+}
+
+func (x *SyncRunRecord) SetConnectorVersion(v string) {
+	x.ConnectorVersion = v
 }
 
 func (x *SyncRunRecord) HasStartedAt() bool {
@@ -1724,6 +1741,12 @@ type SyncRunRecord_builder struct {
 	// "compaction_merge" applies the policy for a pre-sealed keep-newer merge.
 	// Empty when ingest_invariant_generation is empty.
 	IngestInvariantMode string
+	// connector_version is the connector release that started this sync,
+	// as supplied by the opener (pebble.WithConnectorVersion). An
+	// unfinished sync is resumed only by the same version: resuming one a
+	// different release started would mix both releases' data in one sync.
+	// Empty means unknown and matches any version.
+	ConnectorVersion string
 }
 
 func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
@@ -1741,6 +1764,7 @@ func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
 	x.IngestInvariantGeneration = b.IngestInvariantGeneration
 	x.IngestInvariantCoverage = b.IngestInvariantCoverage
 	x.IngestInvariantMode = b.IngestInvariantMode
+	x.ConnectorVersion = b.ConnectorVersion
 	return m0
 }
 
@@ -4377,7 +4401,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\x12?\n" +
 	"\rdiscovered_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:\"\x82\xf9+\x1e\n" +
-	"\x06assets\x12\async_id\x12\vexternal_id\"\xaf\x04\n" +
+	"\x06assets\x12\async_id\x12\vexternal_id\"\xdc\x04\n" +
 	"\rSyncRunRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x12$\n" +
@@ -4392,7 +4416,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bingest_invariant_generation\x18\n" +
 	" \x01(\tR\x19ingestInvariantGeneration\x12:\n" +
 	"\x19ingest_invariant_coverage\x18\v \x03(\tR\x17ingestInvariantCoverage\x122\n" +
-	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode:\x18\x82\xf9+\x14\n" +
+	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode\x12+\n" +
+	"\x11connector_version\x18\r \x01(\tR\x10connectorVersion:\x18\x82\xf9+\x14\n" +
 	"\tsync_runs\x12\async_idJ\x04\b\b\x10\tR\x0elinked_sync_id\"\xc3\f\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
