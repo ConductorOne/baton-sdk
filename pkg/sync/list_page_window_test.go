@@ -483,11 +483,9 @@ func TestListPageWindowLedgerFailedPageDoesNotReport(t *testing.T) {
 func TestListPageWindowGoldenCheckpoint(t *testing.T) {
 	run, stats := newRunState(), newRunStats()
 	run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "group", PageToken: "page-2", WindowPages: 1})
-	stats.addCounter("list_page_window.sampled", 2)
-	stats.addCounter("list_page_window.sampled:group", 2)
 	encoded, err := marshalToken(run, stats)
 	require.NoError(t, err)
-	require.Equal(t, readGoldenToken(t, "v1_list_page_window.json"), encoded)
+	require.Equal(t, readGoldenToken(t, "v1_list_page_window_pages_only.json"), encoded)
 }
 
 func TestListPageWindowPendingRefreshCarriesMatchingRevision(t *testing.T) {

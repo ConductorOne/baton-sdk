@@ -26,7 +26,7 @@ func commitSampledTerminal(t *testing.T, e *Engine, count uint64) {
 }
 
 func TestSampledSyncMarkerAtSeal(t *testing.T) {
-	for _, mode := range []string{"token", "ledger-overlay", "ledger-recovery"} {
+	for _, mode := range []string{"stats-overlay", "ledger-overlay", "ledger-recovery"} {
 		for _, sampled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/sampled=%t", mode, sampled), func(t *testing.T) {
 				ctx := t.Context()
@@ -40,18 +40,15 @@ func TestSampledSyncMarkerAtSeal(t *testing.T) {
 				before, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 				require.NoError(t, err)
 				require.False(t, before.GetSampled())
-				if mode == "token" {
-					require.NoError(t, e.SetSyncToken(ctx, fmt.Sprintf(`{"counters":{"list_page_window.sampled":%d}}`, count)))
-					require.NoError(t, e.EndSync(ctx))
-				} else {
+				if mode != "stats-overlay" {
 					commitSampledTerminal(t, e, count)
-					if mode == "ledger-overlay" {
-						require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{
-							Counters: map[string]uint64{c1zstore.ListPageWindowCounterPrefix + "sampled": count},
-						}}))
-					} else {
-						require.NoError(t, e.EndSync(ctx))
-					}
+				}
+				if mode != "ledger-recovery" {
+					require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{
+						Counters: map[string]uint64{c1zstore.ListPageWindowCounterPrefix + "sampled": count},
+					}}))
+				} else {
+					require.NoError(t, e.EndSync(ctx))
 				}
 				record, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 				require.NoError(t, err)
@@ -79,10 +76,10 @@ func TestSampledSyncMarkerSurvivesResealWithoutCounters(t *testing.T) {
 	e, _ := newTestEngine(t)
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.SetSyncToken(ctx, `{"counters":{"list_page_window.sampled":1}}`))
-	require.NoError(t, e.EndSync(ctx))
+	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{
+		Counters: map[string]uint64{c1zstore.ListPageWindowCounterPrefix + "sampled": 1},
+	}}))
 	require.NoError(t, e.SetCurrentSync(ctx, syncID))
-	require.NoError(t, e.SetSyncToken(ctx, `{"version":1}`))
 	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	run, err := e.SyncRuns().GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
@@ -91,7 +88,7 @@ func TestSampledSyncMarkerSurvivesResealWithoutCounters(t *testing.T) {
 
 func TestSampledSyncMarkerStampDurability(t *testing.T) {
 	skipOnWindowsMemFS(t)
-	for _, mode := range []string{"token", "ledger"} {
+	for _, mode := range []string{"stats-overlay", "ledger"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx := t.Context()
 			fs := vfs.NewCrashableMem()
@@ -103,9 +100,7 @@ func TestSampledSyncMarkerStampDurability(t *testing.T) {
 			syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
 			require.NoError(t, e.Records().PutResources(ctx, V3ResourceToV2(ledgerTestResource("group", "one"))))
-			if mode == "token" {
-				require.NoError(t, e.SetSyncToken(ctx, `{"counters":{"list_page_window.sampled":1}}`))
-			} else {
+			if mode == "ledger" {
 				commitSampledTerminal(t, e, 1)
 			}
 			beforeStamp := false
@@ -120,13 +115,9 @@ func TestSampledSyncMarkerStampDurability(t *testing.T) {
 			}
 			var image *vfs.MemFS
 			e.test.endSyncPreFlushHook = func() { image = fs.CrashClone(vfs.CrashCloneCfg{}) }
-			if mode == "token" {
-				require.NoError(t, e.EndSync(ctx))
-			} else {
-				require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{
-					Counters: map[string]uint64{c1zstore.ListPageWindowCounterPrefix + "sampled": 1},
-				}}))
-			}
+			require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{
+				Counters: map[string]uint64{c1zstore.ListPageWindowCounterPrefix + "sampled": 1},
+			}}))
 			require.True(t, beforeStamp)
 			require.NotNil(t, image)
 			recovered, err := Open(ctx, "sampled-seal", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger(), WithGrantDigestIndex(false))

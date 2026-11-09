@@ -70,7 +70,6 @@ type serializedTokenV1 struct {
 	StepDurationsMs    map[string]int64              `json:"step_durations_ms,omitempty"`
 	ConnectorCallStats map[string]*ConnectorCallStat `json:"connector_call_stats,omitempty"`
 	SessionStoreStats  map[string]*SessionStoreStat  `json:"session_store_stats,omitempty"`
-	Counters           map[string]uint64             `json:"counters,omitempty"`
 	IngestQuality      *IngestQualityCheckpoint      `json:"ingest_quality,omitempty"`
 	Compaction         *CompactionTokenStats         `json:"compaction,omitempty"`
 	Version            uint64                        `json:"version"`
@@ -231,7 +230,6 @@ func loadRunStats(stats *runStats, token serializedTokenV1) {
 	if stats.sessionOps == nil {
 		stats.sessionOps = make(map[string]*SessionStoreStat)
 	}
-	stats.counters = token.Counters
 	stats.ingest = cloneIngestQualityCheckpoint(token.IngestQuality)
 	stats.compaction = token.Compaction
 }
@@ -308,7 +306,6 @@ func marshalToken(run *runState, stats *runStats) (string, error) {
 		StepDurationsMs:                 stats.stepDurationsMs,
 		ConnectorCallStats:              stats.connectorCalls,
 		SessionStoreStats:               stats.sessionOps,
-		Counters:                        stats.counters,
 		IngestQuality:                   cloneIngestQualityCheckpoint(stats.ingest),
 		Compaction:                      stats.compaction,
 		Version:                         version,

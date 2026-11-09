@@ -268,10 +268,8 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	if err != nil {
 		return err
 	}
-	sampledStats := &v3.SyncStatsRecord{}
-	c1zstore.ApplySyncTokenStatsRecord(sampledStats, existing.GetSyncToken())
 	// A follow-on pass must not clear an earlier sampled verdict.
-	sampled := existing.GetSampled() || c1zstore.SampledFromCounters(sampledStats.GetCounters()) || c1zstore.SampledFromCounters(overlay.GetCounters())
+	sampled := existing.GetSampled() || c1zstore.SampledFromCounters(overlay.GetCounters())
 	if !preserveRecovery && ledgered {
 		// The terminal page moved the declaration to sealing with the queue
 		// empty; a finished sync with no declaration is an engine-level reseal.

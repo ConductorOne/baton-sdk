@@ -2676,8 +2676,10 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 // synchronously outside scheduler locks and must support concurrent workers.
 // Connector-signaled cursor restarts retain already-counted pages, so rewound
 // pages consume the remaining window and may reduce the sample of distinct rows.
-// Sampled artifacts remain local-only until downstream upload/uplift gates consume
-// the durable marker. A separate sampled-run sync-fact follow-up is deferred.
+// Each EnqueuePageTokens spawn starts its own window, so chained spawns are
+// bounded per spawn rather than across the whole list.
+// Older SDKs resuming a sampled run do not preserve window counts or stamp the
+// sampled marker and counters; use the same SDK version throughout the run.
 func WithListPageWindow(window uint32, handler func(ListPageWindowReport)) SyncOpt {
 	return func(s *syncer) {
 		s.cfg.listPageWindow = window

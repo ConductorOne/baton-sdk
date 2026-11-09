@@ -2,7 +2,6 @@ package c1zstore
 
 import (
 	"encoding/json"
-	"maps"
 	"math"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -18,7 +17,6 @@ type syncTokenTiming struct {
 	ConnectorCallStats map[string]*tokenCallStat `json:"connector_call_stats,omitempty"`
 	SessionStoreStats  map[string]*tokenCallStat `json:"session_store_stats,omitempty"`
 	IngestQuality      *tokenIngestQuality       `json:"ingest_quality,omitempty"`
-	Counters           map[string]uint64         `json:"counters,omitempty"`
 }
 
 type tokenCallStat struct {
@@ -63,9 +61,6 @@ func ApplySyncTokenStats(stats *reader_v2.SyncStats, syncToken string) {
 	if sessions := toReaderCallStats(timing.SessionStoreStats); len(sessions) > 0 {
 		stats.SetSessionStoreStats(sessions)
 	}
-	if len(timing.Counters) > 0 {
-		stats.SetCounters(ReaderCounters(timing.Counters))
-	}
 }
 
 // ApplySyncTokenStatsRecord overlays timing / call stats from a syncer
@@ -89,9 +84,6 @@ func ApplySyncTokenStatsRecord(rec *v3.SyncStatsRecord, syncToken string) {
 	}
 	if quality := toStorageIngestQuality(timing.IngestQuality); quality != nil {
 		rec.SetIngestQuality(quality)
-	}
-	if len(timing.Counters) > 0 {
-		rec.SetCounters(maps.Clone(timing.Counters))
 	}
 }
 
@@ -169,7 +161,6 @@ func parseSyncTokenTiming(syncToken string) (syncTokenTiming, bool) {
 	if len(timing.StepDurationsMs) == 0 &&
 		len(timing.ConnectorCallStats) == 0 &&
 		len(timing.SessionStoreStats) == 0 &&
-		len(timing.Counters) == 0 &&
 		timing.IngestQuality == nil {
 		return syncTokenTiming{}, false
 	}
