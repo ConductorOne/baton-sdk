@@ -6,6 +6,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/duty"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -269,6 +270,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 		return resp, err
 	}
 
+	warnInvalidDutyAnnotations(ctx, out)
 	if err = validateExclusionGroupAnnotations(out); err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
@@ -340,6 +342,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		return resp, err
 	}
 
+	warnInvalidDutyAnnotations(ctx, out)
 	if err = validateExclusionGroupAnnotations(out); err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
@@ -548,6 +551,35 @@ func (b *builder) addResourceSyncers(ctx context.Context, typeId string, in any)
 	}
 
 	return nil
+}
+
+// warnInvalidDutyAnnotations logs entitlements whose DutyMappingsAnnotation
+// fails duty.Validate or appears more than once. The entitlements pass
+// through unchanged: duties describe the entitlement and must not fail a
+// sync, and ConductorOne skips a malformed annotation on ingest.
+func warnInvalidDutyAnnotations(ctx context.Context, ents []*v2.Entitlement) {
+	for _, ent := range ents {
+		count := 0
+		for _, a := range ent.GetAnnotations() {
+			if !a.MessageIs(&v2.DutyMappingsAnnotation{}) {
+				continue
+			}
+			count++
+			ann := &v2.DutyMappingsAnnotation{}
+			err := a.UnmarshalTo(ann)
+			if err == nil {
+				err = duty.Validate(ann)
+			}
+			if err != nil {
+				ctxzap.Extract(ctx).Warn("connectorbuilder: invalid duty annotation",
+					zap.String("entitlement_id", ent.GetId()), zap.Error(err))
+			}
+		}
+		if count > 1 {
+			ctxzap.Extract(ctx).Warn("connectorbuilder: entitlement has multiple duty annotations",
+				zap.String("entitlement_id", ent.GetId()), zap.Int("count", count))
+		}
+	}
 }
 
 // validateExclusionGroupAnnotations checks that each entitlement has at most one

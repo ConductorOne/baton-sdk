@@ -95,6 +95,24 @@ func handleExternalLink(_ *sanitizer, msg proto.Message, _ *assetRefSet) proto.M
 	return v2.ExternalLink_builder{Url: url}.Build()
 }
 
+// handleDutyMappings keeps duty IDs and precision, which are catalog values,
+// and clears descriptions, which may name app-specific objects.
+func handleDutyMappings(_ *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {
+	in := msg.(*v2.DutyMappingsAnnotation)
+	mappings := make([]*v2.DutyMapping, 0, len(in.GetMappings()))
+	for _, m := range in.GetMappings() {
+		mappings = append(mappings, v2.DutyMapping_builder{
+			DutyId:    m.GetDutyId(),
+			Precision: m.GetPrecision(),
+		}.Build())
+	}
+	return v2.DutyMappingsAnnotation_builder{
+		CatalogId:      in.GetCatalogId(),
+		CatalogVersion: in.GetCatalogVersion(),
+		Mappings:       mappings,
+	}.Build()
+}
+
 // handleChildResourceType preserves the resource-tree topology, sanitizing
 // the embedded resource-type token under the known-type rule.
 func handleChildResourceType(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {

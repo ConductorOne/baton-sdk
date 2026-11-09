@@ -5,6 +5,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/duty"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -74,6 +75,27 @@ func WithExclusionGroupDefault(exclusionGroupID string, order uint32) Entitlemen
 		Order:            order,
 		IsDefault:        true,
 	})
+}
+
+// WithDuties declares the duties this entitlement allows. Calling it more
+// than once adds to the same DutyMappingsAnnotation.
+func WithDuties(mappings ...duty.Mapping) EntitlementOption {
+	return func(e *v2.Entitlement) {
+		annos := annotations.Annotations(e.GetAnnotations())
+		ann := &v2.DutyMappingsAnnotation{}
+		if _, err := annos.Pick(ann); err != nil {
+			ann = &v2.DutyMappingsAnnotation{}
+		}
+		ann.SetCatalogId(duty.CatalogID)
+		ann.SetCatalogVersion(duty.CatalogVersion)
+		list := ann.GetMappings()
+		for _, m := range mappings {
+			list = append(list, m.Proto())
+		}
+		ann.SetMappings(list)
+		annos.Update(ann)
+		e.SetAnnotations(annos)
+	}
 }
 
 // NewEntitlementID returns the public entitlement id for a resource and

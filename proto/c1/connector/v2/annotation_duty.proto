@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// DutyMappingsAnnotation declares which business duties an entitlement
+// allows. ConductorOne uses these mappings for separation-of-duties
+// checks. The annotation carries only facts the connector knows about its
+// own app; customer changes to the mappings live in ConductorOne.
+//
+// Attach at most one DutyMappingsAnnotation per entitlement. Build it with
+// entitlement.WithDuties and the constants in pkg/duty.
+message DutyMappingsAnnotation {
+  // The duty catalog the duty IDs come from. Use duty.CatalogID.
+  string catalog_id = 1 [(validate.rules).string = {
+    min_len: 1
+    max_len: 64
+  }];
+
+  // The catalog version the connector was built against. Use
+  // duty.CatalogVersion. ConductorOne records it to explain unrecognized
+  // duty IDs and does not enforce it.
+  string catalog_version = 2 [(validate.rules).string = {max_len: 64}];
+
+  // At least one mapping. Each duty_id appears at most once.
+  repeated DutyMapping mappings = 3 [(validate.rules).repeated = {
+    min_items: 1
+    max_items: 128
+  }];
+}
+
+// DutyMapping states that an entitlement allows one duty.
+message DutyMapping {
+  // A catalog duty ID in the form <object>.<action>, such as
+  // "payment.release". Use a constant from pkg/duty.
+  string duty_id = 1 [(validate.rules).string = {
+    pattern: "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+    max_len: 64
+  }];
+
+  // How precisely the entitlement maps to the duty. Must be set.
+  DutyMappingPrecision precision = 2 [(validate.rules).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+
+  // Optional plain-English note. Expected on CONDITIONAL mappings, where it
+  // states the condition. ConductorOne shows it and never matches on it.
+  string description = 3 [(validate.rules).string = {max_len: 1024}];
+}
+
+// DutyMappingPrecision says how an entitlement relates to a duty.
+enum DutyMappingPrecision {
+  DUTY_MAPPING_PRECISION_UNSPECIFIED = 0;
+
+  // The entitlement grants exactly this duty. Example: a "Payment Release"
+  // role grants "Release payment".
+  DUTY_MAPPING_PRECISION_EXACT = 1;
+
+  // A broad entitlement that allows this duty among others. List every
+  // material duty and mark each one INCLUSIVE.
+  DUTY_MAPPING_PRECISION_INCLUSIVE = 2;
+
+  // The duty applies only if app settings the connector does not check
+  // allow it. Example: repository write access counts as "Approve software
+  // change" only when branch protection allows self-approval. Prefer
+  // reading the setting and emitting EXACT or INCLUSIVE; when that is not
+  // possible, emit CONDITIONAL and state the condition in description.
+  DUTY_MAPPING_PRECISION_CONDITIONAL = 3;
+}

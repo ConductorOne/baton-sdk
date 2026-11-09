@@ -27,11 +27,12 @@ func defaultAnnotationHandlers() map[string]annotationHandler {
 		// Non-trait annotations carrying graph topology / cross-references.
 		// Preserved-and-sanitized rather than dropped so the sanitized c1z
 		// stays a representative dataset for perf and graph testing.
-		typeURL(&v2.GrantExpandable{}):      handleGrantExpandable,
-		typeURL(&v2.GrantImmutable{}):       handleGrantImmutable,
-		typeURL(&v2.EntitlementImmutable{}): handleEntitlementImmutable,
-		typeURL(&v2.ExternalLink{}):         handleExternalLink,
-		typeURL(&v2.ChildResourceType{}):    handleChildResourceType,
+		typeURL(&v2.GrantExpandable{}):        handleGrantExpandable,
+		typeURL(&v2.GrantImmutable{}):         handleGrantImmutable,
+		typeURL(&v2.EntitlementImmutable{}):   handleEntitlementImmutable,
+		typeURL(&v2.ExternalLink{}):           handleExternalLink,
+		typeURL(&v2.ChildResourceType{}):      handleChildResourceType,
+		typeURL(&v2.DutyMappingsAnnotation{}): handleDutyMappings,
 	}
 }
 

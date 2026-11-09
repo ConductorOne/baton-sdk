@@ -5,6 +5,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/duty"
 	resource "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
 )
@@ -141,4 +142,37 @@ func TestWithExclusionGroupDefault(t *testing.T) {
 	require.Equal(t, "access-tier", eg.GetExclusionGroupId())
 	require.Equal(t, uint32(10), eg.GetOrder())
 	require.True(t, eg.GetIsDefault())
+}
+
+func TestWithDuties(t *testing.T) {
+	rt := resource.NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
+	r, err := resource.NewResource("payments", rt, "payments")
+	require.NoError(t, err)
+
+	en := NewPermissionEntitlement(r, "release",
+		WithExclusionGroup("roles"),
+		WithDuties(duty.Exact(duty.PaymentRelease)),
+		WithDuties(duty.Conditional(duty.PaymentAuthorize, "only below the approval threshold")),
+	)
+
+	annos := annotations.Annotations(en.GetAnnotations())
+	count := 0
+	for _, a := range annos {
+		if a.MessageIs(&v2.DutyMappingsAnnotation{}) {
+			count++
+		}
+	}
+	require.Equal(t, 1, count, "repeated WithDuties calls share one annotation")
+	require.True(t, annos.Contains(&v2.EntitlementExclusionGroup{}))
+
+	ann := &v2.DutyMappingsAnnotation{}
+	found, err := annos.Pick(ann)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, duty.CatalogID, ann.GetCatalogId())
+	require.Equal(t, duty.CatalogVersion, ann.GetCatalogVersion())
+	require.Len(t, ann.GetMappings(), 2)
+	require.Equal(t, duty.PaymentRelease, ann.GetMappings()[0].GetDutyId())
+	require.Equal(t, duty.PaymentAuthorize, ann.GetMappings()[1].GetDutyId())
+	require.NoError(t, duty.Validate(ann))
 }

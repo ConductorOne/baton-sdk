@@ -11,6 +11,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sync/progresslog"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -18,6 +19,7 @@ type ledgerStaticConnector struct {
 	*ledgerTypesConnector
 	calls   []string
 	failure error
+	duties  *v2.DutyMappingsAnnotation
 }
 
 func (c *ledgerStaticConnector) ListStaticEntitlements(
@@ -34,8 +36,16 @@ func (c *ledgerStaticConnector) ListStaticEntitlements(
 	if err != nil {
 		return nil, err
 	}
+	annos := []*anypb.Any{group}
+	if c.duties != nil {
+		duties, err := anypb.New(c.duties)
+		if err != nil {
+			return nil, err
+		}
+		annos = append(annos, duties)
+	}
 	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
-		List: []*v2.Entitlement{{Slug: "member", Annotations: []*anypb.Any{group}}}, NextPageToken: "next",
+		List: []*v2.Entitlement{{Slug: "member", Annotations: annos}}, NextPageToken: "next",
 	}.Build(), nil
 }
 func staticPageFixture(t *testing.T) (*syncer, *ledgerFixture, *ledgerStaticConnector) {
@@ -74,6 +84,30 @@ func TestLedgerStaticEntitlementPages(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, "roles-"+id, group.GetExclusionGroupId())
+	}
+}
+func TestLedgerStaticEntitlementKeepsDuties(t *testing.T) {
+	s, f, c := staticPageFixture(t)
+	c.duties = v2.DutyMappingsAnnotation_builder{
+		CatalogId: "c1.duties",
+		Mappings: []*v2.DutyMapping{v2.DutyMapping_builder{
+			DutyId: "payment.release", Precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT,
+		}.Build()},
+	}.Build()
+	f.audit.enter(ledgerHandler)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
+	require.NoError(t, err)
+	f.audit.enter(ledgerLifecycle)
+	ents, err := f.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
+	require.NoError(t, err)
+	require.Len(t, ents.GetList(), 2)
+	for _, ent := range ents.GetList() {
+		duties := &v2.DutyMappingsAnnotation{}
+		annos := annotations.Annotations(ent.GetAnnotations())
+		found, err := annos.Pick(duties)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.True(t, proto.Equal(c.duties, duties))
 	}
 }
 func TestLedgerStaticEntitlementCommitFailure(t *testing.T) {
