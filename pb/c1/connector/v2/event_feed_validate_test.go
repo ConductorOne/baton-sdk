@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 // validateUsageEvent validates through Event, which is where a consumer
@@ -81,6 +82,31 @@ func TestOAuthUsageValidation(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestUsageEventTargetKind(t *testing.T) {
+	tests := []struct {
+		name string
+		kind UsageEvent_TargetKind
+	}{
+		{name: "unset", kind: UsageEvent_TARGET_KIND_UNSPECIFIED},
+		{name: "child app", kind: UsageEvent_TARGET_KIND_CHILD_APP},
+		{name: "app access", kind: UsageEvent_TARGET_KIND_APP_ACCESS},
+		{name: "unknown value", kind: UsageEvent_TargetKind(99)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usageEvent := UsageEvent_builder{TargetKind: tt.kind}.Build()
+			require.Equal(t, tt.kind, usageEvent.GetTargetKind())
+			require.NoError(t, validateUsageEvent(usageEvent))
+
+			data, err := proto.Marshal(usageEvent)
+			require.NoError(t, err)
+			decoded := &UsageEvent{}
+			require.NoError(t, proto.Unmarshal(data, decoded))
+			require.Equal(t, tt.kind, decoded.GetTargetKind())
 		})
 	}
 }

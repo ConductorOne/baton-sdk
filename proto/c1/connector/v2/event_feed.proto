@@ -84,6 +84,21 @@ message UsageEvent {
   NetworkOrigin network = 3;
   // Set when the event is OAuth consent activity.
   OAuthUsage oauth = 4;
+  // States what target_resource is. Consumers treat an unset value as
+  // TARGET_KIND_CHILD_APP.
+  TargetKind target_kind = 5;
+
+  enum TargetKind {
+    // The producer makes no statement. Consumers treat it as
+    // TARGET_KIND_CHILD_APP.
+    TARGET_KIND_UNSPECIFIED = 0;
+    // An app that the user reached through the connector's app, such as an SSO
+    // application or an OAuth client. Unrelated to ChildResourceType.
+    TARGET_KIND_CHILD_APP = 1;
+    // A stand-in for the app that the connector serves: the event is a sign-in
+    // to that app as a whole, not use of a resource.
+    TARGET_KIND_APP_ACCESS = 2;
+  }
 }
 
 // Producers leave unset any value that fails its validate rule rather than
