@@ -10,20 +10,40 @@ import (
 )
 
 func TestSampledInputsRejectedByMergeEntrypoints(t *testing.T) {
-	for _, entrypoint := range []string{"compact", "fold", "kway", "overlay"} {
-		t.Run(entrypoint, func(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		entrypoint         string
+		destinationSampled bool
+	}{
+		{name: "compact", entrypoint: "compact"},
+		{name: "fold", entrypoint: "fold"},
+		{name: "kway", entrypoint: "kway"},
+		{name: "overlay", entrypoint: "overlay"},
+		{name: "fold sampled destination", entrypoint: "fold", destinationSampled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 			source, _ := newEngine(t, "sampled-source")
 			syncID, err := source.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			require.NoError(t, source.EndSyncWithStats(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{
-				Counters: map[string]uint64{c1zstore.ListPageWindowCounterPrefix + "sampled": 1},
-			}}))
+			sampledCounters := map[string]uint64{c1zstore.ListPageWindowCounterPrefix + "sampled": 1}
+			sourceCounters := sampledCounters
+			if tc.destinationSampled {
+				sourceCounters = nil
+			}
+			require.NoError(t, source.EndSyncWithStats(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{Counters: sourceCounters}}))
 			destination, _ := newEngine(t, "destination")
 			destinationID := ksuid.New().String()
+			if tc.destinationSampled {
+				destinationID, err = destination.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+				require.NoError(t, err)
+			}
 			require.NoError(t, destination.SetCurrentSync(ctx, destinationID))
 			require.NoError(t, destination.Records().PutGrantRecord(ctx, grant(destinationID, "keep", "member", "user")))
-			switch entrypoint {
+			if tc.destinationSampled {
+				require.NoError(t, destination.EndSyncWithStats(ctx, c1zstore.SyncStats{Run: c1zstore.RunStats{Counters: sampledCounters}}))
+			}
+			switch tc.entrypoint {
 			case "compact":
 				compactor, createErr := NewCompactor(destination, t.TempDir())
 				require.NoError(t, createErr)

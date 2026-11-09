@@ -28,7 +28,9 @@ func (s *syncer) applyListPageWindow(action *Action, next string) (string, *List
 	default:
 		return next, nil
 	}
-	action.WindowPages++
+	if action.WindowPages < window {
+		action.WindowPages++
+	}
 	if action.WindowPages < window {
 		return next, nil
 	}
@@ -56,7 +58,6 @@ func (s *syncer) reportListPageWindow(report ListPageWindowReport) {
 func (s *syncer) stageListPageWindow(page *ledgerPage, action *Action) {
 	next, report := s.applyListPageWindow(action, page.row.NextPageToken)
 	page.row.NextPageToken = next
-	page.row.WindowPages = action.WindowPages
 	if report == nil {
 		return
 	}
