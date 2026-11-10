@@ -49,7 +49,7 @@ func TestValidate(t *testing.T) {
 		{name: "unknown precision", ann: annotation(Mapping{dutyID: PaymentRelease, precision: 99}), wantErr: "Precision"},
 		{name: "description too long", ann: annotation(Exact(PaymentRelease).WithDescription(strings.Repeat("x", 1025))), wantErr: "Description"},
 		{name: "duplicate duty", ann: annotation(Exact(PaymentRelease), Inclusive(PaymentRelease)), wantErr: "mapped more than once"},
-		{name: "conditional without condition", ann: annotation(Conditional(SoftwareChangeApprove, "")), wantErr: "has no description"},
+		{name: "conditional without description", ann: annotation(Conditional(SoftwareChangeApprove, ""))},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -89,11 +89,13 @@ func (x DutyMappingPrecision) Number() protoreflect.EnumNumber {
 // entitlement.WithDuties and the constants in pkg/duty.
 type DutyMappingsAnnotation struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
-	// The duty catalog the duty IDs come from. Use duty.CatalogID.
+	// The duty catalog that defines the mappings' duty IDs. A duty_id is
+	// read within this catalog. entitlement.WithDuties sets it from
+	// duty.CatalogID; connectors do not choose it.
 	CatalogId string `protobuf:"bytes,1,opt,name=catalog_id,json=catalogId,proto3" json:"catalog_id,omitempty"`
-	// The catalog version the connector was built against. Use
-	// duty.CatalogVersion. ConductorOne records it to explain unrecognized
-	// duty IDs and does not enforce it.
+	// The catalog version the connector was built against.
+	// entitlement.WithDuties sets it from duty.CatalogVersion. ConductorOne
+	// records it to explain unrecognized duty IDs and does not enforce it.
 	CatalogVersion string `protobuf:"bytes,2,opt,name=catalog_version,json=catalogVersion,proto3" json:"catalog_version,omitempty"`
 	// At least one mapping. Each duty_id appears at most once.
 	Mappings      []*DutyMapping `protobuf:"bytes,3,rep,name=mappings,proto3" json:"mappings,omitempty"`
@@ -162,11 +164,13 @@ func (x *DutyMappingsAnnotation) SetMappings(v []*DutyMapping) {
 type DutyMappingsAnnotation_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// The duty catalog the duty IDs come from. Use duty.CatalogID.
+	// The duty catalog that defines the mappings' duty IDs. A duty_id is
+	// read within this catalog. entitlement.WithDuties sets it from
+	// duty.CatalogID; connectors do not choose it.
 	CatalogId string
-	// The catalog version the connector was built against. Use
-	// duty.CatalogVersion. ConductorOne records it to explain unrecognized
-	// duty IDs and does not enforce it.
+	// The catalog version the connector was built against.
+	// entitlement.WithDuties sets it from duty.CatalogVersion. ConductorOne
+	// records it to explain unrecognized duty IDs and does not enforce it.
 	CatalogVersion string
 	// At least one mapping. Each duty_id appears at most once.
 	Mappings []*DutyMapping
@@ -185,13 +189,15 @@ func (b0 DutyMappingsAnnotation_builder) Build() *DutyMappingsAnnotation {
 // DutyMapping states that an entitlement allows one duty.
 type DutyMapping struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
-	// A catalog duty ID in the form <object>.<action>, such as
-	// "payment.release". Use a constant from pkg/duty.
+	// An opaque catalog key, such as "payment.release". Use a constant from
+	// pkg/duty. Catalog IDs are named <object>.<action> for readability;
+	// consumers compare the whole string and do not parse it.
 	DutyId string `protobuf:"bytes,1,opt,name=duty_id,json=dutyId,proto3" json:"duty_id,omitempty"`
 	// How precisely the entitlement maps to the duty. Must be set.
 	Precision DutyMappingPrecision `protobuf:"varint,2,opt,name=precision,proto3,enum=c1.connector.v2.DutyMappingPrecision" json:"precision,omitempty"`
-	// Optional plain-English note. Expected on CONDITIONAL mappings, where it
-	// states the condition. ConductorOne shows it and never matches on it.
+	// Optional plain-English note. Strongly expected on CONDITIONAL mappings,
+	// where it states the condition; duty.Conditional takes it as an argument.
+	// ConductorOne shows it and never matches on it.
 	Description   string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -258,13 +264,15 @@ func (x *DutyMapping) SetDescription(v string) {
 type DutyMapping_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// A catalog duty ID in the form <object>.<action>, such as
-	// "payment.release". Use a constant from pkg/duty.
+	// An opaque catalog key, such as "payment.release". Use a constant from
+	// pkg/duty. Catalog IDs are named <object>.<action> for readability;
+	// consumers compare the whole string and do not parse it.
 	DutyId string
 	// How precisely the entitlement maps to the duty. Must be set.
 	Precision DutyMappingPrecision
-	// Optional plain-English note. Expected on CONDITIONAL mappings, where it
-	// states the condition. ConductorOne shows it and never matches on it.
+	// Optional plain-English note. Strongly expected on CONDITIONAL mappings,
+	// where it states the condition; duty.Conditional takes it as an argument.
+	// ConductorOne shows it and never matches on it.
 	Description string
 }
 

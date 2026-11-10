@@ -159,11 +159,13 @@ func (x *DutyMappingsAnnotation) SetMappings(v []*DutyMapping) {
 type DutyMappingsAnnotation_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// The duty catalog the duty IDs come from. Use duty.CatalogID.
+	// The duty catalog that defines the mappings' duty IDs. A duty_id is
+	// read within this catalog. entitlement.WithDuties sets it from
+	// duty.CatalogID; connectors do not choose it.
 	CatalogId string
-	// The catalog version the connector was built against. Use
-	// duty.CatalogVersion. ConductorOne records it to explain unrecognized
-	// duty IDs and does not enforce it.
+	// The catalog version the connector was built against.
+	// entitlement.WithDuties sets it from duty.CatalogVersion. ConductorOne
+	// records it to explain unrecognized duty IDs and does not enforce it.
 	CatalogVersion string
 	// At least one mapping. Each duty_id appears at most once.
 	Mappings []*DutyMapping
@@ -250,13 +252,15 @@ func (x *DutyMapping) SetDescription(v string) {
 type DutyMapping_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// A catalog duty ID in the form <object>.<action>, such as
-	// "payment.release". Use a constant from pkg/duty.
+	// An opaque catalog key, such as "payment.release". Use a constant from
+	// pkg/duty. Catalog IDs are named <object>.<action> for readability;
+	// consumers compare the whole string and do not parse it.
 	DutyId string
 	// How precisely the entitlement maps to the duty. Must be set.
 	Precision DutyMappingPrecision
-	// Optional plain-English note. Expected on CONDITIONAL mappings, where it
-	// states the condition. ConductorOne shows it and never matches on it.
+	// Optional plain-English note. Strongly expected on CONDITIONAL mappings,
+	// where it states the condition; duty.Conditional takes it as an argument.
+	// ConductorOne shows it and never matches on it.
 	Description string
 }
 

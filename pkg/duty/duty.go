@@ -1,6 +1,7 @@
 // Package duty holds the ConductorOne duty catalog IDs and the builders
 // connectors use to declare which duties an entitlement allows. Attach the
-// mappings with entitlement.WithDuties.
+// mappings with entitlement.WithDuties, which sets the annotation's catalog
+// ID and version from CatalogID and CatalogVersion.
 package duty
 
 import (
@@ -88,8 +89,8 @@ func (m Mapping) Proto() *v2.DutyMapping {
 	}.Build()
 }
 
-// Validate checks the annotation's field rules, rejects a duty ID listed
-// twice, and rejects a CONDITIONAL mapping with no description.
+// Validate checks the annotation's field rules and rejects a duty ID listed
+// twice.
 func Validate(a *v2.DutyMappingsAnnotation) error {
 	if err := a.ValidateAll(); err != nil {
 		return err
@@ -101,9 +102,6 @@ func Validate(a *v2.DutyMappingsAnnotation) error {
 			errs = append(errs, fmt.Errorf("duty %q is mapped more than once", m.GetDutyId()))
 		}
 		seen[m.GetDutyId()] = struct{}{}
-		if m.GetPrecision() == v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_CONDITIONAL && m.GetDescription() == "" {
-			errs = append(errs, fmt.Errorf("conditional mapping for duty %q has no description", m.GetDutyId()))
-		}
 	}
 	return errors.Join(errs...)
 }

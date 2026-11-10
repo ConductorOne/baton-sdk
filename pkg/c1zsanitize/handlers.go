@@ -95,15 +95,24 @@ func handleExternalLink(_ *sanitizer, msg proto.Message, _ *assetRefSet) proto.M
 	return v2.ExternalLink_builder{Url: url}.Build()
 }
 
+// redactedDutyDescription replaces a non-empty DutyMapping description,
+// which may name app-specific objects. Empty descriptions stay empty.
+const redactedDutyDescription = "redacted"
+
 // handleDutyMappings keeps duty IDs and precision, which are catalog values,
-// and clears descriptions, which may name app-specific objects.
+// and redacts descriptions.
 func handleDutyMappings(_ *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {
 	in := msg.(*v2.DutyMappingsAnnotation)
 	mappings := make([]*v2.DutyMapping, 0, len(in.GetMappings()))
 	for _, m := range in.GetMappings() {
+		description := ""
+		if m.GetDescription() != "" {
+			description = redactedDutyDescription
+		}
 		mappings = append(mappings, v2.DutyMapping_builder{
-			DutyId:    m.GetDutyId(),
-			Precision: m.GetPrecision(),
+			DutyId:      m.GetDutyId(),
+			Precision:   m.GetPrecision(),
+			Description: description,
 		}.Build())
 	}
 	return v2.DutyMappingsAnnotation_builder{

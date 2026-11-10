@@ -14,15 +14,17 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 // Attach at most one DutyMappingsAnnotation per entitlement. Build it with
 // entitlement.WithDuties and the constants in pkg/duty.
 message DutyMappingsAnnotation {
-  // The duty catalog the duty IDs come from. Use duty.CatalogID.
+  // The duty catalog that defines the mappings' duty IDs. A duty_id is
+  // read within this catalog. entitlement.WithDuties sets it from
+  // duty.CatalogID; connectors do not choose it.
   string catalog_id = 1 [(validate.rules).string = {
     min_len: 1
     max_len: 64
   }];
 
-  // The catalog version the connector was built against. Use
-  // duty.CatalogVersion. ConductorOne records it to explain unrecognized
-  // duty IDs and does not enforce it.
+  // The catalog version the connector was built against.
+  // entitlement.WithDuties sets it from duty.CatalogVersion. ConductorOne
+  // records it to explain unrecognized duty IDs and does not enforce it.
   string catalog_version = 2 [(validate.rules).string = {max_len: 64}];
 
   // At least one mapping. Each duty_id appears at most once.
@@ -34,8 +36,9 @@ message DutyMappingsAnnotation {
 
 // DutyMapping states that an entitlement allows one duty.
 message DutyMapping {
-  // A catalog duty ID in the form <object>.<action>, such as
-  // "payment.release". Use a constant from pkg/duty.
+  // An opaque catalog key, such as "payment.release". Use a constant from
+  // pkg/duty. Catalog IDs are named <object>.<action> for readability;
+  // consumers compare the whole string and do not parse it.
   string duty_id = 1 [(validate.rules).string = {
     pattern: "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
     max_len: 64
@@ -47,8 +50,9 @@ message DutyMapping {
     not_in: [0]
   }];
 
-  // Optional plain-English note. Expected on CONDITIONAL mappings, where it
-  // states the condition. ConductorOne shows it and never matches on it.
+  // Optional plain-English note. Strongly expected on CONDITIONAL mappings,
+  // where it states the condition; duty.Conditional takes it as an argument.
+  // ConductorOne shows it and never matches on it.
   string description = 3 [(validate.rules).string = {max_len: 1024}];
 }
 

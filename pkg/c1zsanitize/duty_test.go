@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/duty"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -32,6 +33,8 @@ func TestDutyMappingsAnnotationHandler(t *testing.T) {
 	got := mustUnpack(t, out[0], &v2.DutyMappingsAnnotation{})
 
 	want := proto.Clone(in).(*v2.DutyMappingsAnnotation)
-	want.GetMappings()[1].SetDescription("")
+	want.GetMappings()[1].SetDescription(redactedDutyDescription)
 	require.True(t, proto.Equal(want, got), "got %v", got)
+	require.Empty(t, got.GetMappings()[0].GetDescription(), "an empty description stays empty")
+	require.NoError(t, duty.Validate(got))
 }
