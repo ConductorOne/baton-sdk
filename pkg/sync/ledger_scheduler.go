@@ -64,6 +64,7 @@ func (s *syncer) invokeActionPage(
 	var opened *ledgerPage
 	var warning error
 	var handlerFailure error
+	previousWindowPages := action.WindowPages
 	_, err := s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
 		opened = page
 		page.action = action
@@ -111,6 +112,10 @@ func (s *syncer) invokeActionPage(
 				}
 			}
 		}
+		if err == nil && page.transitions == 1 && !page.row.Restarted {
+			s.stageListPageWindow(page, action)
+		}
+		page.row.WindowPages = action.WindowPages
 		if page.transitions == 1 && page.row.NextPageToken == "" && !page.row.Restarted {
 			if page.observations.Counters == nil {
 				page.observations.Counters = make(map[string]uint64)
@@ -155,6 +160,7 @@ func (s *syncer) invokeActionPage(
 		return s.transitionActionState(ctx, action, page.row.NextPageToken, page.children, pending)
 	})
 	if err != nil {
+		action.WindowPages = previousWindowPages
 		if handlerFailure == nil && isWarning(ctx, err) {
 			return ledgerPageWriteError{cause: err}
 		}

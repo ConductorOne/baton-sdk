@@ -10,6 +10,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
@@ -104,6 +105,7 @@ func SyncStatsFromRecord(stats *v3.SyncStatsRecord) *reader_v2.SyncStats {
 		StepDurationsMs:            stats.GetStepDurationsMs(),
 		ConnectorCallStats:         storageCallStatsToReader(stats.GetConnectorCallStats()),
 		SessionStoreStats:          storageCallStatsToReader(stats.GetSessionStoreStats()),
+		Counters:                   c1zstore.ReaderCounters(stats.GetCounters()),
 	}.Build()
 }
 

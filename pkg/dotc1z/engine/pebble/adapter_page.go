@@ -155,6 +155,7 @@ func syncStatsOverlay(stats c1zstore.SyncStats) *v3.SyncStatsRecord {
 		StepDurationsMs:    cloneInt64Map(stats.Run.StepDurationsMs),
 		ConnectorCallStats: callStatsToProto(stats.Run.ConnectorCallStats),
 		SessionStoreStats:  callStatsToProto(stats.Run.SessionStoreStats),
+		Counters:           maps.Clone(stats.Run.Counters),
 	}.Build()
 	if q := stats.IngestQuality; q != nil {
 		overlay.SetIngestQuality(v3.IngestQualityStats_builder{
@@ -260,6 +261,7 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 		Attempt:              row.Attempt,
 		Replayed:             row.Replayed,
 		TypeScopedPlanned:    row.TypeScopedPlanned,
+		WindowPages:          row.WindowPages,
 		Spawned:              row.Spawned,
 		Restarted:            row.Restarted,
 		PageMs:               ledgerDurationMS(row.PageDuration),
@@ -294,6 +296,7 @@ func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 		GrantsWritten:            p.GetGrantsWritten(),
 		Replayed:                 p.GetReplayed(),
 		TypeScopedPlanned:        p.GetTypeScopedPlanned(),
+		WindowPages:              p.GetWindowPages(),
 		Scrubbed:                 p.GetScrubbed(),
 		Spawned:                  p.GetSpawned(),
 		Restarted:                p.GetRestarted(),

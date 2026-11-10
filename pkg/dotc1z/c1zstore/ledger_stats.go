@@ -1,21 +1,48 @@
 package c1zstore
 
-import "maps"
+import (
+	"maps"
+	"math"
+	"strings"
+)
 
 const (
 	LedgerFactIngestKnown   = "sync.ingest_known"
 	LedgerFactIngestBlocked = "sync.ingest_blocked"
 	LedgerCompletedActions  = "actions.completed"
+	// ListPageWindowCounterPrefix names the portable sampling counters in SyncStats.
+	ListPageWindowCounterPrefix = "list_page_window."
 )
+
+func SampledFromCounters(counters map[string]uint64) bool {
+	return counters[ListPageWindowCounterPrefix+"sampled"] > 0
+}
+
+// ReaderCounters saturates unsigned storage counters at the reader API's signed maximum.
+func ReaderCounters(counters map[string]uint64) map[string]int64 {
+	if len(counters) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(counters))
+	for name, value := range counters {
+		out[name] = int64(min(value, math.MaxInt64))
+	}
+	return out
+}
 
 func LedgerSyncStats(facts map[string]string, counters LedgerCounters) SyncStats {
 	_, blocked := facts[LedgerFactIngestBlocked]
+	publishedCounters := maps.Clone(counters.Counters)
+	maps.DeleteFunc(publishedCounters, func(name string, _ uint64) bool {
+		return !strings.HasPrefix(name, ListPageWindowCounterPrefix)
+	})
 	stats := SyncStats{
 		Run: RunStats{
 			CompletedActions:   counters.Counters[LedgerCompletedActions],
 			StepDurationsMs:    maps.Clone(counters.StepDurationsMs),
 			ConnectorCallStats: maps.Clone(counters.ConnectorCalls),
 			SessionStoreStats:  maps.Clone(counters.SessionCalls),
+			Counters:           publishedCounters,
 		},
 		IngestQuality: &IngestQuality{
 			SourceCacheReplayBlocked: blocked, ReasonFlags: counters.Flags,

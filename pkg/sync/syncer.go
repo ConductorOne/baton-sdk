@@ -2671,6 +2671,22 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 	}
 }
 
+// WithListPageWindow bounds successful resources, entitlements, and grants pages
+// per list walk. Zero leaves pagination unbounded. The handler may be nil; it runs
+// synchronously outside scheduler locks and must support concurrent workers.
+// Connector-signaled cursor restarts retain already-counted pages, so rewound
+// pages consume the remaining window and may reduce the sample of distinct rows.
+// Each EnqueuePageTokens spawn starts its own window, so chained spawns are
+// bounded per spawn rather than across the whole list.
+// Older SDKs resuming a sampled run do not preserve window counts or stamp the
+// sampled marker and counters; use the same SDK version throughout the run.
+func WithListPageWindow(window uint32, handler func(ListPageWindowReport)) SyncOpt {
+	return func(s *syncer) {
+		s.cfg.listPageWindow = window
+		s.cfg.listPageWindowHandler = handler
+	}
+}
+
 // WithProgressHandler sets a `progressHandler` for `NewSyncer` Options.
 // The progress handler is called for sync action, such as listing resources, entitlements, grants, etc.
 // If running in parallel mode, this function must be thread-safe.
