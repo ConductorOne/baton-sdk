@@ -257,6 +257,7 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 	}
 
 	// Should we do work now?
+	var fetchedPoll time.Duration
 	if decision.action == pollActionFetch {
 		knownTaskIDs, pageSize := c.taskQueue.fetchParams()
 
@@ -266,9 +267,9 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 		})
 
 		if err == nil {
-			nextPoll := getNextPoll(resp.GetNextPoll().AsDuration())
-			l.Debug("c1_api_task_manager.Next(): fetched task batch", zap.Duration("next_poll", nextPoll), zap.Int("tasks", len(resp.GetTasks())), zap.Uint32("page_size", pageSize))
-			c.taskQueue.setNextPoll(nextPoll)
+			fetchedPoll = getNextPoll(resp.GetNextPoll().AsDuration())
+			l.Debug("c1_api_task_manager.Next(): fetched task batch", zap.Duration("next_poll", fetchedPoll), zap.Int("tasks", len(resp.GetTasks())), zap.Uint32("page_size", pageSize))
+			c.taskQueue.setNextPoll(fetchedPoll)
 			c.taskQueue.enqueue(resp.GetTasks())
 		} else {
 			l.Error("c1_api_task_manager.Next(): failed to top up task batch", zap.Error(err))
@@ -286,8 +287,10 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 	}
 
 	if task == nil {
-		// Maybe we fetched tasks and there were none, so use a fresh wait time.
-		wait = cmp.Or(c.taskQueue.pollDecision().wait, 100*time.Millisecond)
+		wait = fetchedPoll
+		if wait <= 0 {
+			wait = cmp.Or(c.taskQueue.pollDecision().wait, 100*time.Millisecond)
+		}
 	}
 
 	return task, wait, nil
