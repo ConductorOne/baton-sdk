@@ -311,14 +311,14 @@ func TestNextReturnsWaitWhenBatchIsEmpty(t *testing.T) {
 	enableGetTasks(t)
 	sc := newFakeBatonServiceClient(nil)
 	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
-		NextPoll: durationpb.New(time.Hour),
+		NextPoll: durationpb.New(time.Minute),
 	}.Build()
 	mgr := newTestManager(sc)
 
 	task, wait, err := mgr.Next(context.Background())
 	require.NoError(t, err)
 	require.Nil(t, task, "expected no task, got %+v", task)
-	require.Positive(t, wait, "expected positive wait for empty batch, got %s", wait)
+	require.Equal(t, time.Minute, wait, "empty batch waits the server interval, got %s", wait)
 }
 
 func TestNextWaitsWhenEnoughKnownTasksAreInFlight(t *testing.T) {
