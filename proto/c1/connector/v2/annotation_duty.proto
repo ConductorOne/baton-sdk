@@ -7,7 +7,7 @@ import "validate/validate.proto";
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 // DutyMappingsAnnotation declares which business duties an entitlement
-// allows. ConductorOne uses these mappings for separation-of-duties
+// allows. ConductorOne is meant to use these mappings for separation-of-duties
 // checks. The annotation carries only facts the connector knows about its
 // own app; customer changes to the mappings live in ConductorOne.
 //
@@ -23,7 +23,8 @@ message DutyMappingsAnnotation {
   // not enforce it.
   string catalog_version = 2 [(validate.rules).string = {max_len: 64}];
 
-  // At least one mapping. Each duty_id appears at most once.
+  // At least one mapping. Each duty_id appears at most once; duty.Validate
+  // checks that, the field rules do not.
   repeated DutyMapping mappings = 3 [(validate.rules).repeated = {
     min_items: 1
     max_items: 128
@@ -50,7 +51,7 @@ message DutyMapping {
 
   // Optional plain-English note. Strongly expected on CONDITIONAL mappings,
   // where it states the condition; duty.Conditional takes it as an argument.
-  // ConductorOne shows it and never matches on it.
+  // It is display text: consumers show it and do not match on it.
   string description = 3 [(validate.rules).string = {max_len: 1024}];
 }
 

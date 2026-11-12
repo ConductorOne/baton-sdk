@@ -561,8 +561,7 @@ const maxUnknownDutySamples = 5
 // DutyMappingsAnnotation that fails duty.Validate, does not unmarshal, or
 // appears more than once, and one Debug listing duty IDs that are not in
 // duty.IDs. The entitlements pass through unchanged: duties describe the
-// entitlement and must not fail a sync, and ConductorOne skips a malformed
-// annotation on ingest.
+// entitlement and must not fail a sync.
 func warnInvalidDutyAnnotations(ctx context.Context, ents []*v2.Entitlement) {
 	invalid := 0
 	var firstErr error

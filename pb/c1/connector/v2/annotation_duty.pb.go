@@ -81,7 +81,7 @@ func (x DutyMappingPrecision) Number() protoreflect.EnumNumber {
 }
 
 // DutyMappingsAnnotation declares which business duties an entitlement
-// allows. ConductorOne uses these mappings for separation-of-duties
+// allows. ConductorOne is meant to use these mappings for separation-of-duties
 // checks. The annotation carries only facts the connector knows about its
 // own app; customer changes to the mappings live in ConductorOne.
 //
@@ -94,7 +94,8 @@ type DutyMappingsAnnotation struct {
 	// only: consumers may record it to explain unrecognized duty IDs and do
 	// not enforce it.
 	CatalogVersion string `protobuf:"bytes,2,opt,name=catalog_version,json=catalogVersion,proto3" json:"catalog_version,omitempty"`
-	// At least one mapping. Each duty_id appears at most once.
+	// At least one mapping. Each duty_id appears at most once; duty.Validate
+	// checks that, the field rules do not.
 	Mappings      []*DutyMapping `protobuf:"bytes,3,rep,name=mappings,proto3" json:"mappings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -155,7 +156,8 @@ type DutyMappingsAnnotation_builder struct {
 	// only: consumers may record it to explain unrecognized duty IDs and do
 	// not enforce it.
 	CatalogVersion string
-	// At least one mapping. Each duty_id appears at most once.
+	// At least one mapping. Each duty_id appears at most once; duty.Validate
+	// checks that, the field rules do not.
 	Mappings []*DutyMapping
 }
 
@@ -181,7 +183,7 @@ type DutyMapping struct {
 	Precision DutyMappingPrecision `protobuf:"varint,2,opt,name=precision,proto3,enum=c1.connector.v2.DutyMappingPrecision" json:"precision,omitempty"`
 	// Optional plain-English note. Strongly expected on CONDITIONAL mappings,
 	// where it states the condition; duty.Conditional takes it as an argument.
-	// ConductorOne shows it and never matches on it.
+	// It is display text: consumers show it and do not match on it.
 	Description   string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -258,7 +260,7 @@ type DutyMapping_builder struct {
 	Precision DutyMappingPrecision
 	// Optional plain-English note. Strongly expected on CONDITIONAL mappings,
 	// where it states the condition; duty.Conditional takes it as an argument.
-	// ConductorOne shows it and never matches on it.
+	// It is display text: consumers show it and do not match on it.
 	Description string
 }
 

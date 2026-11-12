@@ -81,7 +81,7 @@ func (x DutyMappingPrecision) Number() protoreflect.EnumNumber {
 }
 
 // DutyMappingsAnnotation declares which business duties an entitlement
-// allows. ConductorOne uses these mappings for separation-of-duties
+// allows. ConductorOne is meant to use these mappings for separation-of-duties
 // checks. The annotation carries only facts the connector knows about its
 // own app; customer changes to the mappings live in ConductorOne.
 //
@@ -152,7 +152,8 @@ type DutyMappingsAnnotation_builder struct {
 	// only: consumers may record it to explain unrecognized duty IDs and do
 	// not enforce it.
 	CatalogVersion string
-	// At least one mapping. Each duty_id appears at most once.
+	// At least one mapping. Each duty_id appears at most once; duty.Validate
+	// checks that, the field rules do not.
 	Mappings []*DutyMapping
 }
 
@@ -246,7 +247,7 @@ type DutyMapping_builder struct {
 	Precision DutyMappingPrecision
 	// Optional plain-English note. Strongly expected on CONDITIONAL mappings,
 	// where it states the condition; duty.Conditional takes it as an argument.
-	// ConductorOne shows it and never matches on it.
+	// It is display text: consumers show it and do not match on it.
 	Description string
 }
 

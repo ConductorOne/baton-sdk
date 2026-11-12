@@ -52,7 +52,7 @@ func TestValidate(t *testing.T) {
 		{name: "conditional without description", ann: annotation(Conditional(SoftwareChangeApprove, ""))},
 		{name: "unknown id", ann: annotation(Exact("payment.refund"))},
 		{name: "no catalog version", ann: v2.DutyMappingsAnnotation_builder{Mappings: []*v2.DutyMapping{Exact(PaymentRelease).Proto()}}.Build()},
-		{name: "three segments", ann: annotation(Exact("payment.release.now"))},
+		{name: "three segments", ann: annotation(Exact("vendor.payment_instructions.modify"))},
 		{name: "hyphenated", ann: annotation(Exact("payment-run.release"))},
 		{name: "no dot", ann: annotation(Exact("payment"))},
 		{name: "uppercase", ann: annotation(Exact("Payment.Release"))},

@@ -147,6 +147,7 @@ func (m Mapping) ID() ID {
 	return ID(m.dutyID)
 }
 
+// Proto returns the mapping as its wire message.
 func (m Mapping) Proto() *v2.DutyMapping {
 	return v2.DutyMapping_builder{
 		DutyId:      m.dutyID,
@@ -196,7 +197,7 @@ func AllowUnknown(ids ...string) LintOption {
 // Lint runs Validate and then reports, in mapping order, every duty ID that
 // is neither a constant in this package nor allowed by AllowUnknown, and
 // every duty ID not named <object>.<action> unless allowed. It is meant for
-// connector tests; the sync path only applies Validate.
+// connector tests; the sync path only validates and logs.
 func Lint(ann *v2.DutyMappingsAnnotation, opts ...LintOption) error {
 	if err := Validate(ann); err != nil {
 		return err
