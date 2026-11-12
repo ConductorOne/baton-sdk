@@ -132,7 +132,7 @@ esac
         self.assertIn("changed=true", (root / "outputs").read_text())
         # A run that opens or refreshes the fix PR must not also close it.
         self.assertIn("needed=true", (root / "outputs").read_text())
-        self.assertIn("| `go` directive (standard library) | 1.27.1 | 1.27.3 |", (root / "summary").read_text())
+        self.assertIn("| `go` directive | 1.27.1 | 1.27.3 |", (root / "summary").read_text())
 
     def test_stdlib_fix_already_covered_by_go_directive_is_reported_only(self):
         root, result = self.run_fix([finding("stdlib", "v1.27.1")])
@@ -162,7 +162,12 @@ esac
                                     dependency_go="1.28.0")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads((root / "gomod.json").read_text())["Go"], "1.28.0")
-        self.assertIn("| `go` directive (standard library) | 1.27.1 | 1.28.0 |", (root / "summary").read_text())
+        self.assertIn("| `go` directive | 1.27.1 | 1.28.0 |", (root / "summary").read_text())
+
+    def test_module_bump_that_raises_the_go_floor_is_reported(self):
+        root, result = self.run_fix([finding("example.com/a")], dependency_go="1.28.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("| `go` directive | 1.27.1 | 1.28.0 |", (root / "summary").read_text())
 
     def test_stdlib_without_a_fix_is_not_reported_as_fixed(self):
         for fixed in [None, ""]:

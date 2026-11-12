@@ -69,8 +69,12 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
 
       # Writes its report and the pull request body under $RUNNER_TEMP/govulncheck.
+      # A stdlib fix raises the go directive past the pinned Go; tidy, vendor and
+      # build then need the newer toolchain, which GOTOOLCHAIN=auto lets Go fetch.
       - name: Scan and apply fixes
         id: fix
+        env:
+          GOTOOLCHAIN: auto
         run: scripts/govulncheck-fix.sh
 
       # The patch and the body are all the publisher receives from this runner.
