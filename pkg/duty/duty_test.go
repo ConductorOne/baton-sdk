@@ -1,11 +1,13 @@
 package duty
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func annotation(mappings ...Mapping) *v2.DutyMappingsAnnotation {
@@ -14,19 +16,28 @@ func annotation(mappings ...Mapping) *v2.DutyMappingsAnnotation {
 		list = append(list, m.Proto())
 	}
 	return v2.DutyMappingsAnnotation_builder{
-		CatalogId:      CatalogID,
 		CatalogVersion: CatalogVersion,
 		Mappings:       list,
 	}.Build()
 }
 
-func TestIDsAreValidAndUnique(t *testing.T) {
+func TestIDs(t *testing.T) {
 	ids := IDs()
+	require.Len(t, ids, 25)
+	require.True(t, slices.IsSorted(ids), "IDs is sorted")
+	require.Len(t, slices.Compact(slices.Clone(ids)), len(ids), "IDs has no duplicates")
+
 	mappings := make([]Mapping, 0, len(ids))
 	for _, id := range ids {
+		require.True(t, IsKnown(id), "%s is known", id)
+		require.True(t, IsKnown(string(id)), "%s is known as a string", id)
 		mappings = append(mappings, Exact(id))
 	}
-	require.NoError(t, Validate(annotation(mappings...)))
+	require.NoError(t, Lint(annotation(mappings...)))
+
+	ids[0] = "mutated"
+	require.NotEqual(t, ID("mutated"), IDs()[0], "IDs returns a copy")
+	require.False(t, IsKnown("payment.relase"))
 }
 
 func TestValidate(t *testing.T) {
@@ -38,18 +49,28 @@ func TestValidate(t *testing.T) {
 		{name: "exact", ann: annotation(Exact(PaymentRelease))},
 		{name: "inclusive with description", ann: annotation(Inclusive(PaymentPrepare).WithDescription("admin role"), Inclusive(PaymentAuthorize))},
 		{name: "conditional with condition", ann: annotation(Conditional(SoftwareChangeApprove, "only when branch protection allows self-approval"))},
+		{name: "conditional without description", ann: annotation(Conditional(SoftwareChangeApprove, ""))},
+		{name: "unknown id", ann: annotation(Exact("payment.refund"))},
+		{name: "no catalog version", ann: v2.DutyMappingsAnnotation_builder{Mappings: []*v2.DutyMapping{Exact(PaymentRelease).Proto()}}.Build()},
+		{name: "three segments", ann: annotation(Exact("payment.release.now"))},
+		{name: "hyphenated", ann: annotation(Exact("payment-run.release"))},
+		{name: "no dot", ann: annotation(Exact("payment"))},
+		{name: "uppercase", ann: annotation(Exact("Payment.Release"))},
+		{name: "max length", ann: annotation(Exact(strings.Repeat("a", 64)))},
+		{name: "unknown precision", ann: annotation(Mapping{dutyID: string(PaymentRelease), precision: 99})},
 		{name: "no mappings", ann: annotation(), wantErr: "Mappings"},
-		{name: "missing catalog id", ann: v2.DutyMappingsAnnotation_builder{Mappings: []*v2.DutyMapping{Exact(PaymentRelease).Proto()}}.Build(), wantErr: "CatalogId"},
-		{name: "no dot", ann: annotation(Exact("payment")), wantErr: "DutyId"},
-		{name: "two dots", ann: annotation(Exact("payment.release.now")), wantErr: "DutyId"},
-		{name: "uppercase", ann: annotation(Exact("Payment.release")), wantErr: "DutyId"},
-		{name: "leading digit", ann: annotation(Exact("payment.1release")), wantErr: "DutyId"},
-		{name: "too long", ann: annotation(Exact("a." + strings.Repeat("b", 63))), wantErr: "DutyId"},
-		{name: "unspecified precision", ann: annotation(Mapping{dutyID: PaymentRelease}), wantErr: "Precision"},
-		{name: "unknown precision", ann: annotation(Mapping{dutyID: PaymentRelease, precision: 99}), wantErr: "Precision"},
+		{name: "empty id", ann: annotation(Exact("")), wantErr: "DutyId"},
+		{name: "space", ann: annotation(Exact("payment release")), wantErr: "DutyId"},
+		{name: "slash", ann: annotation(Exact("payment/release")), wantErr: "DutyId"},
+		{name: "too long", ann: annotation(Exact(strings.Repeat("a", 65))), wantErr: "DutyId"},
+		{name: "unspecified precision", ann: annotation(Mapping{dutyID: string(PaymentRelease)}), wantErr: "Precision"},
+		{
+			name:    "catalog version too long",
+			ann:     v2.DutyMappingsAnnotation_builder{CatalogVersion: strings.Repeat("1", 65), Mappings: []*v2.DutyMapping{Exact(PaymentRelease).Proto()}}.Build(),
+			wantErr: "CatalogVersion",
+		},
 		{name: "description too long", ann: annotation(Exact(PaymentRelease).WithDescription(strings.Repeat("x", 1025))), wantErr: "Description"},
 		{name: "duplicate duty", ann: annotation(Exact(PaymentRelease), Inclusive(PaymentRelease)), wantErr: "mapped more than once"},
-		{name: "conditional without description", ann: annotation(Conditional(SoftwareChangeApprove, ""))},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -63,13 +84,47 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestUnknownPrecisionRoundTrips(t *testing.T) {
+	in := annotation(Mapping{dutyID: string(PaymentRelease), precision: 99})
+	b, err := proto.Marshal(in)
+	require.NoError(t, err)
+	out := &v2.DutyMappingsAnnotation{}
+	require.NoError(t, proto.Unmarshal(b, out))
+	require.Equal(t, v2.DutyMappingPrecision(99), out.GetMappings()[0].GetPrecision())
+	require.NoError(t, Validate(out))
+}
+
+func TestLint(t *testing.T) {
+	require.NoError(t, Lint(annotation(Exact(PaymentRelease), Inclusive(SoftwareChangeMerge))))
+
+	typo := annotation(Exact(PaymentRelease), Exact("payment.relase"))
+	require.NoError(t, Validate(typo), "Validate accepts unknown IDs")
+	err := Lint(typo)
+	require.ErrorContains(t, err, `"payment.relase" is not a known duty ID`)
+	require.NoError(t, Lint(typo, AllowUnknown("payment.relase")))
+
+	err = Lint(annotation(Exact("Payment-Run"), Exact("zeta.one"), Exact("alpha.one")))
+	require.Error(t, err)
+	require.Equal(t, strings.Join([]string{
+		`duty "Payment-Run" is not a known duty ID; check for a typo or use AllowUnknown`,
+		`duty "Payment-Run" does not follow the <object>.<action> naming convention`,
+		`duty "zeta.one" is not a known duty ID; check for a typo or use AllowUnknown`,
+		`duty "alpha.one" is not a known duty ID; check for a typo or use AllowUnknown`,
+	}, "\n"), err.Error(), "errors follow mapping order")
+	require.NoError(t, Lint(annotation(Exact("Payment-Run")), AllowUnknown("Payment-Run")), "allowed IDs skip the naming check")
+
+	require.ErrorContains(t, Lint(annotation(Exact(PaymentRelease), Exact(PaymentRelease)), AllowUnknown(string(PaymentRelease))), "mapped more than once", "Lint runs Validate")
+}
+
 func TestMappingProto(t *testing.T) {
 	m := Conditional(SoftwareChangeApprove, "branch protection").Proto()
-	require.Equal(t, SoftwareChangeApprove, m.GetDutyId())
+	require.Equal(t, string(SoftwareChangeApprove), m.GetDutyId())
 	require.Equal(t, v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_CONDITIONAL, m.GetPrecision())
 	require.Equal(t, "branch protection", m.GetDescription())
 
 	m = Exact(PaymentRelease).WithDescription("Payment Release role").Proto()
 	require.Equal(t, v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT, m.GetPrecision())
 	require.Equal(t, "Payment Release role", m.GetDescription())
+
+	require.Equal(t, ID("custom.duty"), Inclusive("custom.duty").ID())
 }

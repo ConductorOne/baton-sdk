@@ -1,40 +1,76 @@
-// Package duty holds the ConductorOne duty catalog IDs and the builders
-// connectors use to declare which duties an entitlement allows. Attach the
-// mappings with entitlement.WithDuties, which sets the annotation's catalog
-// ID and version from CatalogID and CatalogVersion.
+// Package duty holds duty IDs and the builders connectors use to declare
+// which duties an entitlement allows. Attach the mappings with
+// entitlement.WithDuties, which stamps the annotation's catalog version from
+// CatalogVersion.
+//
+// The constants cover the duties in the ConductorOne duty catalog. Duty IDs
+// are open strings: any value that satisfies the wire rules (letters,
+// digits, '_', '.', '-'; 1 to 64 characters) is accepted, so a connector can
+// try a new duty without waiting for an SDK upgrade. Use Lint, or
+// dutytest.AssertEntitlement in tests, to catch typos offline.
 package duty
 
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"slices"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+// ID is a duty identifier. Any string satisfying the wire rules is a valid
+// ID; the constants below name the duties in the catalog this SDK was built
+// against.
+type ID string
+
+// CatalogVersion is the duty catalog version the constants in this package
+// were taken from. It is informational.
+const CatalogVersion = "1.0.0"
+
+// Finance duties.
 const (
-	CatalogID      = "c1.duties"
-	CatalogVersion = "1"
+	VendorCreateDraft               ID = "vendor.create_draft"
+	VendorActivate                  ID = "vendor.activate"
+	VendorPaymentInstructionsChange ID = "vendor_payment_instructions.change"
+	VendorPaymentInstructionsVerify ID = "vendor_payment_instructions.verify"
+	PaymentPrepare                  ID = "payment.prepare"
+	PaymentAuthorize                ID = "payment.authorize"
+	PaymentRelease                  ID = "payment.release"
+	JournalEntryPrepare             ID = "journal_entry.prepare"
+	JournalEntryApprove             ID = "journal_entry.approve"
+	PurchaseOrderCreate             ID = "purchase_order.create"
+	PurchaseOrderApprove            ID = "purchase_order.approve"
+	InvoiceRecord                   ID = "invoice.record"
+	InvoiceApprove                  ID = "invoice.approve"
 )
 
+// Identity duties.
 const (
-	VendorCreateDraft               = "vendor.create_draft"
-	VendorActivate                  = "vendor.activate"
-	VendorPaymentInstructionsChange = "vendor_payment_instructions.change"
-	VendorPaymentInstructionsVerify = "vendor_payment_instructions.verify"
-	PaymentPrepare                  = "payment.prepare"
-	PaymentAuthorize                = "payment.authorize"
-	PaymentRelease                  = "payment.release"
-	JournalEntryPrepare             = "journal_entry.prepare"
-	JournalEntryApprove             = "journal_entry.approve"
-	SoftwareChangeAuthor            = "software_change.author"
-	SoftwareChangeApprove           = "software_change.approve"
-	ChangeControlBypass             = "change_control.bypass"
-	ReleaseDeploy                   = "release.deploy"
+	AccessRequestSubmit  ID = "access_request.submit"
+	AccessRequestApprove ID = "access_request.approve"
+	EntitlementAssign    ID = "entitlement.assign"
+	AccessCertify        ID = "access.certify"
 )
 
-// IDs returns every duty ID constant in this package.
-func IDs() []string {
-	return []string{
+// Security duties.
+const (
+	AuditLogConfigure ID = "audit_log.configure"
+)
+
+// Software delivery duties.
+const (
+	SoftwareChangeAuthor    ID = "software_change.author"
+	SoftwareChangeApprove   ID = "software_change.approve"
+	SoftwareChangeMerge     ID = "software_change.merge"
+	ReleaseDeploy           ID = "release.deploy"
+	ChangeControlBypass     ID = "change_control.bypass"
+	ChangeControlModify     ID = "change_control.modify"
+	DeploymentControlModify ID = "deployment_control.modify"
+)
+
+var knownIDs = func() []ID {
+	ids := []ID{
 		VendorCreateDraft,
 		VendorActivate,
 		VendorPaymentInstructionsChange,
@@ -44,11 +80,36 @@ func IDs() []string {
 		PaymentRelease,
 		JournalEntryPrepare,
 		JournalEntryApprove,
+		PurchaseOrderCreate,
+		PurchaseOrderApprove,
+		InvoiceRecord,
+		InvoiceApprove,
+		AccessRequestSubmit,
+		AccessRequestApprove,
+		EntitlementAssign,
+		AccessCertify,
+		AuditLogConfigure,
 		SoftwareChangeAuthor,
 		SoftwareChangeApprove,
-		ChangeControlBypass,
+		SoftwareChangeMerge,
 		ReleaseDeploy,
+		ChangeControlBypass,
+		ChangeControlModify,
+		DeploymentControlModify,
 	}
+	slices.Sort(ids)
+	return ids
+}()
+
+// IDs returns every duty ID constant in this package, sorted.
+func IDs() []ID {
+	return slices.Clone(knownIDs)
+}
+
+// IsKnown reports whether id is one of the constants in this package.
+func IsKnown[T ~string](id T) bool {
+	_, found := slices.BinarySearch(knownIDs, ID(id))
+	return found
 }
 
 // Mapping is one duty an entitlement allows. Build it with Exact,
@@ -60,25 +121,30 @@ type Mapping struct {
 }
 
 // Exact maps an entitlement that grants exactly this duty.
-func Exact(dutyID string) Mapping {
-	return Mapping{dutyID: dutyID, precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT}
+func Exact[T ~string](id T) Mapping {
+	return Mapping{dutyID: string(id), precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT}
 }
 
 // Inclusive maps a broad entitlement that allows this duty among others.
-func Inclusive(dutyID string) Mapping {
-	return Mapping{dutyID: dutyID, precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE}
+func Inclusive[T ~string](id T) Mapping {
+	return Mapping{dutyID: string(id), precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE}
 }
 
 // Conditional maps a duty that applies only when app settings the
 // connector does not check allow it. condition states those settings.
-func Conditional(dutyID string, condition string) Mapping {
-	return Mapping{dutyID: dutyID, precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_CONDITIONAL, description: condition}
+func Conditional[T ~string](id T, condition string) Mapping {
+	return Mapping{dutyID: string(id), precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_CONDITIONAL, description: condition}
 }
 
 // WithDescription replaces the mapping's description.
 func (m Mapping) WithDescription(text string) Mapping {
 	m.description = text
 	return m
+}
+
+// ID returns the mapping's duty ID.
+func (m Mapping) ID() ID {
+	return ID(m.dutyID)
 }
 
 func (m Mapping) Proto() *v2.DutyMapping {
@@ -89,8 +155,9 @@ func (m Mapping) Proto() *v2.DutyMapping {
 	}.Build()
 }
 
-// Validate checks the annotation's field rules and rejects a duty ID listed
-// twice.
+// Validate checks the annotation's wire rules and rejects a duty ID listed
+// twice. It accepts duty IDs that are not constants in this package; use
+// Lint to flag those.
 func Validate(a *v2.DutyMappingsAnnotation) error {
 	if err := a.ValidateAll(); err != nil {
 		return err
@@ -102,6 +169,54 @@ func Validate(a *v2.DutyMappingsAnnotation) error {
 			errs = append(errs, fmt.Errorf("duty %q is mapped more than once", m.GetDutyId()))
 		}
 		seen[m.GetDutyId()] = struct{}{}
+	}
+	return errors.Join(errs...)
+}
+
+// namingConvention is the <object>.<action> shape catalog duty IDs follow.
+var namingConvention = regexp.MustCompile(`^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$`)
+
+// LintOption configures Lint.
+type LintOption func(*lintConfig)
+
+type lintConfig struct {
+	allowed map[string]struct{}
+}
+
+// AllowUnknown accepts the given duty IDs even though they are not
+// constants in this package and may not follow the naming convention.
+func AllowUnknown(ids ...string) LintOption {
+	return func(c *lintConfig) {
+		for _, id := range ids {
+			c.allowed[id] = struct{}{}
+		}
+	}
+}
+
+// Lint runs Validate and then reports, in mapping order, every duty ID that
+// is neither a constant in this package nor allowed by AllowUnknown, and
+// every duty ID not named <object>.<action> unless allowed. It is meant for
+// connector tests; the sync path only applies Validate.
+func Lint(ann *v2.DutyMappingsAnnotation, opts ...LintOption) error {
+	if err := Validate(ann); err != nil {
+		return err
+	}
+	cfg := &lintConfig{allowed: map[string]struct{}{}}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	var errs []error
+	for _, m := range ann.GetMappings() {
+		id := m.GetDutyId()
+		if _, ok := cfg.allowed[id]; ok {
+			continue
+		}
+		if !IsKnown(id) {
+			errs = append(errs, fmt.Errorf("duty %q is not a known duty ID; check for a typo or use AllowUnknown", id))
+		}
+		if !namingConvention.MatchString(id) {
+			errs = append(errs, fmt.Errorf("duty %q does not follow the <object>.<action> naming convention", id))
+		}
 	}
 	return errors.Join(errs...)
 }

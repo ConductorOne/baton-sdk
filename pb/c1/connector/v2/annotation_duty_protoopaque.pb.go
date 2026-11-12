@@ -86,10 +86,9 @@ func (x DutyMappingPrecision) Number() protoreflect.EnumNumber {
 // own app; customer changes to the mappings live in ConductorOne.
 //
 // Attach at most one DutyMappingsAnnotation per entitlement. Build it with
-// entitlement.WithDuties and the constants in pkg/duty.
+// entitlement.WithDuties and the builders in pkg/duty.
 type DutyMappingsAnnotation struct {
 	state                     protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_CatalogId      string                 `protobuf:"bytes,1,opt,name=catalog_id,json=catalogId,proto3"`
 	xxx_hidden_CatalogVersion string                 `protobuf:"bytes,2,opt,name=catalog_version,json=catalogVersion,proto3"`
 	xxx_hidden_Mappings       *[]*DutyMapping        `protobuf:"bytes,3,rep,name=mappings,proto3"`
 	unknownFields             protoimpl.UnknownFields
@@ -121,13 +120,6 @@ func (x *DutyMappingsAnnotation) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *DutyMappingsAnnotation) GetCatalogId() string {
-	if x != nil {
-		return x.xxx_hidden_CatalogId
-	}
-	return ""
-}
-
 func (x *DutyMappingsAnnotation) GetCatalogVersion() string {
 	if x != nil {
 		return x.xxx_hidden_CatalogVersion
@@ -144,10 +136,6 @@ func (x *DutyMappingsAnnotation) GetMappings() []*DutyMapping {
 	return nil
 }
 
-func (x *DutyMappingsAnnotation) SetCatalogId(v string) {
-	x.xxx_hidden_CatalogId = v
-}
-
 func (x *DutyMappingsAnnotation) SetCatalogVersion(v string) {
 	x.xxx_hidden_CatalogVersion = v
 }
@@ -159,13 +147,10 @@ func (x *DutyMappingsAnnotation) SetMappings(v []*DutyMapping) {
 type DutyMappingsAnnotation_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// The duty catalog that defines the mappings' duty IDs. A duty_id is
-	// read within this catalog. entitlement.WithDuties sets it from
-	// duty.CatalogID; connectors do not choose it.
-	CatalogId string
-	// The catalog version the connector was built against.
-	// entitlement.WithDuties sets it from duty.CatalogVersion. ConductorOne
-	// records it to explain unrecognized duty IDs and does not enforce it.
+	// The duty catalog version the connector was built against.
+	// entitlement.WithDuties sets it from duty.CatalogVersion. Informational
+	// only: consumers may record it to explain unrecognized duty IDs and do
+	// not enforce it.
 	CatalogVersion string
 	// At least one mapping. Each duty_id appears at most once.
 	Mappings []*DutyMapping
@@ -175,7 +160,6 @@ func (b0 DutyMappingsAnnotation_builder) Build() *DutyMappingsAnnotation {
 	m0 := &DutyMappingsAnnotation{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.xxx_hidden_CatalogId = b.CatalogId
 	x.xxx_hidden_CatalogVersion = b.CatalogVersion
 	x.xxx_hidden_Mappings = &b.Mappings
 	return m0
@@ -252,11 +236,13 @@ func (x *DutyMapping) SetDescription(v string) {
 type DutyMapping_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// An opaque catalog key, such as "payment.release". Use a constant from
-	// pkg/duty. Catalog IDs are named <object>.<action> for readability;
-	// consumers compare the whole string and do not parse it.
+	// An opaque duty key, such as "payment.release". Consumers compare the
+	// whole string and do not parse it. pkg/duty defines constants for common
+	// duties, but any value matching these rules is accepted. The
+	// <object>.<action> naming convention is checked by duty.Lint, not here.
 	DutyId string
-	// How precisely the entitlement maps to the duty. Must be set.
+	// How precisely the entitlement maps to the duty. Must be set. Consumers
+	// must tolerate values this version does not define.
 	Precision DutyMappingPrecision
 	// Optional plain-English note. Strongly expected on CONDITIONAL mappings,
 	// where it states the condition; duty.Conditional takes it as an argument.
@@ -278,16 +264,13 @@ var File_c1_connector_v2_annotation_duty_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_duty_proto_rawDesc = "" +
 	"\n" +
-	"%c1/connector/v2/annotation_duty.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"\xbb\x01\n" +
-	"\x16DutyMappingsAnnotation\x12(\n" +
-	"\n" +
-	"catalog_id\x18\x01 \x01(\tB\t\xfaB\x06r\x04\x10\x01\x18@R\tcatalogId\x120\n" +
+	"%c1/connector/v2/annotation_duty.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"\x97\x01\n" +
+	"\x16DutyMappingsAnnotation\x120\n" +
 	"\x0fcatalog_version\x18\x02 \x01(\tB\a\xfaB\x04r\x02\x18@R\x0ecatalogVersion\x12E\n" +
-	"\bmappings\x18\x03 \x03(\v2\x1c.c1.connector.v2.DutyMappingB\v\xfaB\b\x92\x01\x05\b\x01\x10\x80\x01R\bmappings\"\xd0\x01\n" +
-	"\vDutyMapping\x12D\n" +
-	"\aduty_id\x18\x01 \x01(\tB+\xfaB(r&\x18@2\"^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$R\x06dutyId\x12O\n" +
-	"\tprecision\x18\x02 \x01(\x0e2%.c1.connector.v2.DutyMappingPrecisionB\n" +
-	"\xfaB\a\x82\x01\x04\x10\x01 \x00R\tprecision\x12*\n" +
+	"\bmappings\x18\x03 \x03(\v2\x1c.c1.connector.v2.DutyMappingB\v\xfaB\b\x92\x01\x05\b\x01\x10\x80\x01R\bmappingsJ\x04\b\x01\x10\x02\"\xbf\x01\n" +
+	"\vDutyMapping\x125\n" +
+	"\aduty_id\x18\x01 \x01(\tB\x1c\xfaB\x19r\x17\x10\x01\x18@2\x11^[a-zA-Z0-9_.-]+$R\x06dutyId\x12M\n" +
+	"\tprecision\x18\x02 \x01(\x0e2%.c1.connector.v2.DutyMappingPrecisionB\b\xfaB\x05\x82\x01\x02 \x00R\tprecision\x12*\n" +
 	"\vdescription\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\bR\vdescription*\xae\x01\n" +
 	"\x14DutyMappingPrecision\x12&\n" +
 	"\"DUTY_MAPPING_PRECISION_UNSPECIFIED\x10\x00\x12 \n" +

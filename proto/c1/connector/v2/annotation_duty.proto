@@ -12,19 +12,15 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 // own app; customer changes to the mappings live in ConductorOne.
 //
 // Attach at most one DutyMappingsAnnotation per entitlement. Build it with
-// entitlement.WithDuties and the constants in pkg/duty.
+// entitlement.WithDuties and the builders in pkg/duty.
 message DutyMappingsAnnotation {
-  // The duty catalog that defines the mappings' duty IDs. A duty_id is
-  // read within this catalog. entitlement.WithDuties sets it from
-  // duty.CatalogID; connectors do not choose it.
-  string catalog_id = 1 [(validate.rules).string = {
-    min_len: 1
-    max_len: 64
-  }];
+  // Held for a possible future catalog identifier.
+  reserved 1;
 
-  // The catalog version the connector was built against.
-  // entitlement.WithDuties sets it from duty.CatalogVersion. ConductorOne
-  // records it to explain unrecognized duty IDs and does not enforce it.
+  // The duty catalog version the connector was built against.
+  // entitlement.WithDuties sets it from duty.CatalogVersion. Informational
+  // only: consumers may record it to explain unrecognized duty IDs and do
+  // not enforce it.
   string catalog_version = 2 [(validate.rules).string = {max_len: 64}];
 
   // At least one mapping. Each duty_id appears at most once.
@@ -36,17 +32,19 @@ message DutyMappingsAnnotation {
 
 // DutyMapping states that an entitlement allows one duty.
 message DutyMapping {
-  // An opaque catalog key, such as "payment.release". Use a constant from
-  // pkg/duty. Catalog IDs are named <object>.<action> for readability;
-  // consumers compare the whole string and do not parse it.
+  // An opaque duty key, such as "payment.release". Consumers compare the
+  // whole string and do not parse it. pkg/duty defines constants for common
+  // duties, but any value matching these rules is accepted. The
+  // <object>.<action> naming convention is checked by duty.Lint, not here.
   string duty_id = 1 [(validate.rules).string = {
-    pattern: "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+    pattern: "^[a-zA-Z0-9_.-]+$"
+    min_len: 1
     max_len: 64
   }];
 
-  // How precisely the entitlement maps to the duty. Must be set.
+  // How precisely the entitlement maps to the duty. Must be set. Consumers
+  // must tolerate values this version does not define.
   DutyMappingPrecision precision = 2 [(validate.rules).enum = {
-    defined_only: true
     not_in: [0]
   }];
 

@@ -57,17 +57,6 @@ func (m *DutyMappingsAnnotation) validate(all bool) error {
 
 	var errors []error
 
-	if l := utf8.RuneCountInString(m.GetCatalogId()); l < 1 || l > 64 {
-		err := DutyMappingsAnnotationValidationError{
-			field:  "CatalogId",
-			reason: "value length must be between 1 and 64 runes, inclusive",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
-
 	if utf8.RuneCountInString(m.GetCatalogVersion()) > 64 {
 		err := DutyMappingsAnnotationValidationError{
 			field:  "CatalogVersion",
@@ -226,10 +215,10 @@ func (m *DutyMapping) validate(all bool) error {
 
 	var errors []error
 
-	if utf8.RuneCountInString(m.GetDutyId()) > 64 {
+	if l := utf8.RuneCountInString(m.GetDutyId()); l < 1 || l > 64 {
 		err := DutyMappingValidationError{
 			field:  "DutyId",
-			reason: "value length must be at most 64 runes",
+			reason: "value length must be between 1 and 64 runes, inclusive",
 		}
 		if !all {
 			return err
@@ -240,7 +229,7 @@ func (m *DutyMapping) validate(all bool) error {
 	if !_DutyMapping_DutyId_Pattern.MatchString(m.GetDutyId()) {
 		err := DutyMappingValidationError{
 			field:  "DutyId",
-			reason: "value does not match regex pattern \"^[a-z][a-z0-9_]*\\\\.[a-z][a-z0-9_]*$\"",
+			reason: "value does not match regex pattern \"^[a-zA-Z0-9_.-]+$\"",
 		}
 		if !all {
 			return err
@@ -252,17 +241,6 @@ func (m *DutyMapping) validate(all bool) error {
 		err := DutyMappingValidationError{
 			field:  "Precision",
 			reason: "value must not be in list [DUTY_MAPPING_PRECISION_UNSPECIFIED]",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
-
-	if _, ok := DutyMappingPrecision_name[int32(m.GetPrecision())]; !ok {
-		err := DutyMappingValidationError{
-			field:  "Precision",
-			reason: "value must be one of the defined enum values",
 		}
 		if !all {
 			return err
@@ -358,7 +336,7 @@ var _ interface {
 	ErrorName() string
 } = DutyMappingValidationError{}
 
-var _DutyMapping_DutyId_Pattern = regexp.MustCompile("^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$")
+var _DutyMapping_DutyId_Pattern = regexp.MustCompile("^[a-zA-Z0-9_.-]+$")
 
 var _DutyMapping_Precision_NotInLookup = map[DutyMappingPrecision]struct{}{
 	0: {},
