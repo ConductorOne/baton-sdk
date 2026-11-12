@@ -77,7 +77,7 @@ done < <(awk -F'\t' '$1 == "module" {print $2}' "$findings" | sort -u)
 # Standard-library findings: the highest fixed Go release becomes the `go`
 # directive, when it is newer than the one go.mod already has. govulncheck
 # reports the fix as "v1.27.3" or "go1.27.3"; go.mod wants "1.27.3".
-go_from=""
+go_from=$(go mod edit -json | jq -r .Go)
 go_to=""
 stdlib_fixed=""
 stdlib_rows=$(awk -F'\t' '$1 == "stdlib" && $4 != "-" {print $4}' "$findings")
@@ -85,7 +85,6 @@ if [ -n "$stdlib_rows" ]; then
   stdlib_fixed=$(printf '%s\n' "$stdlib_rows" | sed -e 's/^go//' -e 's/^v//' | highest_version)
 fi
 if [ -n "$stdlib_fixed" ]; then
-  go_from=$(go mod edit -json | jq -r .Go)
   if [ "$(printf '%s\n' "$stdlib_fixed" "$go_from" | highest_version)" != "$go_from" ]; then
     go_to="$stdlib_fixed"
     echo "raising the go directive $go_from -> $go_to"
@@ -134,9 +133,10 @@ if [ "${#targets[@]}" -gt 0 ] || [ -n "$go_to" ]; then
   fi
 fi
 
-if [ -n "$go_to" ]; then
-  go_to=$(go mod edit -json | jq -r .Go)
-fi
+# `go get` raises the directive too when a bumped module's go.mod needs a
+# newer Go (GOTOOLCHAIN=auto in the workflow lets it); report either raise.
+go_now=$(go mod edit -json | jq -r .Go)
+[ "$go_now" = "$go_from" ] || go_to="$go_now"
 
 if [ "$build_ok" = true ] && [ "${#targets[@]}" -gt 0 ]; then
   for target in "${targets[@]}"; do
@@ -195,7 +195,7 @@ advisories() {
       done
     fi
     if [ -n "$go_to" ]; then
-      echo "| \`go\` directive (standard library) | $go_from | $go_to | $(advisories stdlib stdlib) |"
+      echo "| \`go\` directive | $go_from | $go_to | $(advisories stdlib stdlib) |"
     fi
     echo
     if [ -n "$go_to" ]; then
