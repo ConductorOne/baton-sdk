@@ -81,6 +81,7 @@ func KnownAnnotationPolicies() map[protoreflect.FullName]AnnotationPolicy {
 		policy("c1.connector.v2.RoleTrait", AnnotationDomain, ObligationPreserve, true, "resource"),
 		policy("c1.connector.v2.AppTrait", AnnotationDomain, ObligationPreserve, true, "resource"),
 		policy("c1.connector.v2.SecretTrait", AnnotationDomain, ObligationPreserve, true, "resource"),
+		policy("c1.connector.v2.DutyMappingsAnnotation", AnnotationDomain, ObligationPreserve, true, "entitlement"),
 	}
 	out := make(map[protoreflect.FullName]AnnotationPolicy, len(policies))
 	for _, item := range policies {

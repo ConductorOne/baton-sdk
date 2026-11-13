@@ -8,9 +8,12 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/duty"
 	"github.com/conductorone/baton-sdk/pkg/sync/progresslog"
+	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -18,6 +21,7 @@ type ledgerStaticConnector struct {
 	*ledgerTypesConnector
 	calls   []string
 	failure error
+	duties  []duty.Mapping
 }
 
 func (c *ledgerStaticConnector) ListStaticEntitlements(
@@ -34,8 +38,10 @@ func (c *ledgerStaticConnector) ListStaticEntitlements(
 	if err != nil {
 		return nil, err
 	}
+	ent := &v2.Entitlement{Slug: "member", Annotations: []*anypb.Any{group}}
+	entitlement.WithDuties(c.duties...)(ent)
 	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
-		List: []*v2.Entitlement{{Slug: "member", Annotations: []*anypb.Any{group}}}, NextPageToken: "next",
+		List: []*v2.Entitlement{ent}, NextPageToken: "next",
 	}.Build(), nil
 }
 func staticPageFixture(t *testing.T) (*syncer, *ledgerFixture, *ledgerStaticConnector) {
@@ -74,6 +80,28 @@ func TestLedgerStaticEntitlementPages(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, "roles-"+id, group.GetExclusionGroupId())
+	}
+}
+func TestLedgerStaticEntitlementKeepsDuties(t *testing.T) {
+	s, f, c := staticPageFixture(t)
+	c.duties = []duty.Mapping{duty.Exact(duty.PaymentRelease), duty.Conditional("acme.custom", "when enabled")}
+	want := v2.DutyMappingsAnnotation_builder{
+		Mappings: []*v2.DutyMapping{c.duties[0].Proto(), c.duties[1].Proto()},
+	}.Build()
+	f.audit.enter(ledgerHandler)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
+	require.NoError(t, err)
+	f.audit.enter(ledgerLifecycle)
+	ents, err := f.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
+	require.NoError(t, err)
+	require.Len(t, ents.GetList(), 2)
+	for _, ent := range ents.GetList() {
+		duties := &v2.DutyMappingsAnnotation{}
+		annos := annotations.Annotations(ent.GetAnnotations())
+		found, err := annos.Pick(duties)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.True(t, proto.Equal(want, duties), "got %v", duties)
 	}
 }
 func TestLedgerStaticEntitlementCommitFailure(t *testing.T) {

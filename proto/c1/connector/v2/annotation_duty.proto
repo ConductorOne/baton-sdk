@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// DutyMappingsAnnotation declares which business duties an entitlement
+// allows. ConductorOne is meant to use these mappings for separation-of-duties
+// checks. The annotation carries only facts the connector knows about its
+// own app; customer changes to the mappings live in ConductorOne.
+//
+// Attach at most one DutyMappingsAnnotation per entitlement. Build it with
+// entitlement.WithDuties and the builders in pkg/duty.
+message DutyMappingsAnnotation {
+  // Held for possible future catalog identifier or version fields.
+  reserved 1, 2;
+
+  // At least one mapping. Each duty_id appears at most once.
+  // The protoc-gen-validate unique rule covers scalar and enum items, not
+  // messages, so duty.Validate checks it. A reader that does not validate
+  // takes the last mapping for a repeated duty_id.
+  repeated DutyMapping mappings = 3 [(validate.rules).repeated = {
+    min_items: 1
+    max_items: 128
+  }];
+}
+
+// DutyMapping states that an entitlement allows one duty.
+message DutyMapping {
+  // An opaque duty key, such as "payment.release". Consumers compare the
+  // whole string and do not parse it. pkg/duty defines constants for common
+  // duties, but any value matching these rules is accepted. The
+  // <object>.<action> naming convention is checked by duty.Lint, not here.
+  string duty_id = 1 [(validate.rules).string = {
+    pattern: "^[a-zA-Z0-9_.-]+$"
+    min_len: 1
+    max_len: 64
+  }];
+
+  // How precisely the entitlement maps to the duty. Must be set. Consumers
+  // must tolerate values this version does not define.
+  DutyMappingPrecision precision = 2 [(validate.rules).enum = {
+    not_in: [0]
+  }];
+
+  // Optional plain-English note. Strongly expected on CONDITIONAL mappings,
+  // where it states the condition; duty.Conditional takes it as an argument.
+  // It is display text: consumers show it and do not match on it.
+  string description = 3 [(validate.rules).string = {max_len: 1024}];
+}
+
+// DutyMappingPrecision says how an entitlement relates to a duty.
+enum DutyMappingPrecision {
+  DUTY_MAPPING_PRECISION_UNSPECIFIED = 0;
+
+  // The entitlement grants exactly this duty. Example: a "Payment Release"
+  // role grants "Release payment".
+  DUTY_MAPPING_PRECISION_EXACT = 1;
+
+  // A broad entitlement that allows this duty among others. List every
+  // material duty and mark each one INCLUSIVE.
+  DUTY_MAPPING_PRECISION_INCLUSIVE = 2;
+
+  // The duty applies only if app settings the connector does not check
+  // allow it. Example: repository write access counts as "Approve software
+  // change" only when branch protection allows self-approval. Prefer
+  // reading the setting and emitting EXACT or INCLUSIVE; when that is not
+  // possible, emit CONDITIONAL and state the condition in description.
+  DUTY_MAPPING_PRECISION_CONDITIONAL = 3;
+}
