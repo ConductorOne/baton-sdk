@@ -37,7 +37,12 @@ message BatonActionSchema {
   string display_name = 5;
   string description = 6;
 
-  repeated ActionType action_type = 7;
+  repeated ActionType action_type = 7 [(validate.rules).repeated = {
+    unique: true
+    items: {
+      enum: {defined_only: true}
+    }
+  }];
 
   // Optional: if set, this action is scoped to a specific resource type
   string resource_type_id = 8;

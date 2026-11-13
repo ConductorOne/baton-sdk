@@ -1151,15 +1151,15 @@ var File_c1_connector_v2_action_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\n" +
-	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\xfb\x02\n" +
+	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\x8c\x03\n" +
 	"\x11BatonActionSchema\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
 	"\targuments\x18\x02 \x03(\v2\x13.c1.config.v1.FieldR\targuments\x12:\n" +
 	"\vconstraints\x18\x03 \x03(\v2\x18.c1.config.v1.ConstraintR\vconstraints\x126\n" +
 	"\freturn_types\x18\x04 \x03(\v2\x13.c1.config.v1.FieldR\vreturnTypes\x12!\n" +
 	"\fdisplay_name\x18\x05 \x01(\tR\vdisplayName\x12 \n" +
-	"\vdescription\x18\x06 \x01(\tR\vdescription\x12<\n" +
-	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeR\n" +
+	"\vdescription\x18\x06 \x01(\tR\vdescription\x12M\n" +
+	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeB\x0f\xfaB\f\x92\x01\t\x18\x01\"\x05\x82\x01\x02\x10\x01R\n" +
 	"actionType\x12(\n" +
 	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\xd6\x02\n" +
 	"\x13InvokeActionRequest\x12\x12\n" +
