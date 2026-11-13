@@ -18,6 +18,8 @@ type FrameType uint64
 
 type frame any
 
+var errPriorityUpdateForPush = errors.New("http3: PRIORITY_UPDATE frame for push")
+
 // The maximum length of an encoded HTTP/3 frame header is 16:
 // The frame has a type and length field, both QUIC varints (maximum 8 bytes in length)
 const frameHeaderLen = 16
@@ -87,7 +89,7 @@ func (p *frameParser) ParseNext(qlogger qlogwriter.Recorder) (frame, error) {
 			if qlogger != nil {
 				qlogger.RecordEvent(qlog.FrameParsed{
 					StreamID: p.streamID,
-					Raw:      qlog.RawInfo{Length: r.NumRead, PayloadLength: int(l)},
+					Raw:      qlog.RawInfo{Length: r.NumRead + int(l), PayloadLength: int(l)},
 					Frame:    qlog.Frame{Frame: qlog.CancelPushFrame{}},
 				})
 			}
@@ -95,17 +97,21 @@ func (p *frameParser) ParseNext(qlogger qlogwriter.Recorder) (frame, error) {
 			if qlogger != nil {
 				qlogger.RecordEvent(qlog.FrameParsed{
 					StreamID: p.streamID,
-					Raw:      qlog.RawInfo{Length: r.NumRead, PayloadLength: int(l)},
+					Raw:      qlog.RawInfo{Length: r.NumRead + int(l), PayloadLength: int(l)},
 					Frame:    qlog.Frame{Frame: qlog.PushPromiseFrame{}},
 				})
 			}
 		case 0x7: // GOAWAY
 			return parseGoAwayFrame(r, l, p.streamID, qlogger)
+		case 0xf0700: // PRIORITY_UPDATE for a request stream
+			return parsePriorityUpdateFrame(r, l, p.streamID, qlogger)
+		case 0xf0701: // PRIORITY_UPDATE for a push stream
+			return nil, errPriorityUpdateForPush
 		case 0xd: // unsupported: MAX_PUSH_ID
 			if qlogger != nil {
 				qlogger.RecordEvent(qlog.FrameParsed{
 					StreamID: p.streamID,
-					Raw:      qlog.RawInfo{Length: r.NumRead, PayloadLength: int(l)},
+					Raw:      qlog.RawInfo{Length: r.NumRead + int(l), PayloadLength: int(l)},
 					Frame:    qlog.Frame{Frame: qlog.MaxPushIDFrame{}},
 				})
 			}
@@ -124,7 +130,7 @@ func (p *frameParser) ParseNext(qlogger qlogwriter.Recorder) (frame, error) {
 			if qlogger != nil {
 				qlogger.RecordEvent(qlog.FrameParsed{
 					StreamID: p.streamID,
-					Raw:      qlog.RawInfo{Length: r.NumRead, PayloadLength: int(l)},
+					Raw:      qlog.RawInfo{Length: r.NumRead + int(l), PayloadLength: int(l)},
 					Frame:    qlog.Frame{Frame: qlog.UnknownFrame{Type: t}},
 				})
 			}
@@ -174,12 +180,10 @@ type settingsFrame struct {
 	Other           map[uint64]uint64 // all settings that we don't explicitly recognize
 }
 
-func pointer[T any](v T) *T {
-	return &v
-}
+const maxSettingsFrameSize = 8 << 10
 
 func parseSettingsFrame(r *countingByteReader, l uint64, streamID quic.StreamID, qlogger qlogwriter.Recorder) (*settingsFrame, error) {
-	if l > 8*(1<<10) {
+	if l > maxSettingsFrameSize {
 		return nil, fmt.Errorf("unexpected size for SETTINGS frame: %d", l)
 	}
 	buf := make([]byte, l)
@@ -191,8 +195,9 @@ func parseSettingsFrame(r *countingByteReader, l uint64, streamID quic.StreamID,
 	}
 	frame := &settingsFrame{MaxFieldSectionSize: -1}
 	b := bytes.NewReader(buf)
-	settingsFrame := qlog.SettingsFrame{MaxFieldSectionSize: -1}
-	var readMaxFieldSectionSize, readDatagram, readExtendedConnect bool
+
+	datagram := int64(-1)
+	extendedConnect := int64(-1)
 	for b.Len() > 0 {
 		id, err := quicvarint.Read(b)
 		if err != nil { // should not happen. We allocated the whole frame already.
@@ -205,36 +210,28 @@ func parseSettingsFrame(r *countingByteReader, l uint64, streamID quic.StreamID,
 
 		switch id {
 		case settingMaxFieldSectionSize:
-			if readMaxFieldSectionSize {
+			if frame.MaxFieldSectionSize >= 0 {
 				return nil, fmt.Errorf("duplicate setting: %d", id)
 			}
-			readMaxFieldSectionSize = true
 			frame.MaxFieldSectionSize = int64(val)
-			settingsFrame.MaxFieldSectionSize = int64(val)
 		case settingExtendedConnect:
-			if readExtendedConnect {
+			if extendedConnect >= 0 {
 				return nil, fmt.Errorf("duplicate setting: %d", id)
 			}
-			readExtendedConnect = true
 			if val != 0 && val != 1 {
 				return nil, fmt.Errorf("invalid value for SETTINGS_ENABLE_CONNECT_PROTOCOL: %d", val)
 			}
+			extendedConnect = int64(val)
 			frame.ExtendedConnect = val == 1
-			if qlogger != nil {
-				settingsFrame.ExtendedConnect = pointer(frame.ExtendedConnect)
-			}
 		case settingDatagram:
-			if readDatagram {
+			if datagram >= 0 {
 				return nil, fmt.Errorf("duplicate setting: %d", id)
 			}
-			readDatagram = true
 			if val != 0 && val != 1 {
 				return nil, fmt.Errorf("invalid value for SETTINGS_H3_DATAGRAM: %d", val)
 			}
+			datagram = int64(val)
 			frame.Datagram = val == 1
-			if qlogger != nil {
-				settingsFrame.Datagram = pointer(frame.Datagram)
-			}
 		default:
 			if _, ok := frame.Other[id]; ok {
 				return nil, fmt.Errorf("duplicate setting: %d", id)
@@ -246,15 +243,18 @@ func parseSettingsFrame(r *countingByteReader, l uint64, streamID quic.StreamID,
 		}
 	}
 	if qlogger != nil {
-		settingsFrame.Other = maps.Clone(frame.Other)
-
 		qlogger.RecordEvent(qlog.FrameParsed{
 			StreamID: streamID,
 			Raw: qlog.RawInfo{
 				Length:        r.NumRead,
 				PayloadLength: int(l),
 			},
-			Frame: qlog.Frame{Frame: settingsFrame},
+			Frame: qlog.Frame{Frame: qlog.SettingsFrame{
+				MaxFieldSectionSize: frame.MaxFieldSectionSize,
+				Datagram:            datagram,
+				ExtendedConnect:     extendedConnect,
+				Other:               maps.Clone(frame.Other),
+			}},
 		})
 	}
 	return frame, nil
@@ -324,4 +324,44 @@ func (f *goAwayFrame) Append(b []byte) []byte {
 	b = quicvarint.Append(b, 0x7)
 	b = quicvarint.Append(b, uint64(quicvarint.Len(uint64(f.StreamID))))
 	return quicvarint.Append(b, uint64(f.StreamID))
+}
+
+// PRIORITY_UPDATE, RFC 9218
+type priorityUpdateFrame struct {
+	ElementID          uint64
+	PriorityFieldValue string
+}
+
+const maxPriorityUpdateFrameSize = 4 << 10
+
+func parsePriorityUpdateFrame(r *countingByteReader, l uint64, streamID quic.StreamID, qlogger qlogwriter.Recorder) (*priorityUpdateFrame, error) {
+	if l > maxPriorityUpdateFrameSize {
+		return nil, fmt.Errorf("unexpected size for PRIORITY_UPDATE frame: %d", l)
+	}
+	buf := make([]byte, l)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		if err == io.ErrUnexpectedEOF {
+			return nil, io.EOF
+		}
+		return nil, err
+	}
+	id, n, err := quicvarint.Parse(buf)
+	if err != nil {
+		return nil, err
+	}
+	frame := &priorityUpdateFrame{
+		ElementID:          id,
+		PriorityFieldValue: string(buf[n:]),
+	}
+	if qlogger != nil {
+		qlogger.RecordEvent(qlog.FrameParsed{
+			StreamID: streamID,
+			Raw:      qlog.RawInfo{Length: r.NumRead, PayloadLength: int(l)},
+			Frame: qlog.Frame{Frame: qlog.PriorityUpdateFrame{
+				StreamID:           quic.StreamID(frame.ElementID),
+				PriorityFieldValue: frame.PriorityFieldValue,
+			}},
+		})
+	}
+	return frame, nil
 }

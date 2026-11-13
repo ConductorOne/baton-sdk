@@ -43,14 +43,13 @@ import (
 )
 
 func fileOffset(ss, sn uint32) int64 {
-	return int64((sn + 1) * ss)
+	return int64(sn+1) * int64(ss)
 }
 
 const (
 	signature            uint64 = 0xE11AB1A1E011CFD0
 	miniStreamSectorSize uint32 = 64
 	miniStreamCutoffSize int64  = 4096
-	dirEntrySize         uint32 = 128 //128 bytes
 )
 
 const (
@@ -162,8 +161,9 @@ func (r *Reader) setDifats() error {
 	}
 	sz := (r.sectorSize / 4) - 1
 	// prevent creation of an arbitrarily large slice
-	if r.header.numDifatSectors < sliceLimit {
-		n := make([]uint32, 109, r.header.numDifatSectors*sz+109)
+	c := r.header.numDifatSectors*sz + 109
+	if c < sliceLimit {
+		n := make([]uint32, 109, c)
 		copy(n, r.header.difats)
 		r.header.difats = n
 	}
@@ -213,8 +213,8 @@ func (r *Reader) setMiniStream() error {
 	}
 	// build a slice of ministream sectors
 	c = int(r.sectorSize / 4 * r.header.numMiniFatSectors)
-	// prevent creation of an arbitrarily large slice
-	if r.header.numMiniFatSectors > sliceLimit {
+	// clamp the allocation to sliceLimit
+	if c > int(sliceLimit) {
 		c = int(sliceLimit)
 	}
 	r.header.miniStreamLocs = make([]uint32, 0, c)
@@ -262,7 +262,7 @@ func (r *Reader) getOffset(sn uint32, mini bool) (int64, error) {
 			return 0, Error{ErrRead, "minisector number is outside minisector range", int64(sec)}
 		}
 		dif := sn % num
-		return int64((r.header.miniStreamLocs[sec]+1)*r.sectorSize + dif*64), nil
+		return int64(r.header.miniStreamLocs[sec]+1)*int64(r.sectorSize) + int64(dif)*64, nil
 	}
 	return fileOffset(r.sectorSize, sn), nil
 }

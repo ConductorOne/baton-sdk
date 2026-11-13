@@ -48,8 +48,7 @@ func (d *decoder) decode(r io.Reader) ([]Event, error) {
 	// Lines must be separated by either a U+000D CARRIAGE RETURN U+000A LINE FEED (CRLF) character pair,
 	// a single U+000A LINE FEED (LF) character,
 	// or a single U+000D CARRIAGE RETURN (CR) character.
-	lines := bytes.Split(buf, []byte{'\n'})
-	for _, line := range lines {
+	for line := range bytes.SplitSeq(buf, []byte{'\n'}) {
 		if len(line) == 0 {
 			// If the line is empty (a blank line). Dispatch the event.
 			d.dispatchEvent(currentEvent, dataBuffer.String())
@@ -64,16 +63,13 @@ func (d *decoder) decode(r io.Reader) ([]Event, error) {
 			continue
 		}
 
-		var field, value []byte
-		colonIndex := bytes.IndexRune(line, ':')
-		if colonIndex != -1 {
+		field, value, found := bytes.Cut(line, []byte{':'})
+		if found {
 			// If the line contains a U+003A COLON character character (:)
 			// Collect the characters on the line before the first U+003A COLON character (:),
 			// and let field be that string.
-			field = line[:colonIndex]
 			// Collect the characters on the line after the first U+003A COLON character (:),
 			// and let value be that string.
-			value = line[colonIndex+1:]
 			// If value starts with a single U+0020 SPACE character, remove it from value.
 			if len(value) > 0 && value[0] == ' ' {
 				value = value[1:]
@@ -81,7 +77,6 @@ func (d *decoder) decode(r io.Reader) ([]Event, error) {
 		} else {
 			// Otherwise, the string is not empty but does not contain a U+003A COLON character character (:)
 			// Use the whole line as the field name, and the empty string as the field value.
-			field = line
 			value = []byte{}
 		}
 		// The steps to process the field given a field name and a field value depend on the field name,

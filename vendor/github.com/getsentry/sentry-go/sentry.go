@@ -6,11 +6,14 @@ import (
 )
 
 // The version of the SDK.
-const SDKVersion = "0.27.0"
+const SDKVersion = "0.50.0"
 
 // apiVersion is the minimum version of the Sentry API compatible with the
 // sentry-go SDK.
 const apiVersion = "7"
+
+// DefaultFlushTimeout is the default timeout used for flushing events.
+const DefaultFlushTimeout = 2 * time.Second
 
 // Init initializes the SDK with options. The returned error is non-nil if
 // options is invalid, for instance if a malformed DSN is provided.
@@ -51,6 +54,26 @@ func CaptureCheckIn(checkIn *CheckIn, monitorConfig *MonitorConfig) *EventID {
 	return hub.CaptureCheckIn(checkIn, monitorConfig)
 }
 
+// WithMonitor runs fn and reports its outcome as check-ins for the cron
+// monitor identified by monitorSlug, creating or updating the monitor with
+// monitorConfig when it is not nil. It is a shorthand for
+// CurrentHub().WithMonitor.
+//
+// Example:
+//
+//	err := sentry.WithMonitor("nightly-cleanup", &sentry.MonitorConfig{
+//		Schedule:      sentry.CrontabSchedule("0 3 * * *"),
+//		CheckInMargin: 5,
+//		MaxRuntime:    30,
+//		Timezone:      "UTC",
+//	}, func() error {
+//		return cleanup()
+//	})
+func WithMonitor(monitorSlug string, monitorConfig *MonitorConfig, fn func() error) error {
+	hub := CurrentHub()
+	return hub.WithMonitor(monitorSlug, monitorConfig, fn)
+}
+
 // CaptureEvent captures an event on the currently active client if any.
 //
 // The event must already be assembled. Typically code would instead use
@@ -72,18 +95,17 @@ func Recover() *EventID {
 
 // RecoverWithContext captures a panic and passes relevant context object.
 func RecoverWithContext(ctx context.Context) *EventID {
-	if err := recover(); err != nil {
-		var hub *Hub
-
-		if HasHubOnContext(ctx) {
-			hub = GetHubFromContext(ctx)
-		} else {
-			hub = CurrentHub()
-		}
-
-		return hub.RecoverWithContext(ctx, err)
+	err := recover()
+	if err == nil {
+		return nil
 	}
-	return nil
+
+	hub := GetHubFromContext(ctx)
+	if hub == nil {
+		hub = CurrentHub()
+	}
+
+	return hub.RecoverWithContext(ctx, err)
 }
 
 // WithScope is a shorthand for CurrentHub().WithScope.
@@ -99,9 +121,9 @@ func ConfigureScope(f func(scope *Scope)) {
 }
 
 // PushScope is a shorthand for CurrentHub().PushScope.
-func PushScope() {
+func PushScope() *Scope {
 	hub := CurrentHub()
-	hub.PushScope()
+	return hub.PushScope()
 }
 
 // PopScope is a shorthand for CurrentHub().PopScope.
@@ -124,6 +146,24 @@ func PopScope() {
 func Flush(timeout time.Duration) bool {
 	hub := CurrentHub()
 	return hub.Flush(timeout)
+}
+
+// FlushWithContext waits until the underlying Transport sends any buffered events
+// to the Sentry server, blocking for at most the duration specified by the
+// context. It returns false if capture is disabled or the context is canceled
+// before the events are sent. In the latter case, some events may not be
+// delivered.
+//
+// FlushWithContext should be called before terminating the program to ensure no
+// events are unintentionally dropped.
+//
+// Avoid calling FlushWithContext indiscriminately after each call to CaptureEvent,
+// CaptureException, or CaptureMessage. To send events synchronously over the network,
+// configure the SDK to use HTTPSyncTransport during initialization with Init.
+
+func FlushWithContext(ctx context.Context) bool {
+	hub := CurrentHub()
+	return hub.FlushWithContext(ctx)
 }
 
 // LastEventID returns an ID of last captured event.

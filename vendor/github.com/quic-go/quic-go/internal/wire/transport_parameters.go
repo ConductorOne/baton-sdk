@@ -46,8 +46,12 @@ const (
 	retrySourceConnectionIDParameterID         transportParameterID = 0x10
 	// RFC 9221
 	maxDatagramFrameSizeParameterID transportParameterID = 0x20
-	// https://datatracker.ietf.org/doc/draft-ietf-quic-reliable-stream-reset/06/
-	resetStreamAtParameterID transportParameterID = 0x17f7586d2cb571
+	// https://datatracker.ietf.org/doc/draft-ietf-quic-reliable-stream-reset/09/
+	resetStreamAtParameterID transportParameterID = 0x1d
+	// https://datatracker.ietf.org/doc/draft-ietf-quic-reliable-stream-reset/07/
+	// When removing support for this codepoint, increment transportParameterMarshalingVersion
+	// to prevent 0-RTT resumption with tickets that remember it.
+	legacyResetStreamAtParameterID transportParameterID = 0x17f7586d2cb571
 	// https://datatracker.ietf.org/doc/draft-ietf-quic-ack-frequency/11/
 	minAckDelayParameterID transportParameterID = 0xff04de1b
 )
@@ -82,13 +86,13 @@ type TransportParameters struct {
 
 	OriginalDestinationConnectionID protocol.ConnectionID
 	InitialSourceConnectionID       protocol.ConnectionID
-	RetrySourceConnectionID         *protocol.ConnectionID // use a pointer here to distinguish zero-length connection IDs from missing transport parameters
+	RetrySourceConnectionID         protocol.ConnectionID // invalid if not sent
 
 	StatelessResetToken     *protocol.StatelessResetToken
 	ActiveConnectionIDLimit uint64
 
 	MaxDatagramFrameSize protocol.ByteCount // RFC 9221
-	EnableResetStreamAt  bool               // https://datatracker.ietf.org/doc/draft-ietf-quic-reliable-stream-reset/06/
+	EnableResetStreamAt  bool               // https://datatracker.ietf.org/doc/draft-ietf-quic-reliable-stream-reset/09/
 	MinAckDelay          *time.Duration
 }
 
@@ -202,15 +206,19 @@ func (p *TransportParameters) unmarshal(b []byte, sentBy protocol.Perspective, f
 			if paramLen > protocol.MaxConnIDLen {
 				return protocol.ErrInvalidConnectionIDLen
 			}
-			connID := protocol.ParseConnectionID(b[:paramLen])
+			p.RetrySourceConnectionID = protocol.ParseConnectionID(b[:paramLen])
 			b = b[paramLen:]
-			p.RetrySourceConnectionID = &connID
-		case resetStreamAtParameterID:
+		case resetStreamAtParameterID, legacyResetStreamAtParameterID:
 			if paramLen != 0 {
 				return fmt.Errorf("wrong length for reset_stream_at: %d (expected empty)", paramLen)
 			}
 			p.EnableResetStreamAt = true
 		default:
+			if fromSessionTicket {
+				// A ticket might contain a parameter for an extension supported by an older
+				// version of this endpoint. If we can't parse it, don't resume with it.
+				return fmt.Errorf("unknown transport parameter %#x in session ticket", paramID)
+			}
 			b = b[paramLen:]
 		}
 	}
@@ -232,13 +240,8 @@ func (p *TransportParameters) unmarshal(b []byte, sentBy protocol.Perspective, f
 	}
 
 	// check that every transport parameter was sent at most once
-	slices.SortFunc(parameterIDs, func(a, b transportParameterID) int {
-		if a < b {
-			return -1
-		}
-		return 1
-	})
-	for i := 0; i < len(parameterIDs)-1; i++ {
+	slices.Sort(parameterIDs)
+	for i := range len(parameterIDs) - 1 {
 		if parameterIDs[i] == parameterIDs[i+1] {
 			return fmt.Errorf("received duplicate transport parameter %#x", parameterIDs[i])
 		}
@@ -441,7 +444,7 @@ func (p *TransportParameters) Marshal(pers protocol.Perspective) []byte {
 	b = quicvarint.Append(b, uint64(p.InitialSourceConnectionID.Len()))
 	b = append(b, p.InitialSourceConnectionID.Bytes()...)
 	// retry_source_connection_id
-	if pers == protocol.PerspectiveServer && p.RetrySourceConnectionID != nil {
+	if pers == protocol.PerspectiveServer && p.RetrySourceConnectionID.Valid() {
 		b = quicvarint.Append(b, uint64(retrySourceConnectionIDParameterID))
 		b = quicvarint.Append(b, uint64(p.RetrySourceConnectionID.Len()))
 		b = append(b, p.RetrySourceConnectionID.Bytes()...)
@@ -453,6 +456,8 @@ func (p *TransportParameters) Marshal(pers protocol.Perspective) []byte {
 	// QUIC Stream Resets with Partial Delivery
 	if p.EnableResetStreamAt {
 		b = quicvarint.Append(b, uint64(resetStreamAtParameterID))
+		b = quicvarint.Append(b, 0)
+		b = quicvarint.Append(b, uint64(legacyResetStreamAtParameterID))
 		b = quicvarint.Append(b, 0)
 	}
 	if p.MinAckDelay != nil {
@@ -530,6 +535,9 @@ func (p *TransportParameters) ValidFor0RTT(saved *TransportParameters) bool {
 	if saved.MaxDatagramFrameSize != protocol.InvalidByteCount && (p.MaxDatagramFrameSize == protocol.InvalidByteCount || p.MaxDatagramFrameSize < saved.MaxDatagramFrameSize) {
 		return false
 	}
+	if saved.EnableResetStreamAt && !p.EnableResetStreamAt {
+		return false
+	}
 	return p.InitialMaxStreamDataBidiLocal >= saved.InitialMaxStreamDataBidiLocal &&
 		p.InitialMaxStreamDataBidiRemote >= saved.InitialMaxStreamDataBidiRemote &&
 		p.InitialMaxStreamDataUni >= saved.InitialMaxStreamDataUni &&
@@ -545,6 +553,9 @@ func (p *TransportParameters) ValidForUpdate(saved *TransportParameters) bool {
 	if saved.MaxDatagramFrameSize != protocol.InvalidByteCount && (p.MaxDatagramFrameSize == protocol.InvalidByteCount || p.MaxDatagramFrameSize < saved.MaxDatagramFrameSize) {
 		return false
 	}
+	if saved.EnableResetStreamAt && !p.EnableResetStreamAt {
+		return false
+	}
 	return p.ActiveConnectionIDLimit >= saved.ActiveConnectionIDLimit &&
 		p.InitialMaxData >= saved.InitialMaxData &&
 		p.InitialMaxStreamDataBidiLocal >= saved.InitialMaxStreamDataBidiLocal &&
@@ -558,7 +569,7 @@ func (p *TransportParameters) ValidForUpdate(saved *TransportParameters) bool {
 func (p *TransportParameters) String() string {
 	logString := "&wire.TransportParameters{OriginalDestinationConnectionID: %s, InitialSourceConnectionID: %s, "
 	logParams := []any{p.OriginalDestinationConnectionID, p.InitialSourceConnectionID}
-	if p.RetrySourceConnectionID != nil {
+	if p.RetrySourceConnectionID.Valid() {
 		logString += "RetrySourceConnectionID: %s, "
 		logParams = append(logParams, p.RetrySourceConnectionID)
 	}

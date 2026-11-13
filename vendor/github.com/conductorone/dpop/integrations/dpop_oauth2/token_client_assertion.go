@@ -198,15 +198,23 @@ type tokenSource struct {
 	retry          RetryConfig
 }
 
+// errAttemptTimeout is the cancel cause of each attempt's RetryConfig.Timeout.
+// Without a cause, our per-attempt timeout is indistinguishable from a caller
+// cancel: both surface as context.Canceled or context.DeadlineExceeded.
+var errAttemptTimeout = errors.New("dpop_oauth2: token attempt timed out")
+
 func (c *tokenSource) Token() (*oauth2.Token, error) {
+	// ctx is the overall budget for this call. Every attempt runs under it,
+	// so the budget bounds total time across attempts and backoff.
 	ctx, done := context.WithTimeout(c.baseCtx, time.Second*30)
 	defer done()
 
-	// Transient failures (5xx/429, transport errors, timeouts) are retried
-	// with capped exponential backoff + jitter. The retry re-enters tryToken,
-	// so every attempt signs a fresh DPoP proof and client assertion — both
-	// carry unique jtis, so an identical request is never replayed.
-	// Definitive failures (OAuth protocol rejections) return immediately.
+	// Transient failures (5xx/429, transport errors, our attempt timeout) are
+	// retried with capped exponential backoff + jitter. The retry re-enters
+	// tryToken, so every attempt signs a fresh DPoP proof and client
+	// assertion — both carry unique jtis, so an identical request is never
+	// replayed. Definitive failures (OAuth protocol rejections) return
+	// immediately.
 	//
 	// A nonce learned from a use_dpop_nonce challenge is carried across
 	// attempts so a bare consumer (no NonceStore) isn't re-challenged on
@@ -216,21 +224,20 @@ func (c *tokenSource) Token() (*oauth2.Token, error) {
 	for attempt := 0; attempt < c.retry.MaxAttempts; attempt++ {
 		if attempt > 0 {
 			if !sleepBeforeRetry(ctx, c.retry, attempt) {
-				// The context died mid-backoff. A deadline expiry (the 30s
-				// Token() budget) is a timeout: surface the last transient
-				// failure so callers can still classify it. A caller cancel
-				// is not a timeout — strip the transient classification so
-				// nothing retries abandoned work.
-				if errors.Is(ctx.Err(), context.Canceled) {
-					// context.Cause preserves a WithCancelCause cause in the
-					// chain; for a plain cancel it is context.Canceled.
-					return nil, fmt.Errorf("%w: %w during retry backoff (last error: %v)", ErrTokenRequestFailed, context.Cause(ctx), lastErr)
-				}
-				break
+				// The caller canceled, or the overall budget ran out, during
+				// backoff. Neither leaves time to retry, so return now. The
+				// last error is kept as text only, so this result is not
+				// classified as transient.
+				return nil, fmt.Errorf("%w: %w during retry backoff (last error: %v)", ErrTokenRequestFailed, context.Cause(ctx), lastErr)
 			}
 		}
 
-		token, nonce, err := c.tryToken(ctx, true, retryNonce)
+		// Each attempt gets its own timeout, cancelled with errAttemptTimeout
+		// as the cause so tryToken can tell it apart from a caller cancel or
+		// the overall budget expiring.
+		attemptCtx, attemptDone := context.WithTimeoutCause(ctx, c.retry.Timeout, errAttemptTimeout)
+		token, nonce, err := c.tryToken(attemptCtx, true, retryNonce)
+		attemptDone()
 		if err == nil {
 			return token, nil
 		}
@@ -242,6 +249,9 @@ func (c *tokenSource) Token() (*oauth2.Token, error) {
 			return nil, err
 		}
 	}
+	// Return the last error unwrapped so its classification survives: a
+	// transient failure that exhausted its retries still matches IsTransient
+	// for any outer caller.
 	return nil, lastErr
 }
 
@@ -354,19 +364,13 @@ func (c *tokenSource) tryToken(ctx context.Context, firstAttempt bool, retryNonc
 		// The transport error stays in the chain (%w) so callers can inspect
 		// the underlying cause (context.Canceled, net errors, ...).
 		reqErr := fmt.Errorf("%w: failed to execute request: %w", ErrTokenRequestFailed, err)
-		// A canceled context means the caller abandoned the call — that is
-		// not a transport failure, so don't classify it as retryable. Check
-		// the context as well as the returned error: when the context was
-		// canceled via context.WithCancelCause, Do returns the cause, which
-		// need not match context.Canceled.
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		if ctx.Err() != nil {
+			if !errors.Is(context.Cause(ctx), errAttemptTimeout) {
+				return nil, nonce, reqErr
+			}
+		} else if errors.Is(err, context.Canceled) {
 			return nil, nonce, reqErr
 		}
-		// Everything else that fails before an HTTP response (connection
-		// resets, proxy errors, timeouts — including a deadline expiry, which
-		// is exactly the timed-out token POST class) never reached the
-		// authorization server's OAuth logic: it carries no verdict about the
-		// credential, so it is safe to classify as retryable.
 		return nil, nonce, markTransient(reqErr)
 	}
 	defer resp.Body.Close()
