@@ -1,13 +1,16 @@
 // Package duty holds duty IDs and the builders connectors use to declare
 // which duties an entitlement allows. Attach the mappings with
-// entitlement.WithDuties, which stamps the annotation's catalog version from
-// CatalogVersion.
+// entitlement.WithDuties.
 //
 // The constants cover the duties in the ConductorOne duty catalog. Duty IDs
 // are open strings: any value that satisfies the wire rules (letters,
 // digits, '_', '.', '-'; 1 to 64 characters) is accepted, so a connector can
 // try a new duty without waiting for an SDK upgrade. Use Lint, or
 // dutytest.AssertEntitlement in tests, to catch typos offline.
+//
+// A duty ID is permanent. It is never reused or given a different meaning.
+// A duty whose meaning changes gets a new ID. A retired duty keeps its
+// constant, marked "// Deprecated:", and stays in IDs.
 package duty
 
 import (
@@ -21,12 +24,9 @@ import (
 
 // ID is a duty identifier. Any string satisfying the wire rules is a valid
 // ID; the constants below name the duties in the catalog this SDK was built
-// against.
+// against. Each constant's value is permanent: it is never removed, renamed,
+// or given a different meaning.
 type ID string
-
-// CatalogVersion is the duty catalog version the constants in this package
-// were taken from. It is informational.
-const CatalogVersion = "1.0.0"
 
 // Finance duties.
 const (
@@ -101,7 +101,8 @@ var knownIDs = func() []ID {
 	return ids
 }()
 
-// IDs returns every duty ID constant in this package, sorted.
+// IDs returns every duty ID constant in this package, sorted, including
+// deprecated ones.
 func IDs() []ID {
 	return slices.Clone(knownIDs)
 }
@@ -197,7 +198,7 @@ func AllowUnknown(ids ...string) LintOption {
 // Lint runs Validate and then reports, in mapping order, every duty ID that
 // is neither a constant in this package nor allowed by AllowUnknown, and
 // every duty ID not named <object>.<action> unless allowed. It is meant for
-// connector tests; the sync path only validates and logs.
+// connector tests; nothing on the sync path runs it.
 func Lint(ann *v2.DutyMappingsAnnotation, opts ...LintOption) error {
 	if err := Validate(ann); err != nil {
 		return err

@@ -57,17 +57,6 @@ func (m *DutyMappingsAnnotation) validate(all bool) error {
 
 	var errors []error
 
-	if utf8.RuneCountInString(m.GetCatalogVersion()) > 64 {
-		err := DutyMappingsAnnotationValidationError{
-			field:  "CatalogVersion",
-			reason: "value length must be at most 64 runes",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
-
 	if l := len(m.GetMappings()); l < 1 || l > 128 {
 		err := DutyMappingsAnnotationValidationError{
 			field:  "Mappings",

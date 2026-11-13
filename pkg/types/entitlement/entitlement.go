@@ -86,8 +86,9 @@ func WithExclusionGroupDefault(exclusionGroupID string, order uint32) Entitlemen
 //
 // The mappings merge into the first DutyMappingsAnnotation that unmarshals.
 // One that does not unmarshal is left as is, never dropped; if no existing
-// annotation unmarshals, a new one is appended, and connectorbuilder logs the
-// entitlement as having an invalid and a repeated duty annotation.
+// annotation unmarshals, a new one is appended, and the entitlement then
+// fails dutytest.AssertEntitlement for carrying an invalid and a repeated duty
+// annotation.
 func WithDuties(mappings ...duty.Mapping) EntitlementOption {
 	return func(e *v2.Entitlement) {
 		if len(mappings) == 0 {
@@ -125,7 +126,6 @@ func WithDuties(mappings ...duty.Mapping) EntitlementOption {
 		for _, m := range mappings {
 			add(m.Proto())
 		}
-		ann.SetCatalogVersion(duty.CatalogVersion)
 		ann.SetMappings(merged)
 
 		packed, err := anypb.New(ann)

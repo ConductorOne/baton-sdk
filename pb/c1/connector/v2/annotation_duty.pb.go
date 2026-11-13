@@ -89,13 +89,10 @@ func (x DutyMappingPrecision) Number() protoreflect.EnumNumber {
 // entitlement.WithDuties and the builders in pkg/duty.
 type DutyMappingsAnnotation struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
-	// The duty catalog version the connector was built against.
-	// entitlement.WithDuties sets it from duty.CatalogVersion. Informational
-	// only: consumers may record it to explain unrecognized duty IDs and do
-	// not enforce it.
-	CatalogVersion string `protobuf:"bytes,2,opt,name=catalog_version,json=catalogVersion,proto3" json:"catalog_version,omitempty"`
-	// At least one mapping. Each duty_id appears at most once; duty.Validate
-	// checks that, the field rules do not.
+	// At least one mapping. Each duty_id appears at most once.
+	// The protoc-gen-validate unique rule covers scalar and enum items, not
+	// messages, so duty.Validate checks it. A reader that does not validate
+	// takes the last mapping for a repeated duty_id.
 	Mappings      []*DutyMapping `protobuf:"bytes,3,rep,name=mappings,proto3" json:"mappings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -126,22 +123,11 @@ func (x *DutyMappingsAnnotation) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *DutyMappingsAnnotation) GetCatalogVersion() string {
-	if x != nil {
-		return x.CatalogVersion
-	}
-	return ""
-}
-
 func (x *DutyMappingsAnnotation) GetMappings() []*DutyMapping {
 	if x != nil {
 		return x.Mappings
 	}
 	return nil
-}
-
-func (x *DutyMappingsAnnotation) SetCatalogVersion(v string) {
-	x.CatalogVersion = v
 }
 
 func (x *DutyMappingsAnnotation) SetMappings(v []*DutyMapping) {
@@ -151,13 +137,10 @@ func (x *DutyMappingsAnnotation) SetMappings(v []*DutyMapping) {
 type DutyMappingsAnnotation_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// The duty catalog version the connector was built against.
-	// entitlement.WithDuties sets it from duty.CatalogVersion. Informational
-	// only: consumers may record it to explain unrecognized duty IDs and do
-	// not enforce it.
-	CatalogVersion string
-	// At least one mapping. Each duty_id appears at most once; duty.Validate
-	// checks that, the field rules do not.
+	// At least one mapping. Each duty_id appears at most once.
+	// The protoc-gen-validate unique rule covers scalar and enum items, not
+	// messages, so duty.Validate checks it. A reader that does not validate
+	// takes the last mapping for a repeated duty_id.
 	Mappings []*DutyMapping
 }
 
@@ -165,7 +148,6 @@ func (b0 DutyMappingsAnnotation_builder) Build() *DutyMappingsAnnotation {
 	m0 := &DutyMappingsAnnotation{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.CatalogVersion = b.CatalogVersion
 	x.Mappings = b.Mappings
 	return m0
 }
@@ -278,10 +260,9 @@ var File_c1_connector_v2_annotation_duty_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_duty_proto_rawDesc = "" +
 	"\n" +
-	"%c1/connector/v2/annotation_duty.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"\x97\x01\n" +
-	"\x16DutyMappingsAnnotation\x120\n" +
-	"\x0fcatalog_version\x18\x02 \x01(\tB\a\xfaB\x04r\x02\x18@R\x0ecatalogVersion\x12E\n" +
-	"\bmappings\x18\x03 \x03(\v2\x1c.c1.connector.v2.DutyMappingB\v\xfaB\b\x92\x01\x05\b\x01\x10\x80\x01R\bmappingsJ\x04\b\x01\x10\x02\"\xbf\x01\n" +
+	"%c1/connector/v2/annotation_duty.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"k\n" +
+	"\x16DutyMappingsAnnotation\x12E\n" +
+	"\bmappings\x18\x03 \x03(\v2\x1c.c1.connector.v2.DutyMappingB\v\xfaB\b\x92\x01\x05\b\x01\x10\x80\x01R\bmappingsJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"\xbf\x01\n" +
 	"\vDutyMapping\x125\n" +
 	"\aduty_id\x18\x01 \x01(\tB\x1c\xfaB\x19r\x17\x10\x01\x18@2\x11^[a-zA-Z0-9_.-]+$R\x06dutyId\x12M\n" +
 	"\tprecision\x18\x02 \x01(\x0e2%.c1.connector.v2.DutyMappingPrecisionB\b\xfaB\x05\x82\x01\x02 \x00R\tprecision\x12*\n" +

@@ -14,17 +14,13 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 // Attach at most one DutyMappingsAnnotation per entitlement. Build it with
 // entitlement.WithDuties and the builders in pkg/duty.
 message DutyMappingsAnnotation {
-  // Held for a possible future catalog identifier.
-  reserved 1;
+  // Held for possible future catalog identifier or version fields.
+  reserved 1, 2;
 
-  // The duty catalog version the connector was built against.
-  // entitlement.WithDuties sets it from duty.CatalogVersion. Informational
-  // only: consumers may record it to explain unrecognized duty IDs and do
-  // not enforce it.
-  string catalog_version = 2 [(validate.rules).string = {max_len: 64}];
-
-  // At least one mapping. Each duty_id appears at most once; duty.Validate
-  // checks that, the field rules do not.
+  // At least one mapping. Each duty_id appears at most once.
+  // The protoc-gen-validate unique rule covers scalar and enum items, not
+  // messages, so duty.Validate checks it. A reader that does not validate
+  // takes the last mapping for a repeated duty_id.
   repeated DutyMapping mappings = 3 [(validate.rules).repeated = {
     min_items: 1
     max_items: 128

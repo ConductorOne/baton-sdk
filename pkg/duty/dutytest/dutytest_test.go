@@ -8,6 +8,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -49,4 +50,41 @@ func TestAssertEntitlement(t *testing.T) {
 	r = &recorder{TB: t}
 	AssertEntitlement(r, twice)
 	require.Len(t, r.errors, 1)
+}
+
+func TestCases(t *testing.T) {
+	cases := Cases()
+	names := map[string]struct{}{}
+	for _, c := range cases {
+		t.Run(c.Name, func(t *testing.T) {
+			if _, dup := names[c.Name]; dup {
+				t.Fatalf("case name %q is repeated", c.Name)
+			}
+			names[c.Name] = struct{}{}
+			err := duty.Validate(c.Annotation)
+			if c.Valid && err != nil {
+				t.Errorf("duty.Validate: %v, want nil", err)
+			}
+			if !c.Valid && err == nil {
+				t.Error("duty.Validate: nil, want an error")
+			}
+			b, err := proto.Marshal(c.Annotation)
+			if err != nil {
+				t.Fatalf("proto.Marshal: %v", err)
+			}
+			got := &v2.DutyMappingsAnnotation{}
+			if err := proto.Unmarshal(b, got); err != nil {
+				t.Fatalf("proto.Unmarshal: %v", err)
+			}
+			if !proto.Equal(c.Annotation, got) {
+				t.Errorf("round trip changed the annotation: got %v, want %v", got, c.Annotation)
+			}
+		})
+	}
+
+	fresh := Cases()
+	fresh[0].Annotation.GetMappings()[0].SetDutyId("mutated")
+	if Cases()[0].Annotation.GetMappings()[0].GetDutyId() == "mutated" {
+		t.Error("Cases returns shared messages")
+	}
 }

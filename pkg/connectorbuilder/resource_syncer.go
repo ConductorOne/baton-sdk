@@ -2,12 +2,10 @@ package connectorbuilder
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/duty"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -271,7 +269,6 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 		return resp, err
 	}
 
-	warnInvalidDutyAnnotations(ctx, out)
 	if err = validateExclusionGroupAnnotations(out); err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
@@ -343,7 +340,6 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		return resp, err
 	}
 
-	warnInvalidDutyAnnotations(ctx, out)
 	if err = validateExclusionGroupAnnotations(out); err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
@@ -552,73 +548,6 @@ func (b *builder) addResourceSyncers(ctx context.Context, typeId string, in any)
 	}
 
 	return nil
-}
-
-// maxUnknownDutySamples bounds the unknown duty IDs logged per page.
-const maxUnknownDutySamples = 5
-
-// warnInvalidDutyAnnotations logs one Warn per page when entitlements carry a
-// DutyMappingsAnnotation that fails duty.Validate, does not unmarshal, or
-// appears more than once, and one Debug listing duty IDs that are not in
-// duty.IDs. The entitlements pass through unchanged: duties describe the
-// entitlement and must not fail a sync.
-func warnInvalidDutyAnnotations(ctx context.Context, ents []*v2.Entitlement) {
-	invalid := 0
-	var firstErr error
-	var sampleID string
-	var unknown []string
-	seenUnknown := map[string]struct{}{}
-	for _, ent := range ents {
-		var errs []error
-		count := 0
-		for _, a := range ent.GetAnnotations() {
-			if !a.MessageIs(&v2.DutyMappingsAnnotation{}) {
-				continue
-			}
-			count++
-			ann := &v2.DutyMappingsAnnotation{}
-			if err := a.UnmarshalTo(ann); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			if err := duty.Validate(ann); err != nil {
-				errs = append(errs, err)
-			}
-			for _, m := range ann.GetMappings() {
-				id := m.GetDutyId()
-				if duty.IsKnown(id) {
-					continue
-				}
-				if _, ok := seenUnknown[id]; !ok {
-					seenUnknown[id] = struct{}{}
-					unknown = append(unknown, id)
-				}
-			}
-		}
-		if count > 1 {
-			errs = append(errs, fmt.Errorf("entitlement has %d duty annotations, want at most 1", count))
-		}
-		if len(errs) == 0 {
-			continue
-		}
-		invalid++
-		if firstErr == nil {
-			firstErr = errors.Join(errs...)
-			sampleID = ent.GetId()
-		}
-	}
-	l := ctxzap.Extract(ctx)
-	if invalid > 0 {
-		l.Warn("connectorbuilder: invalid duty annotations",
-			zap.Int("invalid_entitlements", invalid),
-			zap.String("sample_entitlement_id", sampleID),
-			zap.Error(firstErr))
-	}
-	if len(unknown) > 0 {
-		l.Debug("connectorbuilder: duty IDs not in the SDK duty catalog",
-			zap.Int("unknown_duty_ids", len(unknown)),
-			zap.Strings("sample_duty_ids", unknown[:min(len(unknown), maxUnknownDutySamples)]))
-	}
 }
 
 // validateExclusionGroupAnnotations checks that each entitlement has at most one

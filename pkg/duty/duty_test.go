@@ -15,10 +15,7 @@ func annotation(mappings ...Mapping) *v2.DutyMappingsAnnotation {
 	for _, m := range mappings {
 		list = append(list, m.Proto())
 	}
-	return v2.DutyMappingsAnnotation_builder{
-		CatalogVersion: CatalogVersion,
-		Mappings:       list,
-	}.Build()
+	return v2.DutyMappingsAnnotation_builder{Mappings: list}.Build()
 }
 
 func TestIDs(t *testing.T) {
@@ -40,6 +37,50 @@ func TestIDs(t *testing.T) {
 	require.False(t, IsKnown("payment.relase"))
 }
 
+// pinnedIDs is every duty ID this package has shipped. Duty IDs are
+// permanent: consumers store them and compare them across SDK versions, so
+// removing or renaming one would silently change what stored mappings mean.
+// Add new IDs here; never delete or edit an entry. A retired duty keeps its
+// constant, marked Deprecated, and stays in IDs.
+var pinnedIDs = []string{
+	"access.certify",
+	"access_request.approve",
+	"access_request.submit",
+	"audit_log.configure",
+	"change_control.bypass",
+	"change_control.modify",
+	"deployment_control.modify",
+	"entitlement.assign",
+	"invoice.approve",
+	"invoice.record",
+	"journal_entry.approve",
+	"journal_entry.prepare",
+	"payment.authorize",
+	"payment.prepare",
+	"payment.release",
+	"purchase_order.approve",
+	"purchase_order.create",
+	"release.deploy",
+	"software_change.approve",
+	"software_change.author",
+	"software_change.merge",
+	"vendor.activate",
+	"vendor.create_draft",
+	"vendor_payment_instructions.change",
+	"vendor_payment_instructions.verify",
+}
+
+func TestIDsArePermanent(t *testing.T) {
+	require.True(t, slices.IsSorted(pinnedIDs), "keep pinnedIDs sorted")
+	ids := IDs()
+	for _, id := range pinnedIDs {
+		require.Contains(t, ids, ID(id), "duty ID %q was removed or renamed; duty IDs are permanent", id)
+	}
+	for _, id := range ids {
+		require.Contains(t, pinnedIDs, string(id), "duty ID %q is new; add it to pinnedIDs so it cannot be removed later", id)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -51,7 +92,6 @@ func TestValidate(t *testing.T) {
 		{name: "conditional with condition", ann: annotation(Conditional(SoftwareChangeApprove, "only when branch protection allows self-approval"))},
 		{name: "conditional without description", ann: annotation(Conditional(SoftwareChangeApprove, ""))},
 		{name: "unknown id", ann: annotation(Exact("payment.refund"))},
-		{name: "no catalog version", ann: v2.DutyMappingsAnnotation_builder{Mappings: []*v2.DutyMapping{Exact(PaymentRelease).Proto()}}.Build()},
 		{name: "three segments", ann: annotation(Exact("vendor.payment_instructions.modify"))},
 		{name: "hyphenated", ann: annotation(Exact("payment-run.release"))},
 		{name: "no dot", ann: annotation(Exact("payment"))},
@@ -64,11 +104,6 @@ func TestValidate(t *testing.T) {
 		{name: "slash", ann: annotation(Exact("payment/release")), wantErr: "DutyId"},
 		{name: "too long", ann: annotation(Exact(strings.Repeat("a", 65))), wantErr: "DutyId"},
 		{name: "unspecified precision", ann: annotation(Mapping{dutyID: string(PaymentRelease)}), wantErr: "Precision"},
-		{
-			name:    "catalog version too long",
-			ann:     v2.DutyMappingsAnnotation_builder{CatalogVersion: strings.Repeat("1", 65), Mappings: []*v2.DutyMapping{Exact(PaymentRelease).Proto()}}.Build(),
-			wantErr: "CatalogVersion",
-		},
 		{name: "description too long", ann: annotation(Exact(PaymentRelease).WithDescription(strings.Repeat("x", 1025))), wantErr: "Description"},
 		{name: "duplicate duty", ann: annotation(Exact(PaymentRelease), Inclusive(PaymentRelease)), wantErr: "mapped more than once"},
 	}

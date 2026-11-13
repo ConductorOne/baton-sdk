@@ -1,5 +1,6 @@
 // Package dutytest checks duty annotations in connector tests, without a
-// ConductorOne instance.
+// ConductorOne instance, and exports the DutyMappingsAnnotation
+// wire-contract cases through Cases.
 package dutytest
 
 import (

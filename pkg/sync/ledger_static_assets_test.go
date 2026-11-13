@@ -86,8 +86,7 @@ func TestLedgerStaticEntitlementKeepsDuties(t *testing.T) {
 	s, f, c := staticPageFixture(t)
 	c.duties = []duty.Mapping{duty.Exact(duty.PaymentRelease), duty.Conditional("acme.custom", "when enabled")}
 	want := v2.DutyMappingsAnnotation_builder{
-		CatalogVersion: duty.CatalogVersion,
-		Mappings:       []*v2.DutyMapping{c.duties[0].Proto(), c.duties[1].Proto()},
+		Mappings: []*v2.DutyMapping{c.duties[0].Proto(), c.duties[1].Proto()},
 	}.Build()
 	f.audit.enter(ledgerHandler)
 	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)

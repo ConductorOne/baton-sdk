@@ -181,7 +181,6 @@ func TestWithDuties(t *testing.T) {
 		require.True(t, annos.Contains(&v2.EntitlementExclusionGroup{}))
 		anns := dutyAnnotations(t, en)
 		require.Len(t, anns, 1)
-		require.Equal(t, duty.CatalogVersion, anns[0].GetCatalogVersion())
 		require.Equal(t, []string{string(duty.PaymentRelease), string(duty.PaymentAuthorize)}, dutyIDs(anns[0]))
 		require.NoError(t, duty.Validate(anns[0]))
 	})

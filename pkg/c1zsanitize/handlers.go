@@ -128,10 +128,7 @@ func handleDutyMappings(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.M
 			Description: description,
 		}.Build())
 	}
-	return v2.DutyMappingsAnnotation_builder{
-		CatalogVersion: in.GetCatalogVersion(),
-		Mappings:       mappings,
-	}.Build()
+	return v2.DutyMappingsAnnotation_builder{Mappings: mappings}.Build()
 }
 
 // handleChildResourceType preserves the resource-tree topology, sanitizing

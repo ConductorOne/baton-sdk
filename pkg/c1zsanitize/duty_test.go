@@ -14,7 +14,6 @@ import (
 func TestDutyMappingsAnnotationHandler(t *testing.T) {
 	s := newTestSanitizer(bytes32("duty-annos"))
 	in := v2.DutyMappingsAnnotation_builder{
-		CatalogVersion: "1.0.0",
 		Mappings: []*v2.DutyMapping{
 			v2.DutyMapping_builder{
 				DutyId:    "payment.release",
