@@ -123,6 +123,10 @@ const (
 	chunkTypeEOF                        = 0x20
 	maxNonSkippableChunk                = 0x3f
 	chunkTypeIndex                      = 0x40 // chunk id of MinLZ index
+	chunkTypeSearchInfo                 = 0x44 // search table info (per-stream)
+	chunkTypeSearchTable                = 0x45 // block search table (per-block)
+	chunkTypeSearchTableCompressed      = 0x46 // compressed block search table (per-block)
+	chunkTypeRemoteBlockRef             = 0x47 // remote block reference (sidecar)
 	legacyIndexChunk                    = 0x99 // S2 index chunk id (now in user-skippable range)
 )
 

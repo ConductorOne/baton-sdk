@@ -21,8 +21,8 @@ func TreeFromLeveledList(leveledListItems pterm.LeveledList) pterm.TreeNode {
 		}
 
 		if len(leveledListItems)-1 != i {
-			if leveledListItems[i+1].Level-1 > record.Level {
-				leveledListItems[i+1].Level = record.Level + 1
+			if leveledListItems[i+1].Level-1 > record.Level { //nolint:gosec // G602: i+1 is guarded by the surrounding length check.
+				leveledListItems[i+1].Level = record.Level + 1 //nolint:gosec // G602: i+1 is guarded by the surrounding length check.
 			}
 		}
 
@@ -30,6 +30,7 @@ func TreeFromLeveledList(leveledListItems pterm.LeveledList) pterm.TreeNode {
 			lastIndex := len(last.Children) - 1
 			last = &last.Children[lastIndex]
 		}
+
 		last.Children = append(last.Children, pterm.TreeNode{
 			Children: []pterm.TreeNode{},
 			Text:     record.Text,

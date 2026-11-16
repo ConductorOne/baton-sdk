@@ -45,9 +45,7 @@ func encodeBlockGo(dst, src []byte) (d int) {
 
 		debug = debugEncode
 	)
-	if len(src) <= 65536 {
-		return encodeBlockGo64K(dst, src)
-	}
+
 	// Having values inside the table is ~the same speed as looking up
 	// - maybe slightly faster on bigger blocks.
 	// We go for the smaller stack allocation for now.
@@ -150,14 +148,14 @@ func encodeBlockGo(dst, src []byte) (d int) {
 				break
 			}
 			candidate = int(table[hash2])
-			if candidate2 >= minSrcPos && uint32(cv>>8) == load32(src, candidate2) {
+			if candidate2 > minSrcPos && uint32(cv>>8) == load32(src, candidate2) {
 				table[hash2] = uint32(s + 2)
 				candidate = candidate2
 				s++
 				break
 			}
 			table[hash2] = uint32(s + 2)
-			if candidate >= minSrcPos && uint32(cv>>16) == load32(src, candidate) {
+			if candidate >= minSrcPos+2 && uint32(cv>>16) == load32(src, candidate) {
 				s += 2
 				break
 			}
@@ -193,7 +191,7 @@ func encodeBlockGo(dst, src []byte) (d int) {
 			if base-nextEmit > maxCopy3Lits || repeat < minCopy2Offset {
 				// Bail if we exceed the maximum size.
 				// We will not exceed dstLimit with the other encodings.
-				if d+(s-nextEmit) > dstLimit {
+				if d+(base-nextEmit) > dstLimit {
 					return 0
 				}
 				d += emitLiteral(dst[d:], src[nextEmit:base])
@@ -436,7 +434,7 @@ func encodeBlockGo64K(dst, src []byte) (d int) {
 			if base-nextEmit > maxCopy2Lits || repeat < minCopy2Offset {
 				// Bail if we exceed the maximum size.
 				// We will not exceed dstLimit with the other encodings.
-				if d+(s-nextEmit) > dstLimit {
+				if d+(base-nextEmit) > dstLimit {
 					return 0
 				}
 				d += emitLiteral(dst[d:], src[nextEmit:base])

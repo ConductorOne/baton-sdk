@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/quic-go/quic-go/internal/flowcontrol"
 	"github.com/quic-go/quic-go/internal/monotime"
 	"github.com/quic-go/quic-go/internal/protocol"
 	"github.com/quic-go/quic-go/internal/qerr"
 	"github.com/quic-go/quic-go/internal/wire"
 )
 
-// StreamLimitReachedError is returned from Conn.OpenStream and Conn.OpenUniStream
-// when it is not possible to open a new stream because the number of opens streams reached
+// StreamLimitReachedError is returned from [Conn.OpenStream] and [Conn.OpenUniStream]
+// when it is not possible to open a new stream because the number of open streams has reached
 // the peer's stream limit.
 type StreamLimitReachedError struct{}
 
@@ -23,12 +22,13 @@ type streamsMap struct {
 	ctx         context.Context // not used for cancellations, but carries the values associated with the connection
 	perspective protocol.Perspective
 
-	maxIncomingBidiStreams uint64
-	maxIncomingUniStreams  uint64
+	maxIncomingBidiStreams     uint64
+	maxIncomingUniStreams      uint64
+	requireStreamCreditRelease bool
 
 	sender            streamSender
 	queueControlFrame func(wire.Frame)
-	newFlowController func(protocol.StreamID) flowcontrol.StreamFlowController
+	newFlowController func(protocol.StreamID) *streamFlowController
 
 	mutex                 sync.Mutex
 	outgoingBidiStreams   *outgoingStreamsMap[*Stream]
@@ -43,19 +43,21 @@ func newStreamsMap(
 	ctx context.Context,
 	sender streamSender,
 	queueControlFrame func(wire.Frame),
-	newFlowController func(protocol.StreamID) flowcontrol.StreamFlowController,
+	newFlowController func(protocol.StreamID) *streamFlowController,
 	maxIncomingBidiStreams uint64,
 	maxIncomingUniStreams uint64,
+	requireStreamCreditRelease bool,
 	perspective protocol.Perspective,
 ) *streamsMap {
 	m := &streamsMap{
-		ctx:                    ctx,
-		perspective:            perspective,
-		queueControlFrame:      queueControlFrame,
-		newFlowController:      newFlowController,
-		maxIncomingBidiStreams: maxIncomingBidiStreams,
-		maxIncomingUniStreams:  maxIncomingUniStreams,
-		sender:                 sender,
+		ctx:                        ctx,
+		perspective:                perspective,
+		queueControlFrame:          queueControlFrame,
+		newFlowController:          newFlowController,
+		maxIncomingBidiStreams:     maxIncomingBidiStreams,
+		maxIncomingUniStreams:      maxIncomingUniStreams,
+		requireStreamCreditRelease: requireStreamCreditRelease,
+		sender:                     sender,
 	}
 	m.initMaps()
 	return m
@@ -76,6 +78,7 @@ func (m *streamsMap) initMaps() {
 			return newStream(m.ctx, id, m.sender, m.newFlowController(id), m.supportsResetStreamAt)
 		},
 		m.maxIncomingBidiStreams,
+		m.requireStreamCreditRelease,
 		m.queueControlFrame,
 		m.perspective,
 	)
@@ -93,6 +96,7 @@ func (m *streamsMap) initMaps() {
 			return newReceiveStream(id, m.sender, m.newFlowController(id))
 		},
 		m.maxIncomingUniStreams,
+		m.requireStreamCreditRelease,
 		m.queueControlFrame,
 		m.perspective,
 	)
@@ -165,19 +169,32 @@ func (m *streamsMap) AcceptUniStream(ctx context.Context) (*ReceiveStream, error
 }
 
 func (m *streamsMap) DeleteStream(id protocol.StreamID) error {
-	switch id.Type() {
+	switch protocol.StreamTypeOf(id) {
 	case protocol.StreamTypeUni:
-		if id.InitiatedBy() == m.perspective {
+		if protocol.StreamInitiator(id) == m.perspective {
 			return m.outgoingUniStreams.DeleteStream(id)
 		}
 		return m.incomingUniStreams.DeleteStream(id)
 	case protocol.StreamTypeBidi:
-		if id.InitiatedBy() == m.perspective {
+		if protocol.StreamInitiator(id) == m.perspective {
 			return m.outgoingBidiStreams.DeleteStream(id)
 		}
 		return m.incomingBidiStreams.DeleteStream(id)
 	}
 	panic("")
+}
+
+func (m *streamsMap) ReleaseStreamCredit(id protocol.StreamID) {
+	// the stream credit for outgoing streams is issued by the peer
+	if protocol.StreamInitiator(id) == m.perspective {
+		return
+	}
+	switch protocol.StreamTypeOf(id) {
+	case protocol.StreamTypeUni:
+		m.incomingUniStreams.ReleaseStreamCredit(id)
+	case protocol.StreamTypeBidi:
+		m.incomingBidiStreams.ReleaseStreamCredit(id)
+	}
 }
 
 func (m *streamsMap) HandleMaxStreamsFrame(f *wire.MaxStreamsFrame) {
@@ -195,9 +212,9 @@ type sendStreamFrameHandler interface {
 }
 
 func (m *streamsMap) getSendStream(id protocol.StreamID) (sendStreamFrameHandler, error) {
-	switch id.Type() {
+	switch protocol.StreamTypeOf(id) {
 	case protocol.StreamTypeUni:
-		if id.InitiatedBy() != m.perspective {
+		if protocol.StreamInitiator(id) != m.perspective {
 			// an outgoing unidirectional stream is a send stream, not a receive stream
 			return nil, &qerr.TransportError{
 				ErrorCode:    qerr.StreamStateError,
@@ -210,7 +227,7 @@ func (m *streamsMap) getSendStream(id protocol.StreamID) (sendStreamFrameHandler
 		}
 		return str, nil
 	case protocol.StreamTypeBidi:
-		if id.InitiatedBy() == m.perspective {
+		if protocol.StreamInitiator(id) == m.perspective {
 			str, err := m.outgoingBidiStreams.GetStream(id)
 			if str == nil || err != nil {
 				return nil, err
@@ -256,10 +273,10 @@ type receiveStreamFrameHandler interface {
 }
 
 func (m *streamsMap) getReceiveStream(id protocol.StreamID) (receiveStreamFrameHandler, error) {
-	switch id.Type() {
+	switch protocol.StreamTypeOf(id) {
 	case protocol.StreamTypeUni:
 		// an outgoing unidirectional stream is a send stream, not a receive stream
-		if id.InitiatedBy() == m.perspective {
+		if protocol.StreamInitiator(id) == m.perspective {
 			return nil, &qerr.TransportError{
 				ErrorCode:    qerr.StreamStateError,
 				ErrorMessage: fmt.Sprintf("invalid frame for receive stream %d", id),
@@ -273,7 +290,7 @@ func (m *streamsMap) getReceiveStream(id protocol.StreamID) (receiveStreamFrameH
 	case protocol.StreamTypeBidi:
 		var str *Stream
 		var err error
-		if id.InitiatedBy() == m.perspective {
+		if protocol.StreamInitiator(id) == m.perspective {
 			str, err = m.outgoingBidiStreams.GetStream(id)
 		} else {
 			str, err = m.incomingBidiStreams.GetOrOpenStream(id)
@@ -319,8 +336,10 @@ func (m *streamsMap) HandleStreamFrame(f *wire.StreamFrame, rcvTime monotime.Tim
 
 func (m *streamsMap) HandleTransportParameters(p *wire.TransportParameters) {
 	m.supportsResetStreamAt = p.EnableResetStreamAt
-	m.outgoingBidiStreams.EnableResetStreamAt()
-	m.outgoingUniStreams.EnableResetStreamAt()
+	if p.EnableResetStreamAt {
+		m.outgoingBidiStreams.EnableResetStreamAt()
+		m.outgoingUniStreams.EnableResetStreamAt()
+	}
 	m.outgoingBidiStreams.UpdateSendWindow(p.InitialMaxStreamDataBidiRemote)
 	m.outgoingBidiStreams.SetMaxStream(p.MaxBidiStreamNum.StreamID(protocol.StreamTypeBidi, m.perspective))
 	m.outgoingUniStreams.UpdateSendWindow(p.InitialMaxStreamDataUni)
@@ -344,6 +363,7 @@ func (m *streamsMap) ResetFor0RTT() {
 	defer m.mutex.Unlock()
 	m.reset = true
 	m.CloseWithError(Err0RTTRejected)
+	m.supportsResetStreamAt = false
 	m.initMaps()
 }
 

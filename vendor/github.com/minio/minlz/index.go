@@ -129,7 +129,8 @@ func (i *Index) Find(offset int64) (compressedOff, uncompressedOff int64, err er
 			return i.Offsets[n].UncompressedOffset > offset
 		})
 		if n == 0 {
-			n = 1
+			// The index may omit the (0, 0) entry, so it is implied.
+			return 0, 0, nil
 		}
 		return i.Offsets[n-1].CompressedOffset, i.Offsets[n-1].UncompressedOffset, nil
 	}
@@ -264,7 +265,7 @@ func (i *Index) appendTo(b []byte, uncompTotal, compTotal int64) []byte {
 	b[initSize+1] = uint8(chunkLen >> 0)
 	b[initSize+2] = uint8(chunkLen >> 8)
 	b[initSize+3] = uint8(chunkLen >> 16)
-	//fmt.Printf("chunklen: 0x%x Uncomp:%d, Comp:%d\n", chunkLen, uncompTotal, compTotal)
+	// fmt.Printf("chunklen: 0x%x Uncomp:%d, Comp:%d\n", chunkLen, uncompTotal, compTotal)
 	return b
 }
 
@@ -476,9 +477,6 @@ func IndexStream(r io.Reader) ([]byte, error) {
 			readHeader = true
 		}
 		chunkLen := int(buf[1]) | int(buf[2])<<8 | int(buf[3])<<16
-		if chunkLen < checksumSize {
-			return nil, ErrCorrupt
-		}
 
 		i.TotalCompressed += int64(chunkLen)
 		_, err = io.ReadFull(r, buf[:chunkLen])
@@ -489,13 +487,20 @@ func IndexStream(r io.Reader) ([]byte, error) {
 		switch chunkType {
 		case chunkTypeLegacyCompressedData, chunkTypeMinLZCompressedData, chunkTypeMinLZCompressedDataCompCRC:
 			// Section 4.2. Compressed data (chunk type 0x00).
+			if chunkLen < checksumSize {
+				return nil, ErrCorrupt
+			}
 			// Skip checksum.
-			dLen, err := DecodedLen(buf[checksumSize:])
+			dLen, err := DecodedLen(buf[checksumSize:chunkLen])
 			if err != nil {
 				return nil, err
 			}
 			if dLen > maxBlockSize {
 				return nil, ErrCorrupt
+			}
+			if dLen == 0 {
+				// Empty chunks would give a 0 estimate and entries at duplicate offsets.
+				continue
 			}
 			if i.estBlockUncomp == 0 {
 				// Use first block for estimate...
@@ -509,8 +514,11 @@ func IndexStream(r io.Reader) ([]byte, error) {
 			continue
 		case chunkTypeUncompressedData:
 			n2 := chunkLen - checksumSize
-			if n2 > maxBlockSize {
+			if n2 < 0 || n2 > maxBlockSize {
 				return nil, ErrCorrupt
+			}
+			if n2 == 0 {
+				continue
 			}
 			if i.estBlockUncomp == 0 {
 				// Use first block for estimate...
@@ -542,7 +550,6 @@ func IndexStream(r io.Reader) ([]byte, error) {
 
 		if chunkType <= maxNonSkippableChunk {
 			// Section 4.5. Reserved unskippable chunks (chunk types 0x03-0x3f).
-			fmt.Println("UN:", chunkType)
 			return nil, ErrUnsupported
 		}
 		// Skip user chunks and padding.
@@ -566,7 +573,7 @@ func (i *Index) JSON() []byte {
 		EstBlockUncomp:    i.estBlockUncomp,
 	}
 	for _, v := range i.Offsets {
-		x.Offsets = append(x.Offsets, offset{CompressedOffset: v.CompressedOffset, UncompressedOffset: v.UncompressedOffset})
+		x.Offsets = append(x.Offsets, offset(v))
 	}
 	b, _ := json.MarshalIndent(x, "", "  ")
 	return b

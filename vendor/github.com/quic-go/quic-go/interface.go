@@ -50,16 +50,26 @@ type TokenStore interface {
 	Put(key string, token *ClientToken)
 }
 
-// Err0RTTRejected is the returned from:
-//   - Open{Uni}Stream{Sync}
-//   - Accept{Uni}Stream
-//   - Stream.Read and Stream.Write
+// Err0RTTRejected can be returned by methods such as:
+//   - [Conn.OpenStream], [Conn.OpenStreamSync], [Conn.OpenUniStream], and [Conn.OpenUniStreamSync]
+//   - [Conn.AcceptStream] and [Conn.AcceptUniStream]
+//   - [Stream.Read] and [Stream.Write]
 //
 // when the server rejects a 0-RTT connection attempt.
 var Err0RTTRejected = errors.New("0-RTT rejected")
 
+// ErrWouldBlock is returned by [SendStream.TryWriteAll] if the entire slice can't be queued immediately.
+var ErrWouldBlock = errors.New("operation would block")
+
+// ErrWriteLimitReached is returned by [SendStream.WriteWithLimit] when its limiter prevents accepting the entire slice.
+var ErrWriteLimitReached = errors.New("write limit reached")
+
+// ErrStreamClosed is returned when writing to a stream after [SendStream.Close] was called.
+// Closing a stream also cancels its context with this error as the cause.
+var ErrStreamClosed = errors.New("stream closed")
+
 // QUICVersionContextKey can be used to find out the QUIC version of a TLS handshake from the
-// context returned by tls.Config.ClientInfo.Context.
+// context returned by [tls.ClientHelloInfo.Context].
 var QUICVersionContextKey = handshake.QUICVersionContextKey
 
 // StatelessResetKey is a key used to derive stateless reset tokens.
@@ -153,6 +163,11 @@ type Config struct {
 	// If set to a negative value, it doesn't allow any unidirectional streams.
 	// Values larger than 2^60 will be clipped to that value.
 	MaxIncomingUniStreams int64
+	// RequireStreamCreditRelease requires the application to release the credit of streams opened by the peer.
+	// By default, the peer is allowed to open a new stream as soon as one of its streams completes.
+	// If set, a completed stream keeps counting towards MaxIncomingStreams and MaxIncomingUniStreams
+	// until the application calls ReleaseStreamCredit on it.
+	RequireStreamCreditRelease bool
 	// KeepAlivePeriod defines whether this peer will periodically send a packet to keep the connection alive.
 	// If set to 0, then no keep alive is sent. Otherwise, the keep alive is sent on that period (or at most
 	// every half of MaxIdleTimeout, whichever is smaller).
@@ -161,6 +176,9 @@ type Config struct {
 	// Under most circumstances, it is not necessary to manually set this value,
 	// since path MTU discovery quickly finds the path's MTU.
 	// If set too high, the path might not support packets of that size, leading to a timeout of the QUIC handshake.
+	// If set to 0, it defaults to 1280 bytes and falls back to 1200 bytes if the first write at that size
+	// returns a "message too long" error. An explicitly set value is kept as the lower limit;
+	// a "message too long" error at that size fails the handshake instead.
 	// Values below 1200 are invalid.
 	InitialPacketSize uint16
 	// DisablePathMTUDiscovery disables Path MTU Discovery (RFC 8899).
@@ -173,7 +191,7 @@ type Config struct {
 	// Enable QUIC datagram support (RFC 9221).
 	EnableDatagrams bool
 	// Enable QUIC Stream Resets with Partial Delivery.
-	// See https://datatracker.ietf.org/doc/html/draft-ietf-quic-reliable-stream-reset-07.
+	// See https://datatracker.ietf.org/doc/html/draft-ietf-quic-reliable-stream-reset-09.
 	EnableStreamResetPartialDelivery bool
 
 	Tracer func(ctx context.Context, isClient bool, connID ConnectionID) qlogwriter.Trace
@@ -184,9 +202,10 @@ type ClientInfo struct {
 	// RemoteAddr is the remote address on the Initial packet.
 	// Unless AddrVerified is set, the address is not yet verified, and could be a spoofed IP address.
 	RemoteAddr net.Addr
-	// AddrVerified says if the remote address was verified using QUIC's Retry mechanism.
-	// Note that the Retry mechanism costs one network roundtrip,
-	// and is not performed unless Transport.MaxUnvalidatedHandshakes is surpassed.
+	// AddrVerified reports whether the remote address was verified by a valid address validation token,
+	// including a token received in a NEW_TOKEN frame.
+	// The Retry mechanism costs one network roundtrip and is only used when
+	// [Transport.VerifySourceAddress] requests it.
 	AddrVerified bool
 }
 
@@ -206,6 +225,8 @@ type ConnectionState struct {
 		// Local is true if support was enabled via Config.EnableStreamResetPartialDelivery.
 		Remote, Local bool
 	}
+	// RequireStreamCreditRelease is true if Config.RequireStreamCreditRelease was set.
+	RequireStreamCreditRelease bool
 	// Used0RTT says if 0-RTT resumption was used.
 	Used0RTT bool
 	// Version is the QUIC version of the QUIC connection.

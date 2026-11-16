@@ -169,7 +169,7 @@ func (r *Reader) ensureBufferSize(n int) bool {
 		return true
 	}
 	// Realloc buffer.
-	r.buf = make([]byte, n, n)
+	r.buf = make([]byte, n)
 	return true
 }
 
@@ -831,6 +831,10 @@ func (r *Reader) DecodeConcurrent(w io.Writer, concurrent int) (written int64, e
 				defer wg.Done()
 				decoded = decoded[:n]
 				ret := minLZDecode(decoded, buf)
+				var actualChecksum uint32
+				if ret == 0 && !r.ignoreCRC && chunkType == chunkTypeMinLZCompressedDataCompCRC {
+					actualChecksum = crc(buf)
+				}
 
 				toRead <- orgBuf
 				if ret != 0 {
@@ -842,11 +846,10 @@ func (r *Reader) DecodeConcurrent(w io.Writer, concurrent int) (written int64, e
 					writeBuf(nil, entry)
 					return
 				}
-				toCRC := decoded
-				if chunkType == chunkTypeMinLZCompressedDataCompCRC {
-					toCRC = buf
+				if !r.ignoreCRC && chunkType != chunkTypeMinLZCompressedDataCompCRC {
+					actualChecksum = crc(decoded)
 				}
-				if !r.ignoreCRC && crc(toCRC) != checksum {
+				if !r.ignoreCRC && actualChecksum != checksum {
 					if debug {
 						fmt.Println("ERR: CRC mismatch", crc(decoded), checksum)
 					}
@@ -1118,7 +1121,7 @@ func (r *Reader) Skip(n int64) error {
 				}
 				buf = buf[hdrSize:]
 				if ret := minLZDecode(r.decoded[:dLen], buf); ret != 0 {
-					r.err = ErrTooLarge
+					r.err = ErrCorrupt
 					return r.err
 				}
 				toCRC := r.decoded[:dLen]
@@ -1180,8 +1183,8 @@ func (r *Reader) Skip(n int64) error {
 					r.err = err
 					return r.err
 				}
-				if crc(r.decoded[:dLen]) != checksum {
-					r.err = ErrCorrupt
+				if !r.ignoreCRC && crc(r.decoded[:dLen]) != checksum {
+					r.err = ErrCRC
 					return r.err
 				}
 			} else {
@@ -1222,11 +1225,14 @@ func (r *Reader) Skip(n int64) error {
 			if !r.readFull(r.decoded[:n2], false) {
 				return r.err
 			}
-			if int64(n2) < n {
-				if crc(r.decoded[:n2]) != checksum {
-					r.err = ErrCorrupt
-					return r.err
-				}
+			if int64(n2) <= n {
+				// Skip block completely
+				n -= int64(n2)
+				r.blockStart += int64(n2)
+				n2 = 0
+			} else if !r.ignoreCRC && crc(r.decoded[:n2]) != checksum {
+				r.err = ErrCRC
+				return r.err
 			}
 			r.i, r.j = 0, n2
 			continue
@@ -1501,7 +1507,7 @@ func (r *Reader) ReadByte() (byte, error) {
 		return c, nil
 	}
 	var tmp [1]byte
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		n, err := r.Read(tmp[:])
 		if err != nil {
 			return 0, err

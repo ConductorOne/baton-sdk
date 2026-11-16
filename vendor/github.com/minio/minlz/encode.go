@@ -20,9 +20,18 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
+	"sync"
 )
 
 const (
+	// LevelSuperFast is the fastest compression level.
+	// This will take significant shortcuts and usually provide much worse compression.
+	// Use only if LevelFastest is confirmed to be too slow.
+	LevelSuperFast = -1
+
+	// LevelUncompressed will bypass compression.
+	LevelUncompressed = 0
+
 	// LevelFastest is the fastest compression level.
 	LevelFastest = 1
 
@@ -83,6 +92,10 @@ func Encode(dst, src []byte, level int) ([]byte, error) {
 
 	var n int
 	switch level {
+	case LevelUncompressed:
+		return encodeUncompressed(dst[:0], src), nil
+	case LevelSuperFast:
+		n = encodeBlockFast(dst[d:], src)
 	case LevelFastest:
 		n = encodeBlock(dst[d:], src)
 	case LevelBalanced:
@@ -92,20 +105,28 @@ func Encode(dst, src []byte, level int) ([]byte, error) {
 	default:
 		return nil, ErrInvalidLevel
 	}
-
 	if n > 0 {
 		if debugValidateBlocks {
+			if n+d > len(dst) {
+				x := crc32.ChecksumIEEE(src)
+				name := fmt.Sprintf("errs/block-%08x", x)
+				os.WriteFile(name+"src.bin", src, 0o644)
+				os.WriteFile(name+"dst.mzb", dst, 0o644)
+
+				panic(fmt.Sprintf("level %d encoded block too large: %d > %d", level, n+d, len(dst)))
+			}
+
 			block := dst[d : d+n]
-			dst := make([]byte, len(src), len(src))
+			dst := make([]byte, len(src))
 			ret := minLZDecode(dst, block)
 			if !bytes.Equal(dst, src) {
 				n := matchLen(dst, src)
 				x := crc32.ChecksumIEEE(src)
 				name := fmt.Sprintf("errs/block-%08x", x)
 				fmt.Println(name, "mismatch at pos", n)
-				os.WriteFile(name+"input.bin", src, 0644)
-				os.WriteFile(name+"decoded.bin", dst, 0644)
-				os.WriteFile(name+"compressed.bin", block, 0644)
+				os.WriteFile(name+"input.bin", src, 0o644)
+				os.WriteFile(name+"decoded.bin", dst, 0o644)
+				os.WriteFile(name+"compressed.bin", block, 0o644)
 			}
 			if ret != 0 {
 				panic("decode error")
@@ -165,6 +186,8 @@ func TryEncode(dst, src []byte, level int) []byte {
 
 	var n int
 	switch level {
+	case LevelSuperFast:
+		n = encodeBlockFast(dst[d:], src)
 	case LevelFastest:
 		n = encodeBlock(dst[d:], src)
 	case LevelBalanced:
@@ -196,6 +219,15 @@ const inputMargin = 8
 // minNonLiteralBlockSize is the minimum size of the input to encodeBlock that
 // will be accepted by the encoder.
 const minNonLiteralBlockSize = 16
+
+// Scratch tables for the assembly block encoders in encode_asm.go, indexed by
+// size class. Declared for every build so tests can inspect them; they stay
+// empty where the pure-Go encoders are used.
+var (
+	encFastPools   [7]sync.Pool
+	encPools       [7]sync.Pool
+	encBetterPools [6]sync.Pool
+)
 
 // encodeUncompressed will append src to dst as uncompressed data and return it.
 func encodeUncompressed(dst, src []byte) []byte {

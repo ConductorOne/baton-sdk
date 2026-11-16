@@ -14,6 +14,7 @@ const (
 	defaultRetryMaxAttempts  = 3
 	defaultRetryInitialDelay = 500 * time.Millisecond
 	defaultRetryMaxDelay     = 2 * time.Second
+	defaultRetryTimeout      = 30 * time.Second
 )
 
 // RetryConfig controls how Token() retries transient token request failures:
@@ -31,6 +32,10 @@ type RetryConfig struct {
 	InitialDelay time.Duration
 	// MaxDelay caps the backoff between attempts.
 	MaxDelay time.Duration
+	// Timeout bounds each individual attempt (one token POST, including proof
+	// creation). Attempts still share the overall Token() budget. Values <= 0
+	// use the default.
+	Timeout time.Duration
 }
 
 // DefaultRetryConfig returns the retry behavior used when no WithRetryConfig
@@ -40,6 +45,7 @@ func DefaultRetryConfig() RetryConfig {
 		MaxAttempts:  defaultRetryMaxAttempts,
 		InitialDelay: defaultRetryInitialDelay,
 		MaxDelay:     defaultRetryMaxDelay,
+		Timeout:      defaultRetryTimeout,
 	}
 }
 
@@ -52,6 +58,9 @@ func (c RetryConfig) normalized() RetryConfig {
 	}
 	if c.MaxDelay < c.InitialDelay {
 		c.MaxDelay = c.InitialDelay
+	}
+	if c.Timeout <= 0 {
+		c.Timeout = defaultRetryTimeout
 	}
 	return c
 }

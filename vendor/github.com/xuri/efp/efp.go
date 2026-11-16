@@ -421,9 +421,13 @@ func (ps *Parser) getTokens() Tokens {
 				ps.Tokens.add(string(token), TokenTypeOperand, "")
 				token = token[:0]
 			}
-			ps.Tokens.addRef(ps.TokenStack.pop())
-			ps.Tokens.add(string(Comma), TokenTypeArgument, "")
-			ps.TokenStack.push(ps.Tokens.add("ARRAYROW", TokenTypeFunction, TokenSubTypeStart))
+			if ps.TokenStack.value() == "ARRAYROW" {
+				ps.Tokens.addRef(ps.TokenStack.pop())
+				ps.Tokens.add(string(Comma), TokenTypeArgument, "")
+				ps.TokenStack.push(ps.Tokens.add("ARRAYROW", TokenTypeFunction, TokenSubTypeStart))
+			} else {
+				ps.Tokens.add(string(Semicolon), TokenTypeUnknown, "")
+			}
 			ps.Offset++
 			continue
 		}
@@ -575,7 +579,11 @@ func (ps *Parser) getTokens() Tokens {
 
 		if (token.TType == TokenTypeOperatorInfix) && (len(token.TValue) == 1 && token.TValue[0] == '+') {
 			if tokens2.BOF() {
-				token.TType = TokenTypeNoop
+				if tokens2.EOF() {
+					token.TType = TokenTypeNoop
+				} else {
+					token.TSubType = TokenSubTypeMath
+				}
 			} else if (tokens2.previous().TType == TokenTypeFunction) && (tokens2.previous().TSubType == TokenSubTypeStop) || ((tokens2.previous().TType == TokenTypeSubexpression) && (tokens2.previous().TSubType == TokenSubTypeStop) || (tokens2.previous().TType == TokenTypeOperatorPostfix) || (tokens2.previous().TType == TokenTypeOperand)) {
 				token.TSubType = TokenSubTypeMath
 			} else {
@@ -713,7 +721,7 @@ func (ps *Parser) Render() string {
 			output.WriteRune(ParenClose)
 		} else if t.TType == TokenTypeOperand && t.TSubType == TokenSubTypeText {
 			output.WriteRune(QuoteDouble)
-			output.WriteString(t.TValue)
+			output.WriteString(strings.ReplaceAll(t.TValue, string(QuoteDouble), string([]rune{QuoteDouble, QuoteDouble})))
 			output.WriteRune(QuoteDouble)
 		} else if t.TType == TokenTypeOperatorInfix && t.TSubType == TokenSubTypeIntersection {
 			output.WriteRune(Whitespace)

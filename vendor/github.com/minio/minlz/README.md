@@ -1,24 +1,30 @@
 # MinLZ
 
-MinLZ is a LZ77-type compressor with a fixed byte-aligned encoding, in the similar class to Snappy and LZ4.
+MinLZ is a LZ77-type compressor with a fixed byte-aligned encoding, 
+in the similar class to Snappy and LZ4.
 
-The goal of MinLZ is to provide a fast, low memory compression algorithm that can be used for fast compression of data, 
-where encoding and/or decoding speed is the primary concern. 
+The goal of MinLZ is to provide a fast, low memory compression algorithm 
+that can be used for fast compression of data, where encoding
+and/or decoding speed is the primary concern. 
 
-MinLZ is designed to operate *faster than IO* for both compression and decompression and be a viable "always on"
-option even if some content already is compressed.
-If slow compression is acceptable, MinLZ can be configured to produce high compression ratio, 
-but retain high decompression speed.
+MinLZ is designed to operate *faster than IO* for both 
+compression and decompression.
+
+It is a viable "always on" option, even if some content already is compressed.
+
+If slow compression is acceptable, MinLZ can be configured to produce a high
+compression ratio while retaining a high decompression speed.
 
 * Best in class compression
 * Block or Streaming interfaces
 * Very fast decompression, even as pure Go
 * AMD64 encoder+decoder assembly
-* Adjustable Compression (3 levels)
+* ARM64 encoder+decoder assembly
+* Adjustable Compression (4 levels)
 * Concurrent stream Compression
 * Concurrent stream Decompression
-* Skip forward in compressed stream via independent blocks
-* Random seeking with optional indexes
+* Skip forward in compressed streams via independent blocks
+* Random seeking with optional index
 * Stream EOF validation
 * Automatic stream size padding
 * Custom encoders for small blocks
@@ -26,12 +32,25 @@ but retain high decompression speed.
 * Detailed control of memory under decompression
 * Fast detection of pre-compressed data
 * Powerful commandline utility
+* Customizable Bloom Filter Stream Search 
 
 This package implements the MinLZ specification v1.0 in Go.
 
 For format specification see the included [SPEC.md](SPEC.md).
 
 # Changelog
+
+* [v1.2.0](https://github.com/minio/minlz/releases/tag/v1.2.0)
+  * Add [MinLZ Search](https://github.com/minio/minlz/blob/main/SEARCH.md).
+  * Add mz stats in https://github.com/minio/minlz/pull/39
+  * Align assembly encoders with Go in https://github.com/minio/minlz/pull/47
+  * l3: Do re-matching on borders in https://github.com/minio/minlz/pull/53
+ 
+* [v1.1.0](https://github.com/minio/minlz/releases/tag/v1.1.0)
+  * Added SuperFast compression mode. See LevelSuperFast below.
+  * Added ARM64 decompression assembly.
+  * Added `-follow` to mz command to allow reading files while they are being written.
+  * Improve default compression.
 
 * [v1.0.0](https://github.com/minio/minlz/releases/tag/v1.0.0)
   * [Initial Release Blog Post](https://blog.min.io/minlz-compression-algorithm/).
@@ -49,8 +68,9 @@ Blocks are mainly useful for small data sizes.
 Streams are a collection of independent blocks, which each have checksums and EOF checks, 
 which ensures against corruption and truncation.
 
-3 compression levels are provided:
+4 compression levels are provided:
 
+* Level -1, "SuperFast": Provides the fastest compression, but at a very reduced compression ratio.
 * Level 1, "Fastest": Provides the fastest compression with reasonable compression. 
 * Level 2, "Balanced": Provides a good balance between compression and speed. ~50% the speed of the fastest level.
 * Level 3, "Smallest": Provides the smallest output possible. Not tuned for speed.
@@ -156,6 +176,24 @@ levels 1,2 and 3 respectively.
 Setting level 0 will disable compression and write the data as an uncompressed stream.
 
 The default level is `LevelBalanced`.
+
+Typical speeds are `LevelFastest` is 2x the speed of `LevelBalanced` 
+and `LevelSmallest` is at least an order of magnitude slower.
+
+### LevelSuperFast
+
+Furthermore `LevelSuperFast` is provided. This compression mode is aimed purely at reducing
+slowdown when compressing hard-to-compress data. In practice that is short matches.
+
+The compression ratio can greatly suffer in this mode, but in these cases it can be faster.
+So if you have a very high throughput (> 1GB/core/s) and a time-sensitive use case, 
+this can be used to ensure the compression doesn't take too much longer on this content.
+
+For these cases the speed difference can be *up to* 2x over `LevelFastest`, but also with a
+much worse compression ratio. 
+However, most often it will be around 15% faster with a similar drop in the compression ratio.
+
+Typically, the performance difference will also be the same for decompression.  
 
 #### Writer Block Size
 
@@ -306,7 +344,32 @@ func ExampleWriterAddUserChunk() {
 }
 ```
 
-The maximum single chunk size is 16MB, but as many chunks as needed can be added. 
+The maximum single chunk size is 16MB, but as many chunks as needed can be added.
+
+## Block Search Tables
+
+MinLZ streams can include optional per-block hash tables that enable fast pattern
+searching without decompressing every block. Blocks that definitely don't contain the
+search pattern are skipped entirely.
+
+```go
+// Compression: add search tables.
+cfg := minlz.NewSearchTableConfig() // matchLen defaults to 6
+w := minlz.NewWriter(output, minlz.WriterSearchTable(cfg))
+```
+
+```go
+// Searching: skip non-matching blocks automatically.
+searcher := minlz.NewBlockSearcher(input)
+err := searcher.Search([]byte("pattern"), func(r minlz.SearchResult) error {
+    fmt.Printf("match at stream offset %d\n", r.StreamOffset)
+    return nil
+})
+```
+
+Prefix filtering can reduce table size by only indexing positions after specific bytes
+(e.g. `"` and `:` for JSON). See [SEARCH.md](SEARCH.md) for parameter tuning, prefix
+configuration, API details, and CLI usage.
 
 ## Build Tags
 
@@ -331,12 +394,12 @@ but for completeness also test with `-tags=purego`.
 ## BLOCKS
 
 Individual block benchmarks should be considered carefully - and can be hard to generalize, 
-since they tend to over-emphasize specific characteristics of the content.
+since they tend to overemphasize specific characteristics of the content.
 
 Therefore, it will be easy to find counter-examples to the benchmarks, where specific patterns suit a 
 specific compressor better than others. 
 We present a few examples from the [Snappy benchmark set](https://github.com/google/snappy/tree/main/testdata).
-As a benchmark this set has an over-emphasis on text files.
+As a benchmark, this set has an over-emphasis on text files.
 
 Blocks are compressed/decompress using 16 concurrent threads on an AMD Ryzen 9 3950X 16-Core Processor.
 Click below to see some sample benchmarks compared to Snappy and LZ4:
@@ -344,20 +407,22 @@ Click below to see some sample benchmarks compared to Snappy and LZ4:
 ### Protobuf Sample
 
 
-| Compressor   | Size   | Comp MB/s | Decomp MB/s | Reduction % |
-|--------------|--------|----------:|-------------|-------------|
-| MinLZ 1      | 17,613 |    27,837 |     116,762 |      85.15% |
-| MinLZ 1 (Go) | 17,479 |    22,036 |      61,652 |      85.26% |
-| MinLZ 2      | 16,345 |    12,797 |     103,100 |      86.22% |
-| MinLZ 2 (Go) | 16,345 |     9,732 |      52,964 |      86.22% |
-| MinLZ 3      | 14,766 |       210 |     126,385 |      87.55% |
-| MinLZ 3 (Go) | 14,766 |           |      68,411 |      87.55% |
-| Snappy       | 23,335 |    24,052 |      61,002 |      80.32% |
-| Snappy (Go)  | 23,335 |    10,055 |      35,699 |      80.32% |
-| LZ4 0        | 18,766 |    12,649 |     137,553 |      84.18% |
-| LZ4 0 (Go)   | 18,766 |           |      64,092 |      84.18% |
-| LZ4 9        | 15,844 |    12,649 |     139,801 |      86.64% |
-| LZ4 9 (Go)   | 15,844 |           |      66,904 |      86.64% |
+| Compressor    | Size    | Comp MB/s | Decomp MB/s | Reduction % |
+|---------------|---------|----------:|-------------|-------------|
+| MinLZ 1       | 17,613  |    27,837 |     116,762 | 85.15%      |
+| MinLZ 1 (Go)  | 17,479  |    22,036 |      61,652 | 85.26%      |
+| MinLZ 2       | 16,345  |    12,797 |     103,100 | 86.22%      |
+| MinLZ 2 (Go)  | 16,345  |     9,732 |      52,964 | 86.22%      |
+| MinLZ 3       | 14,766  |       210 |     126,385 | 87.55%      |
+| MinLZ 3 (Go)  | 14,766  |           |      68,411 | 87.55%      |
+| Snappy        | 23,335  |    24,052 |      61,002 | 80.32%      |
+| Snappy (Go)   | 23,335  |    10,055 |      35,699 | 80.32%      |
+| LZ4 0         | 18,766  |    12,649 |     137,553 | 84.18%      |
+| LZ4 0 (Go)    | 18,766  |           |      64,092 | 84.18%      |
+| LZ4 9         | 15,844  |    12,649 |     139,801 | 86.64%      |
+| LZ4 9 (Go)    | 15,844  |           |      66,904 | 86.64%      |
+| MinLZ -1      | 19,889  |    ------ |     ------- | 83.23%      |
+| MinLZ -1 (Go) | 19,218  |    ------ |     ------- | 83.74%      |
 
 ![Compression vs Size](img/pb-block.png)
 
@@ -369,20 +434,22 @@ Source file: https://github.com/google/snappy/blob/main/testdata/geo.protodata
 <details>
   <summary>Click To See Data + Charts (102,400 bytes input)</summary>
 
-| Compressor   | Size   | Comp MB/s | Decomp MB/s | Reduction % |
-|--------------|--------|----------:|-------------|-------------|
-| MinLZ 1      | 20,184 |    17,558 |      82,292 |      80.29% |
-| MinLZ 1 (Go) | 19,849 |    15,035 |      32,327 |      80.62% |
-| MinLZ 2      | 17,831 |     9,260 |      58,432 |      82.59% |
-| MinLZ 2 (Go) | 17,831 |     7,524 |      25,728 |      82.59% |
-| MinLZ 3      | 16,025 |       180 |      80,445 |      84.35% |
-| MinLZ 3 (Go) | 16,025 |           |      33,382 |      84.35% |
-| Snappy       | 22,843 |    17,469 |      44,765 |      77.69% |
-| Snappy (Go)  | 22,843 |     8,161 |      21,082 |      77.69% |
-| LZ4 0        | 21,216 |     9,452 |     101,490 |      79.28% |
-| LZ4 0 (Go)   | 21,216 |           |      40,674 |      79.28% |
-| LZ4 9        | 17,139 |     1,407 |      95,706 |      83.26% |
-| LZ4 9 (Go)   | 17,139 |           |      39,709 |      83.26% |
+| Compressor    | Size   | Comp MB/s | Decomp MB/s | Reduction % |
+|---------------|--------|----------:|-------------|-------------|
+| MinLZ 1       | 20,184 |    17,558 | 82,292      | 80.29%      |
+| MinLZ 1 (Go)  | 19,849 |    15,035 | 32,327      | 80.62%      |
+| MinLZ 2       | 17,831 |     9,260 | 58,432      | 82.59%      |
+| MinLZ 2 (Go)  | 17,831 |     7,524 | 25,728      | 82.59%      |
+| MinLZ 3       | 16,025 |       180 | 80,445      | 84.35%      |
+| MinLZ 3 (Go)  | 16,025 |           | 33,382      | 84.35%      |
+| Snappy        | 22,843 |    17,469 | 44,765      | 77.69%      |
+| Snappy (Go)   | 22,843 |     8,161 | 21,082      | 77.69%      |
+| LZ4 0         | 21,216 |     9,452 | 101,490     | 79.28%      |
+| LZ4 0 (Go)    | 21,216 |           | 40,674      | 79.28%      |
+| LZ4 9         | 17,139 |     1,407 | 95,706      | 83.26%      |
+| LZ4 9 (Go)    | 17,139 |           | 39,709      | 83.26%      |
+| MinLZ -1      | 23,487 |    ------ | -------     | 77.06%      |
+| MinLZ -1 (Go) | 22,911 |    ------ | -------     | 77.63%      |
 
 ![Compression vs Size](img/html-block.png)
 
@@ -455,16 +522,20 @@ We encourage you to do your own testing with realistic blocks.
 
 You can use `λ mz c -block -bench=10 -verify -cpu=16 -1 file.ext` with our commandline tool to test speed of block encoding/decoding.
 
+### Visualizer
+
+You can visualize individual blocks using our [block visualizer](https://minlz.klauspost.com/).
+
 ## STREAMS
 
 For fair stream comparisons, we run each encoder at its maximum block size
-or max 4MB,  while maintaining independent blocks where it is an option.
+or max 4MB, while maintaining independent blocks where it is an option.
 We use the concurrency offered by the package.
 
 This means there may be further speed/size tradeoffs possible for each, 
-so experiment with fine tuning for your needs.
+so experiment with fine-tuning for your needs.
 
-Blocks are compressed/decompress using 16 core AMD Ryzen 9 3950X 16-Core Processor.
+Blocks are compressed/decompressed using 16 core AMD Ryzen 9 3950X 16-Core Processor.
 
 ### JSON Stream
 
@@ -595,10 +666,10 @@ Source file: https://mattmahoney.net/dc/10gb.html
 
 Our conclusion is that the new compression algorithm provides a good compression increase,
 while retaining the ability to saturate pretty much any IO either with compression or
-decompression given a moderate amount of CPU cores.
+decompression given a moderate number of CPU cores.
 
 
-## Why is concurrent block and stream speed so different?
+## Why are concurrent block and stream speeds so different?
 
 In most cases, MinLZ will be limited by memory bandwidth.
 
@@ -666,6 +737,7 @@ File names beginning with 'http://' and 'https://' will be downloaded and compre
 Only http response code 200 is accepted.
 
 Options:
+  -0    Perform no compression
   -1    Compress faster, but with a minor compression loss
   -2    Default compression speed (default true)
   -3    Compress more, but a lot slower
@@ -695,6 +767,8 @@ Options:
         Do not overwrite output files
   -verify
         Verify files, but do not write output
+  -xfast
+        Compress fastest, with a major compression loss
 
 Example:
 
@@ -731,10 +805,12 @@ Options:
   -c    Write all output to stdout. Multiple input files will be concatenated
   -cpu int
         Maximum number of threads to use (default 32)
+  -follow
+        Follow file like tail -f, reopening when EOF is reached
   -help
         Display help
   -limit string
-        Return at most this much data. Examples: 92, 64K, 256K, 1M, 4M        
+        Return at most this much data. Examples: 92, 64K, 256K, 1M, 4M
   -o string
         Write output to another file. Single input file only
   -offset string
@@ -763,6 +839,38 @@ search for the next newline, start outputting data.
 After 1KB, it will stop at the next newline.
 
 Partial files - decoded with tail, offset or limit will have `.part` extension.
+
+## Searching
+
+The `search` (or `find` or `s`) command searches for a literal pattern in compressed streams,
+using search tables to skip non-matching blocks:
+
+```
+mz search [options] <pattern> <file...>
+```
+
+Options:
+- `-l` Print matching lines (default: show match offsets)
+- `-c` Print match count only
+- `-n` Include line numbers (with `-l`)
+- `-q` Quiet mode, exit code only (0=found, 1=not found)
+- `-bail` Error if search tables are not available
+
+Example:
+
+```
+$ mz search -l "error_pattern" server.log.mz
+10506612227:{"message":"error_pattern found in processing"}
+```
+
+Files must be compressed with `-search` to include search tables:
+
+```
+$ mz c -search=6 server.log
+$ mz c -search=4 -search.prefixes="," data.csv
+```
+
+Without search tables, the search command falls back to decompressing every block.
 
 # Snappy/S2 Compatibility
 
@@ -806,15 +914,17 @@ Reference code is provided in the `internal/reference` folder.
 This provides simplified, but explicit versions of the block de/encoder;
 stream and index decoders with minimal dependencies.
 
-Currently, there are no ports of MinLZ to other languages. 
+There are official Go and Rust ports, plus an experimental C port; see the table below. 
 If you are interested in porting MinLZ to another language, open a discussion topic.
 
 If you do a port, feel free to send in a PR for this table:
 
-| Language | Repository Link                                                                         | License    | Block Read | Block Write | Stream Read | Stream Write | Index | Snappy Fallback |
-|----------|-----------------------------------------------------------------------------------------|------------|------------|-------------|-------------|--------------|-------|-----------------|
-| Go       | [github.com/minio/minlz](https://github.com/minio/minlz)                                | Apache 2.0 | ✅          | ✅           | ✅           | ✅            | ✅     | ✅               |  
-| C        | [Experimental GIST](https://gist.github.com/klauspost/5796a5aa116a15eb7341ffa8427bbe7a) | CC0        | ✅          | ✅           |             |              |       |                 |                                                                                                                 
+| Language | Repository Link                                                                         | License      | Block Read | Block Write | Stream Read | Stream Write | Index | Search | Snappy Fallback |
+|----------|-----------------------------------------------------------------------------------------|--------------|------------|-------------|-------------|--------------|-------|--------|-----------------|
+| Go       | [github.com/minio/minlz](https://github.com/minio/minlz)                                | Apache 2.0   | ✅          | ✅           | ✅           | ✅            | ✅     | ✅      | ✅               |  
+| Rust     | [github.com/KarpelesLab/minlz-rs](https://github.com/KarpelesLab/minlz-rs)              | BSD-3-Clause | ✅          | ✅           | ✅           | ✅            | ✅     |        | ✅               |  
+| Rust     | [github.com/minio/minlz-rs](https://github.com/minio/minlz-rs)                          | Apache 2.0   | ✅          | ✅           | ✅           | ✅            | ✅     |        |                 |  
+| C        | [Experimental GIST](https://gist.github.com/klauspost/5796a5aa116a15eb7341ffa8427bbe7a) | CC0          | ✅          | ✅           |             |              |       |        |                 |
 
 
 Indicated features must support all parts of each feature as described in the specification.
