@@ -87,10 +87,15 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create claims adjuster: %w", err)
 	}
+
+	retryConfig := dpop_oauth.DefaultRetryConfig()
+	retryConfig.Timeout = 10 * time.Second
+
 	opts := []dpop_oauth.TokenSourceOption{
 		dpop_oauth.WithRequestOption(dpop_oauth.WithCustomMarshaler(idAttMarshaller.Marshal)),
 		dpop_oauth.WithHTTPClient(lambdaHTTPClient(tlsConfig)),
 		dpop_oauth.WithNonceStore(dpop_oauth.NewNonceStore()), // satisfy use_dpop_nonce
+		dpop_oauth.WithRetryConfig(retryConfig),
 	}
 	tokenSource, err := dpop_oauth.NewTokenSource(proofer, tokenURL, clientID, clientSecretJWK, opts...)
 	if err != nil {
