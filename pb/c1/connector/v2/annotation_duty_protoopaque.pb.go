@@ -23,23 +23,22 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// DutyMappingPrecision says how an entitlement relates to a duty.
+// DutyMappingPrecision says how an entitlement relates to a duty. EXACT and
+// INCLUSIVE match rules the same way; the difference is the evidence shown.
+// When whether the entitlement allows a duty depends on a setting the
+// connector does not read, omit the mapping.
 type DutyMappingPrecision int32
 
 const (
 	DutyMappingPrecision_DUTY_MAPPING_PRECISION_UNSPECIFIED DutyMappingPrecision = 0
-	// The entitlement grants exactly this duty. Example: a "Payment Release"
-	// role grants "Release payment".
+	// The entitlement exists to grant this one duty. Example: a "Release
+	// payment" permission mapped to payment.release; removing the grant
+	// removes the duty.
 	DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT DutyMappingPrecision = 1
-	// A broad entitlement that allows this duty among others. List every
-	// material duty and mark each one INCLUSIVE.
+	// A broad entitlement that allows this duty among others. Example: a
+	// Finance Administrator role mapped to payment.release, payment.authorize
+	// and vendor.activate, each INCLUSIVE.
 	DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE DutyMappingPrecision = 2
-	// The duty applies only if app settings the connector does not check
-	// allow it. Example: repository write access counts as "Approve software
-	// change" only when branch protection allows self-approval. Prefer
-	// reading the setting and emitting EXACT or INCLUSIVE; when that is not
-	// possible, emit CONDITIONAL and state the condition in description.
-	DutyMappingPrecision_DUTY_MAPPING_PRECISION_CONDITIONAL DutyMappingPrecision = 3
 )
 
 // Enum value maps for DutyMappingPrecision.
@@ -48,13 +47,11 @@ var (
 		0: "DUTY_MAPPING_PRECISION_UNSPECIFIED",
 		1: "DUTY_MAPPING_PRECISION_EXACT",
 		2: "DUTY_MAPPING_PRECISION_INCLUSIVE",
-		3: "DUTY_MAPPING_PRECISION_CONDITIONAL",
 	}
 	DutyMappingPrecision_value = map[string]int32{
 		"DUTY_MAPPING_PRECISION_UNSPECIFIED": 0,
 		"DUTY_MAPPING_PRECISION_EXACT":       1,
 		"DUTY_MAPPING_PRECISION_INCLUSIVE":   2,
-		"DUTY_MAPPING_PRECISION_CONDITIONAL": 3,
 	}
 )
 
@@ -86,10 +83,10 @@ func (x DutyMappingPrecision) Number() protoreflect.EnumNumber {
 // own app; customer changes to the mappings live in ConductorOne.
 //
 // Attach at most one DutyMappingsAnnotation per entitlement. Build it with
-// entitlement.WithDuties and the builders in pkg/duty.
+// entitlement.WithDuties and duty.Exact / duty.Inclusive.
 type DutyMappingsAnnotation struct {
 	state               protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Mappings *[]*DutyMapping        `protobuf:"bytes,3,rep,name=mappings,proto3"`
+	xxx_hidden_Mappings *[]*DutyMapping        `protobuf:"bytes,1,rep,name=mappings,proto3"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -135,10 +132,10 @@ func (x *DutyMappingsAnnotation) SetMappings(v []*DutyMapping) {
 type DutyMappingsAnnotation_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// At least one mapping. Each duty_id appears at most once.
+	// 1 to 16 mappings. Each duty_id appears at most once.
 	// The protoc-gen-validate unique rule covers scalar and enum items, not
-	// messages, so duty.Validate checks it. A reader that does not validate
-	// takes the last mapping for a repeated duty_id.
+	// messages, so duty.Validate checks it. An entitlement that would need
+	// more than 16 should list its most material duties.
 	Mappings []*DutyMapping
 }
 
@@ -222,16 +219,15 @@ type DutyMapping_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// An opaque duty key, such as "payment.release". Consumers compare the
-	// whole string and do not parse it. pkg/duty defines constants for common
-	// duties, but any value matching these rules is accepted. The
-	// <object>.<action> naming convention is checked by duty.Lint, not here.
+	// whole string and do not parse it. The field rule checks only the
+	// character set and length; the <object>.<action> naming convention is
+	// checked by duty.Validate, not by the field rule.
 	DutyId string
-	// How precisely the entitlement maps to the duty. Must be set. Consumers
-	// must tolerate values this version does not define.
+	// How the entitlement relates to the duty. Must be set. Consumers must
+	// tolerate values this version does not define.
 	Precision DutyMappingPrecision
-	// Optional plain-English note. Strongly expected on CONDITIONAL mappings,
-	// where it states the condition; duty.Conditional takes it as an argument.
-	// It is display text: consumers show it and do not match on it.
+	// Optional plain-English note about the mapping. It is shown to people
+	// and never matched on.
 	Description string
 }
 
@@ -249,18 +245,18 @@ var File_c1_connector_v2_annotation_duty_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_duty_proto_rawDesc = "" +
 	"\n" +
-	"%c1/connector/v2/annotation_duty.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"k\n" +
-	"\x16DutyMappingsAnnotation\x12E\n" +
-	"\bmappings\x18\x03 \x03(\v2\x1c.c1.connector.v2.DutyMappingB\v\xfaB\b\x92\x01\x05\b\x01\x10\x80\x01R\bmappingsJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"\xbf\x01\n" +
+	"%c1/connector/v2/annotation_duty.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"^\n" +
+	"\x16DutyMappingsAnnotation\x12D\n" +
+	"\bmappings\x18\x01 \x03(\v2\x1c.c1.connector.v2.DutyMappingB\n" +
+	"\xfaB\a\x92\x01\x04\b\x01\x10\x10R\bmappings\"\xbf\x01\n" +
 	"\vDutyMapping\x125\n" +
 	"\aduty_id\x18\x01 \x01(\tB\x1c\xfaB\x19r\x17\x10\x01\x18@2\x11^[a-zA-Z0-9_.-]+$R\x06dutyId\x12M\n" +
 	"\tprecision\x18\x02 \x01(\x0e2%.c1.connector.v2.DutyMappingPrecisionB\b\xfaB\x05\x82\x01\x02 \x00R\tprecision\x12*\n" +
-	"\vdescription\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\bR\vdescription*\xae\x01\n" +
+	"\vdescription\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\bR\vdescription*\x86\x01\n" +
 	"\x14DutyMappingPrecision\x12&\n" +
 	"\"DUTY_MAPPING_PRECISION_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cDUTY_MAPPING_PRECISION_EXACT\x10\x01\x12$\n" +
-	" DUTY_MAPPING_PRECISION_INCLUSIVE\x10\x02\x12&\n" +
-	"\"DUTY_MAPPING_PRECISION_CONDITIONAL\x10\x03B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	" DUTY_MAPPING_PRECISION_INCLUSIVE\x10\x02B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_duty_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_c1_connector_v2_annotation_duty_proto_msgTypes = make([]protoimpl.MessageInfo, 2)

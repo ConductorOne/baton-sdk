@@ -100,20 +100,20 @@ func handleExternalLink(_ *sanitizer, msg proto.Message, _ *assetRefSet) proto.M
 // which may name app-specific objects. Empty descriptions stay empty.
 const redactedDutyDescription = "redacted"
 
-// sanitizeDutyID keeps a duty ID that duty.IsKnown accepts and HMACs any
-// other through s.id. Duty IDs are open strings, so an unknown one may name
-// something app-specific. s.id emits 20 base32 characters ([A-Z2-7]), which
-// satisfies the duty_id wire rules, never contains the '.' every known ID
-// has, and keeps distinct inputs distinct, so no duplicates appear.
+// sanitizeDutyID keeps a duty ID in catalog form (duty.ValidID), which is
+// shared vocabulary, and HMACs any other through s.id, since it may name
+// app-specific objects. s.id emits 20 base32 characters ([A-Z2-7]), which
+// satisfies the duty_id field rule and keeps distinct inputs distinct, so no
+// duplicates appear.
 func (s *sanitizer) sanitizeDutyID(id string) string {
-	if duty.IsKnown(id) {
+	if duty.ValidID(id) {
 		return id
 	}
 	return s.id(id)
 }
 
-// handleDutyMappings keeps known duty IDs and precision, HMACs unknown duty
-// IDs, and redacts descriptions.
+// handleDutyMappings keeps precision and catalog-form duty IDs, HMACs other
+// duty IDs, and redacts non-empty descriptions.
 func handleDutyMappings(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {
 	in := msg.(*v2.DutyMappingsAnnotation)
 	mappings := make([]*v2.DutyMapping, 0, len(in.GetMappings()))

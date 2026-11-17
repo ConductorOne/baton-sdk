@@ -2,13 +2,11 @@ package entitlement
 
 import (
 	"fmt"
-	"slices"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/duty"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type EntitlementOption func(*v2.Entitlement)
@@ -79,67 +77,20 @@ func WithExclusionGroupDefault(exclusionGroupID string, order uint32) Entitlemen
 	})
 }
 
-// WithDuties declares the duties this entitlement allows. Repeated calls
-// add to the same DutyMappingsAnnotation. A duty listed more than once keeps
-// its first position and takes the last mapping given for it. Calling it with
-// no mappings changes nothing.
-//
-// The mappings merge into the first DutyMappingsAnnotation that unmarshals.
-// One that does not unmarshal is left as is, never dropped; if no existing
-// annotation unmarshals, a new one is appended, and the entitlement then
-// fails dutytest.AssertEntitlement for carrying an invalid and a repeated duty
-// annotation.
+// WithDuties attaches one DutyMappingsAnnotation holding mappings in the
+// order given. With no mappings it does nothing. Call it once per
+// entitlement with all of the entitlement's duties: calling it again appends
+// a second annotation, which breaks the at-most-one rule and fails
+// dutytest.AssertEntitlement.
 func WithDuties(mappings ...duty.Mapping) EntitlementOption {
-	return func(e *v2.Entitlement) {
-		if len(mappings) == 0 {
-			return
-		}
-		annos := e.GetAnnotations()
-		existing := -1
-		ann := &v2.DutyMappingsAnnotation{}
-		for i, a := range annos {
-			if !a.MessageIs(ann) {
-				continue
-			}
-			if err := a.UnmarshalTo(ann); err != nil {
-				ann = &v2.DutyMappingsAnnotation{}
-				continue
-			}
-			existing = i
-			break
-		}
-
-		list := ann.GetMappings()
-		index := make(map[string]int, len(list)+len(mappings))
-		merged := make([]*v2.DutyMapping, 0, len(list)+len(mappings))
-		add := func(m *v2.DutyMapping) {
-			if i, ok := index[m.GetDutyId()]; ok {
-				merged[i] = m
-				return
-			}
-			index[m.GetDutyId()] = len(merged)
-			merged = append(merged, m)
-		}
-		for _, m := range list {
-			add(m)
-		}
-		for _, m := range mappings {
-			add(m.Proto())
-		}
-		ann.SetMappings(merged)
-
-		packed, err := anypb.New(ann)
-		if err != nil {
-			panic(fmt.Errorf("failed to anypb.New: %w", err))
-		}
-		out := slices.Clone(annos)
-		if existing >= 0 {
-			out[existing] = packed
-		} else {
-			out = append(out, packed)
-		}
-		e.SetAnnotations(out)
+	if len(mappings) == 0 {
+		return func(*v2.Entitlement) {}
 	}
+	list := make([]*v2.DutyMapping, 0, len(mappings))
+	for _, m := range mappings {
+		list = append(list, m.Proto())
+	}
+	return WithAnnotation(v2.DutyMappingsAnnotation_builder{Mappings: list}.Build())
 }
 
 // NewEntitlementID returns the public entitlement id for a resource and

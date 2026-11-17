@@ -1,6 +1,7 @@
 package dutytest
 
 import (
+	"strings"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -33,23 +34,27 @@ func newEntitlement(t *testing.T, opts ...entitlement.EntitlementOption) *v2.Ent
 
 func TestAssertEntitlement(t *testing.T) {
 	AssertEntitlement(t, newEntitlement(t))
-	AssertEntitlement(t, newEntitlement(t, entitlement.WithDuties(duty.Exact(duty.PaymentRelease))))
+	AssertEntitlement(t, newEntitlement(t, entitlement.WithDuties(duty.Exact("payment.release"), duty.Inclusive("payment.authorize"))))
 
-	typo := newEntitlement(t, entitlement.WithDuties(duty.Exact("payment.relase")))
+	invalid := newEntitlement(t, entitlement.WithDuties(duty.Exact("Payment-Release")))
 	r := &recorder{TB: t}
-	AssertEntitlement(r, typo)
-	require.Len(t, r.errors, 1)
-	AssertEntitlement(t, typo, duty.AllowUnknown("payment.relase"))
+	AssertEntitlement(r, invalid)
+	require.Len(t, r.errors, 1, "an ID outside the naming convention fails")
 
-	twice := newEntitlement(t, entitlement.WithDuties(duty.Exact(duty.PaymentRelease)))
-	extra, err := anypb.New(v2.DutyMappingsAnnotation_builder{
-		Mappings: []*v2.DutyMapping{duty.Exact(duty.PaymentPrepare).Proto()},
-	}.Build())
-	require.NoError(t, err)
-	twice.SetAnnotations(append(twice.GetAnnotations(), extra))
+	twice := newEntitlement(t,
+		entitlement.WithDuties(duty.Exact("payment.release")),
+		entitlement.WithDuties(duty.Exact("payment.prepare")),
+	)
 	r = &recorder{TB: t}
 	AssertEntitlement(r, twice)
+	require.Len(t, r.errors, 1, "a second annotation fails")
+
+	undecodable := newEntitlement(t)
+	undecodable.SetAnnotations([]*anypb.Any{{TypeUrl: "type.googleapis.com/c1.connector.v2.DutyMappingsAnnotation", Value: []byte{0xff, 0xff}}})
+	r = &recorder{TB: t}
+	AssertEntitlement(r, undecodable)
 	require.Len(t, r.errors, 1)
+	require.Contains(t, r.errors[0], "does not unmarshal")
 }
 
 func TestCases(t *testing.T) {
@@ -67,6 +72,11 @@ func TestCases(t *testing.T) {
 			}
 			if !c.Valid && err == nil {
 				t.Error("duty.Validate: nil, want an error")
+			}
+			if strings.HasSuffix(c.Name, "passes the wire rule") {
+				if err := c.Annotation.ValidateAll(); err != nil {
+					t.Errorf("ValidateAll: %v, want nil", err)
+				}
 			}
 			b, err := proto.Marshal(c.Annotation)
 			if err != nil {

@@ -57,10 +57,10 @@ func (m *DutyMappingsAnnotation) validate(all bool) error {
 
 	var errors []error
 
-	if l := len(m.GetMappings()); l < 1 || l > 128 {
+	if l := len(m.GetMappings()); l < 1 || l > 16 {
 		err := DutyMappingsAnnotationValidationError{
 			field:  "Mappings",
-			reason: "value must contain between 1 and 128 items, inclusive",
+			reason: "value must contain between 1 and 16 items, inclusive",
 		}
 		if !all {
 			return err

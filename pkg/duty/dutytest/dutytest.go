@@ -10,10 +10,10 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/duty"
 )
 
-// AssertEntitlement fails t if ent's DutyMappingsAnnotation does not pass
-// duty.Lint with opts, does not unmarshal, or appears more than once. An
-// entitlement without a duty annotation passes.
-func AssertEntitlement(t testing.TB, ent *v2.Entitlement, opts ...duty.LintOption) {
+// AssertEntitlement fails t if ent carries more than one
+// DutyMappingsAnnotation, or one that does not unmarshal or does not pass
+// duty.Validate. An entitlement without a duty annotation passes.
+func AssertEntitlement(t testing.TB, ent *v2.Entitlement) {
 	t.Helper()
 	count := 0
 	for _, a := range ent.GetAnnotations() {
@@ -26,7 +26,7 @@ func AssertEntitlement(t testing.TB, ent *v2.Entitlement, opts ...duty.LintOptio
 			t.Errorf("entitlement %q: duty annotation does not unmarshal: %v", ent.GetId(), err)
 			continue
 		}
-		if err := duty.Lint(ann, opts...); err != nil {
+		if err := duty.Validate(ann); err != nil {
 			t.Errorf("entitlement %q: %v", ent.GetId(), err)
 		}
 	}

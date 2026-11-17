@@ -21,8 +21,8 @@ func TestDutyMappingsAnnotationHandler(t *testing.T) {
 			}.Build(),
 			v2.DutyMapping_builder{
 				DutyId:      "software_change.approve",
-				Precision:   v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_CONDITIONAL,
-				Description: "only when branch protection on acme/payments-service allows self-approval",
+				Precision:   v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE,
+				Description: "Maintainer role on the acme/payments-service repository",
 			}.Build(),
 		},
 	}.Build()
@@ -38,14 +38,14 @@ func TestDutyMappingsAnnotationHandler(t *testing.T) {
 	require.NoError(t, duty.Validate(got))
 }
 
-func TestDutyMappingsAnnotationHandlerUnknownIDs(t *testing.T) {
-	s := newTestSanitizer(bytes32("duty-unknown"))
+func TestDutyMappingsAnnotationHandlerIDs(t *testing.T) {
+	s := newTestSanitizer(bytes32("duty-ids"))
 	ids := []string{
-		string(duty.PaymentRelease),
+		"payment.release",
 		"acme_ledger.post",
 		"Acme-Ledger.Post",
 		"acme.ledger.post.extra",
-		string(duty.SoftwareChangeMerge),
+		"software_change.merge",
 		strings.Repeat("x", 64),
 	}
 	list := make([]*v2.DutyMapping, 0, len(ids))
@@ -53,24 +53,23 @@ func TestDutyMappingsAnnotationHandlerUnknownIDs(t *testing.T) {
 		list = append(list, duty.Inclusive(id).Proto())
 	}
 	in := v2.DutyMappingsAnnotation_builder{Mappings: list}.Build()
-	require.NoError(t, duty.Validate(in))
+	require.NoError(t, in.ValidateAll())
 
 	out := s.transformAnnotations([]*anypb.Any{mustAny(t, in)}, newAssetRefSet())
 	require.Len(t, out, 1)
 	got := mustUnpack(t, out[0], &v2.DutyMappingsAnnotation{})
-	require.NoError(t, duty.Validate(got), "sanitized IDs satisfy the wire rules and stay distinct")
+	require.NoError(t, got.ValidateAll(), "sanitized IDs satisfy the wire rules")
 
 	seen := map[string]struct{}{}
 	for i, m := range got.GetMappings() {
 		require.Equal(t, v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE, m.GetPrecision())
-		if duty.IsKnown(ids[i]) {
-			require.Equal(t, ids[i], m.GetDutyId(), "known duty IDs pass through")
+		if duty.ValidID(ids[i]) {
+			require.Equal(t, ids[i], m.GetDutyId(), "catalog-form duty IDs pass through")
 		} else {
-			require.NotEqual(t, ids[i], m.GetDutyId(), "unknown duty IDs are rewritten")
-			require.False(t, duty.IsKnown(m.GetDutyId()))
-			require.Equal(t, s.sanitizeDutyID(ids[i]), m.GetDutyId(), "rewriting is deterministic")
+			require.NotEqual(t, ids[i], m.GetDutyId(), "other duty IDs are replaced")
+			require.Equal(t, s.sanitizeDutyID(ids[i]), m.GetDutyId(), "replacement is deterministic")
 		}
 		seen[m.GetDutyId()] = struct{}{}
 	}
-	require.Len(t, seen, len(ids))
+	require.Len(t, seen, len(ids), "sanitized IDs stay distinct")
 }
