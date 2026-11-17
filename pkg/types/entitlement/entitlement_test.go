@@ -5,8 +5,11 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/duty"
+	"github.com/conductorone/baton-sdk/pkg/duty/dutytest"
 	resource "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestNewAssignmentEntitlement(t *testing.T) {
@@ -141,4 +144,67 @@ func TestWithExclusionGroupDefault(t *testing.T) {
 	require.Equal(t, "access-tier", eg.GetExclusionGroupId())
 	require.Equal(t, uint32(10), eg.GetOrder())
 	require.True(t, eg.GetIsDefault())
+}
+
+func dutyAnnotations(t *testing.T, en *v2.Entitlement) []*v2.DutyMappingsAnnotation {
+	t.Helper()
+	var out []*v2.DutyMappingsAnnotation
+	for _, a := range en.GetAnnotations() {
+		if a.MessageIs(&v2.DutyMappingsAnnotation{}) {
+			ann := &v2.DutyMappingsAnnotation{}
+			require.NoError(t, a.UnmarshalTo(ann))
+			out = append(out, ann)
+		}
+	}
+	return out
+}
+
+// recorder captures failures instead of failing the enclosing test.
+type recorder struct {
+	testing.TB
+	failed bool
+}
+
+func (r *recorder) Helper() {}
+
+func (r *recorder) Errorf(string, ...any) { r.failed = true }
+
+func TestWithDuties(t *testing.T) {
+	rt := resource.NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
+	r, err := resource.NewResource("payments", rt, "payments")
+	require.NoError(t, err)
+
+	t.Run("no mappings attach nothing", func(t *testing.T) {
+		en := NewPermissionEntitlement(r, "release", WithDuties())
+		require.Empty(t, en.GetAnnotations())
+	})
+
+	t.Run("one call attaches one annotation in order", func(t *testing.T) {
+		mappings := []*v2.DutyMapping{
+			duty.Inclusive("payment.release"),
+			duty.Exact("payment.authorize", "Finance Administrator role"),
+			duty.Inclusive("vendor.activate"),
+		}
+		en := NewPermissionEntitlement(r, "release", WithExclusionGroup("roles"), WithDuties(mappings...))
+		annos := annotations.Annotations(en.GetAnnotations())
+		require.True(t, annos.Contains(&v2.EntitlementExclusionGroup{}))
+		anns := dutyAnnotations(t, en)
+		require.Len(t, anns, 1)
+		require.Len(t, anns[0].GetMappings(), len(mappings))
+		for i, m := range mappings {
+			require.True(t, proto.Equal(m, anns[0].GetMappings()[i]), "mapping %d", i)
+		}
+		dutytest.AssertEntitlement(t, en)
+	})
+
+	t.Run("two calls attach two annotations", func(t *testing.T) {
+		en := NewPermissionEntitlement(r, "release",
+			WithDuties(duty.Exact("payment.release")),
+			WithDuties(duty.Exact("payment.prepare")),
+		)
+		require.Len(t, dutyAnnotations(t, en), 2)
+		rec := &recorder{TB: t}
+		dutytest.AssertEntitlement(rec, en)
+		require.True(t, rec.failed, "AssertEntitlement rejects a second duty annotation")
+	})
 }

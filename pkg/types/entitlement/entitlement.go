@@ -76,6 +76,19 @@ func WithExclusionGroupDefault(exclusionGroupID string, order uint32) Entitlemen
 	})
 }
 
+// WithDuties attaches one DutyMappingsAnnotation holding the mappings in
+// the order given. Build mappings with duty.Exact and duty.Inclusive. With no
+// mappings it does nothing. Call it once per entitlement with all of the
+// entitlement's duties: each call appends its own annotation, mappings are
+// not merged or de-duplicated, and a second annotation breaks the
+// at-most-one rule and fails dutytest.AssertEntitlement.
+func WithDuties(mappings ...*v2.DutyMapping) EntitlementOption {
+	if len(mappings) == 0 {
+		return func(*v2.Entitlement) {}
+	}
+	return WithAnnotation(v2.DutyMappingsAnnotation_builder{Mappings: mappings}.Build())
+}
+
 // NewEntitlementID returns the public entitlement id for a resource and
 // permission. The raw ":"-join is an external-consumer contract: ids must
 // stay byte-identical across SDK versions (C1 carries configuration keyed on

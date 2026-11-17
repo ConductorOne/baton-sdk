@@ -95,6 +95,33 @@ func handleExternalLink(_ *sanitizer, msg proto.Message, _ *assetRefSet) proto.M
 	return v2.ExternalLink_builder{Url: url}.Build()
 }
 
+// redactedDutyDescription replaces a non-empty DutyMapping description,
+// which may name app-specific objects. Empty descriptions stay empty.
+const redactedDutyDescription = "redacted"
+
+// handleDutyMappings HMACs every non-empty duty ID through s.id, keeps
+// precision, and redacts non-empty descriptions. Duty IDs are
+// connector-supplied strings and may name app-specific objects, so all of
+// them are hashed. s.id emits 20 base32 characters ([A-Z2-7]), which
+// satisfies the duty_id field rule and keeps distinct inputs distinct, so no
+// duplicates appear.
+func handleDutyMappings(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {
+	in := msg.(*v2.DutyMappingsAnnotation)
+	mappings := make([]*v2.DutyMapping, 0, len(in.GetMappings()))
+	for _, m := range in.GetMappings() {
+		description := ""
+		if m.GetDescription() != "" {
+			description = redactedDutyDescription
+		}
+		mappings = append(mappings, v2.DutyMapping_builder{
+			DutyId:      s.id(m.GetDutyId()),
+			Precision:   m.GetPrecision(),
+			Description: description,
+		}.Build())
+	}
+	return v2.DutyMappingsAnnotation_builder{Mappings: mappings}.Build()
+}
+
 // handleChildResourceType preserves the resource-tree topology, sanitizing
 // the embedded resource-type token under the known-type rule.
 func handleChildResourceType(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {

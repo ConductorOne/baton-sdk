@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// DutyMappingsAnnotation declares which business duties an entitlement
+// allows. ConductorOne is meant to use these mappings for separation-of-duties
+// checks. The annotation carries only facts the connector knows about its
+// own app; customer changes to the mappings live in ConductorOne.
+//
+// Attach at most one DutyMappingsAnnotation per entitlement. Build it with
+// entitlement.WithDuties and duty.Exact / duty.Inclusive.
+message DutyMappingsAnnotation {
+  // 1 to 16 mappings. Each duty_id appears at most once.
+  // The protoc-gen-validate unique rule covers scalar and enum items, not
+  // messages, so duty.Validate checks it. An entitlement that would need
+  // more than 16 should list its most material duties.
+  repeated DutyMapping mappings = 1 [(validate.rules).repeated = {
+    min_items: 1
+    max_items: 16
+  }];
+}
+
+// DutyMapping states that an entitlement allows one duty.
+message DutyMapping {
+  // An opaque duty key, such as "payment.release". Consumers compare the
+  // whole string and do not parse it. The field rule checks only the
+  // character set and length; the <object>.<action> naming convention is
+  // checked by duty.Validate, not by the field rule.
+  string duty_id = 1 [(validate.rules).string = {
+    pattern: "^[a-zA-Z0-9_.-]+$"
+    min_len: 1
+    max_len: 64
+  }];
+
+  // How the entitlement relates to the duty. Must be set. Consumers must
+  // tolerate values this version does not define.
+  DutyMappingPrecision precision = 2 [(validate.rules).enum = {
+    not_in: [0]
+  }];
+
+  // Optional plain-English note about the mapping. It is shown to people
+  // and never matched on.
+  string description = 3 [(validate.rules).string = {max_len: 1024}];
+}
+
+// DutyMappingPrecision says how an entitlement relates to a duty. EXACT and
+// INCLUSIVE match rules the same way; the difference is the evidence shown.
+// When whether the entitlement allows a duty depends on a setting the
+// connector does not read, omit the mapping.
+enum DutyMappingPrecision {
+  DUTY_MAPPING_PRECISION_UNSPECIFIED = 0;
+
+  // The entitlement exists to grant this one duty. Example: a "Release
+  // payment" permission mapped to payment.release; removing the grant
+  // removes the duty.
+  DUTY_MAPPING_PRECISION_EXACT = 1;
+
+  // A broad entitlement that allows this duty among others. Example: a
+  // Finance Administrator role mapped to payment.release, payment.authorize
+  // and vendor.activate, each INCLUSIVE.
+  DUTY_MAPPING_PRECISION_INCLUSIVE = 2;
+}
