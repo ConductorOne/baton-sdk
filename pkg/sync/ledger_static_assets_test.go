@@ -21,7 +21,7 @@ type ledgerStaticConnector struct {
 	*ledgerTypesConnector
 	calls   []string
 	failure error
-	duties  []duty.Mapping
+	duties  []*v2.DutyMapping
 }
 
 func (c *ledgerStaticConnector) ListStaticEntitlements(
@@ -84,9 +84,11 @@ func TestLedgerStaticEntitlementPages(t *testing.T) {
 }
 func TestLedgerStaticEntitlementKeepsDuties(t *testing.T) {
 	s, f, c := staticPageFixture(t)
-	c.duties = []duty.Mapping{duty.Exact("payment.release"), duty.Inclusive("payment.authorize").WithDescription("Finance Administrator role")}
+	authorize := duty.Inclusive("payment.authorize")
+	authorize.SetDescription("Finance Administrator role")
+	c.duties = []*v2.DutyMapping{duty.Exact("payment.release"), authorize}
 	want := v2.DutyMappingsAnnotation_builder{
-		Mappings: []*v2.DutyMapping{c.duties[0].Proto(), c.duties[1].Proto()},
+		Mappings: []*v2.DutyMapping{duty.Exact("payment.release"), authorize},
 	}.Build()
 	f.audit.enter(ledgerHandler)
 	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)

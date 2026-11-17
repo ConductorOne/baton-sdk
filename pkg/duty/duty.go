@@ -5,6 +5,13 @@
 // <object>.<action> in lowercase, such as "payment.release". A list of duty
 // names will be added to this package in a later release once they are
 // settled; until then pass the ID as a string.
+//
+// Exact and Inclusive return the wire message. To add a description, set it
+// on the returned message:
+//
+//	m := duty.Inclusive("payment.authorize")
+//	m.SetDescription("Finance Administrator role")
+//	entitlement.WithDuties(duty.Exact("payment.release"), m)
 package duty
 
 import (
@@ -15,41 +22,25 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-// Mapping is one duty an entitlement allows. Build it with Exact or
-// Inclusive.
-type Mapping struct {
-	dutyID      string
-	precision   v2.DutyMappingPrecision
-	description string
-}
-
-// Exact maps an entitlement that exists to grant this one duty. It accepts
-// any string type so typed duty-name constants can be added in a later
-// release without an API change.
-func Exact[T ~string](id T) Mapping {
-	return Mapping{dutyID: string(id), precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT}
-}
-
-// Inclusive maps a broad entitlement that allows this duty among others. It
-// accepts any string type so typed duty-name constants can be added in a
-// later release without an API change.
-func Inclusive[T ~string](id T) Mapping {
-	return Mapping{dutyID: string(id), precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE}
-}
-
-// WithDescription replaces the mapping's description, an optional
-// plain-English note shown to people and never matched on.
-func (m Mapping) WithDescription(text string) Mapping {
-	m.description = text
-	return m
-}
-
-// Proto returns the mapping as its wire message.
-func (m Mapping) Proto() *v2.DutyMapping {
+// Exact returns a mapping for an entitlement that exists to grant this one
+// duty. It accepts any string type so typed duty-name constants can be added
+// in a later release without an API change. Set an optional description with
+// SetDescription on the returned message.
+func Exact[T ~string](id T) *v2.DutyMapping {
 	return v2.DutyMapping_builder{
-		DutyId:      m.dutyID,
-		Precision:   m.precision,
-		Description: m.description,
+		DutyId:    string(id),
+		Precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT,
+	}.Build()
+}
+
+// Inclusive returns a mapping for a broad entitlement that allows this duty
+// among others. It accepts any string type so typed duty-name constants can
+// be added in a later release without an API change. Set an optional
+// description with SetDescription on the returned message.
+func Inclusive[T ~string](id T) *v2.DutyMapping {
+	return v2.DutyMapping_builder{
+		DutyId:    string(id),
+		Precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE,
 	}.Build()
 }
 
@@ -59,15 +50,17 @@ var namingConvention = regexp.MustCompile(`^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$`)
 // maxIDLen matches the max_len rule on DutyMapping.duty_id.
 const maxIDLen = 64
 
-// ValidID reports whether id follows the duty ID naming convention: 1 to 64
+// validID reports whether id follows the duty ID naming convention: 1 to 64
 // characters, <object>.<action>, lowercase letters, digits and '_', each
 // part starting with a letter, and exactly one '.'.
-func ValidID[T ~string](id T) bool {
-	return len(id) >= 1 && len(id) <= maxIDLen && namingConvention.MatchString(string(id))
+func validID(id string) bool {
+	return len(id) >= 1 && len(id) <= maxIDLen && namingConvention.MatchString(id)
 }
 
 // Validate checks the annotation's wire rules, rejects a duty ID listed
-// twice, and requires every duty ID to pass ValidID.
+// twice, and requires every duty ID to follow the <object>.<action> naming
+// convention: 1 to 64 characters, lowercase letters, digits and '_', each
+// part starting with a letter, and exactly one '.'.
 func Validate(a *v2.DutyMappingsAnnotation) error {
 	if err := a.ValidateAll(); err != nil {
 		return err
@@ -81,7 +74,7 @@ func Validate(a *v2.DutyMappingsAnnotation) error {
 		} else {
 			seen[id] = i
 		}
-		if !ValidID(id) {
+		if !validID(id) {
 			errs = append(errs, fmt.Errorf("mapping %d: duty %q does not follow the <object>.<action> naming convention", i, id))
 		}
 	}

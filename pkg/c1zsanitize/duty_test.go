@@ -5,9 +5,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/duty"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -30,12 +28,16 @@ func TestDutyMappingsAnnotationHandler(t *testing.T) {
 	out := s.transformAnnotations([]*anypb.Any{mustAny(t, in)}, newAssetRefSet())
 	require.Len(t, out, 1)
 	got := mustUnpack(t, out[0], &v2.DutyMappingsAnnotation{})
+	require.NoError(t, got.ValidateAll(), "sanitized output satisfies the wire rules")
+	require.Len(t, got.GetMappings(), 2)
 
-	want := proto.Clone(in).(*v2.DutyMappingsAnnotation)
-	want.GetMappings()[1].SetDescription(redactedDutyDescription)
-	require.True(t, proto.Equal(want, got), "got %v", got)
-	require.Empty(t, got.GetMappings()[0].GetDescription(), "an empty description stays empty")
-	require.NoError(t, duty.Validate(got))
+	m0, m1 := got.GetMappings()[0], got.GetMappings()[1]
+	require.Equal(t, s.id("payment.release"), m0.GetDutyId())
+	require.Equal(t, v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT, m0.GetPrecision())
+	require.Empty(t, m0.GetDescription(), "an empty description stays empty")
+	require.Equal(t, s.id("software_change.approve"), m1.GetDutyId())
+	require.Equal(t, v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE, m1.GetPrecision())
+	require.Equal(t, redactedDutyDescription, m1.GetDescription())
 }
 
 func TestDutyMappingsAnnotationHandlerIDs(t *testing.T) {
@@ -50,7 +52,10 @@ func TestDutyMappingsAnnotationHandlerIDs(t *testing.T) {
 	}
 	list := make([]*v2.DutyMapping, 0, len(ids))
 	for _, id := range ids {
-		list = append(list, duty.Inclusive(id).Proto())
+		list = append(list, v2.DutyMapping_builder{
+			DutyId:    id,
+			Precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE,
+		}.Build())
 	}
 	in := v2.DutyMappingsAnnotation_builder{Mappings: list}.Build()
 	require.NoError(t, in.ValidateAll())
@@ -59,17 +64,17 @@ func TestDutyMappingsAnnotationHandlerIDs(t *testing.T) {
 	require.Len(t, out, 1)
 	got := mustUnpack(t, out[0], &v2.DutyMappingsAnnotation{})
 	require.NoError(t, got.ValidateAll(), "sanitized IDs satisfy the wire rules")
+	require.Len(t, got.GetMappings(), len(ids))
+
+	again := mustUnpack(t, s.transformAnnotations([]*anypb.Any{mustAny(t, in)}, newAssetRefSet())[0], &v2.DutyMappingsAnnotation{})
 
 	seen := map[string]struct{}{}
 	for i, m := range got.GetMappings() {
 		require.Equal(t, v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE, m.GetPrecision())
-		if duty.ValidID(ids[i]) {
-			require.Equal(t, ids[i], m.GetDutyId(), "catalog-form duty IDs pass through")
-		} else {
-			require.NotEqual(t, ids[i], m.GetDutyId(), "other duty IDs are replaced")
-			require.Equal(t, s.sanitizeDutyID(ids[i]), m.GetDutyId(), "replacement is deterministic")
-		}
+		require.NotEqual(t, ids[i], m.GetDutyId(), "every duty ID is replaced")
+		require.Equal(t, s.id(ids[i]), m.GetDutyId())
+		require.Equal(t, again.GetMappings()[i].GetDutyId(), m.GetDutyId(), "the same input maps to the same output")
 		seen[m.GetDutyId()] = struct{}{}
 	}
-	require.Len(t, seen, len(ids), "sanitized IDs stay distinct")
+	require.Len(t, seen, len(ids), "distinct inputs stay distinct")
 }

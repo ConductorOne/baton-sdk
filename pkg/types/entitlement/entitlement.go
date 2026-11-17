@@ -2,10 +2,10 @@ package entitlement
 
 import (
 	"fmt"
+	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/duty"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -78,17 +78,31 @@ func WithExclusionGroupDefault(exclusionGroupID string, order uint32) Entitlemen
 }
 
 // WithDuties attaches one DutyMappingsAnnotation holding mappings in the
-// order given. With no mappings it does nothing. Call it once per
-// entitlement with all of the entitlement's duties: calling it again appends
-// a second annotation, which breaks the at-most-one rule and fails
+// order given. Build mappings with duty.Exact and duty.Inclusive. Call it
+// once per entitlement with all of the entitlement's duties: each call
+// appends its own annotation, mappings are not merged or de-duplicated, and
+// a second annotation breaks the at-most-one rule and fails
 // dutytest.AssertEntitlement.
-func WithDuties(mappings ...duty.Mapping) EntitlementOption {
-	if len(mappings) == 0 {
-		return func(*v2.Entitlement) {}
-	}
+//
+// Nil mappings are skipped; with no remaining mappings it does nothing. The
+// annotation holds copies, so the caller's messages are never changed or
+// shared. Invalid UTF-8 in a duty ID or description is replaced with U+FFFD
+// in the copy, so the annotation can always be encoded; a duty ID that held
+// invalid UTF-8 therefore fails duty.Validate.
+func WithDuties(mappings ...*v2.DutyMapping) EntitlementOption {
 	list := make([]*v2.DutyMapping, 0, len(mappings))
 	for _, m := range mappings {
-		list = append(list, m.Proto())
+		if m == nil {
+			continue
+		}
+		list = append(list, v2.DutyMapping_builder{
+			DutyId:      strings.ToValidUTF8(m.GetDutyId(), "\uFFFD"),
+			Precision:   m.GetPrecision(),
+			Description: strings.ToValidUTF8(m.GetDescription(), "\uFFFD"),
+		}.Build())
+	}
+	if len(list) == 0 {
+		return func(*v2.Entitlement) {}
 	}
 	return WithAnnotation(v2.DutyMappingsAnnotation_builder{Mappings: list}.Build())
 }

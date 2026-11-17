@@ -9,20 +9,25 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func annotation(mappings ...Mapping) *v2.DutyMappingsAnnotation {
-	list := make([]*v2.DutyMapping, 0, len(mappings))
-	for _, m := range mappings {
-		list = append(list, m.Proto())
-	}
-	return v2.DutyMappingsAnnotation_builder{Mappings: list}.Build()
+func annotation(mappings ...*v2.DutyMapping) *v2.DutyMappingsAnnotation {
+	return v2.DutyMappingsAnnotation_builder{Mappings: mappings}.Build()
 }
 
-func TestValidID(t *testing.T) {
+func described(m *v2.DutyMapping, text string) *v2.DutyMapping {
+	m.SetDescription(text)
+	return m
+}
+
+func withPrecision(id string, p v2.DutyMappingPrecision) *v2.DutyMapping {
+	return v2.DutyMapping_builder{DutyId: id, Precision: p}.Build()
+}
+
+func TestValidateNamingConvention(t *testing.T) {
 	type name string
 	for _, id := range []string{"payment.release", "vendor_payment_instructions.change", "a.b", "a1.b2_c", "a." + strings.Repeat("b", 62)} {
-		require.True(t, ValidID(id), "%q", id)
+		require.NoError(t, Validate(annotation(Exact(id))), "%q", id)
 	}
-	require.True(t, ValidID(name("payment.release")), "accepts typed strings")
+	require.NoError(t, Validate(annotation(Exact(name("payment.release")))), "accepts typed strings")
 	for _, id := range []string{
 		"",
 		"payment",
@@ -36,12 +41,12 @@ func TestValidID(t *testing.T) {
 		"payment release",
 		"a." + strings.Repeat("b", 63),
 	} {
-		require.False(t, ValidID(id), "%q", id)
+		require.Error(t, Validate(annotation(Exact(id))), "%q", id)
 	}
 }
 
 func TestValidate(t *testing.T) {
-	many := make([]Mapping, 0, 17)
+	many := make([]*v2.DutyMapping, 0, 17)
 	for i := range 17 {
 		many = append(many, Inclusive("duty.d"+strings.Repeat("x", i)))
 	}
@@ -51,18 +56,18 @@ func TestValidate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "exact", ann: annotation(Exact("payment.release"))},
-		{name: "inclusive with description", ann: annotation(Inclusive("payment.prepare").WithDescription("admin role"), Inclusive("payment.authorize"))},
+		{name: "inclusive with description", ann: annotation(described(Inclusive("payment.prepare"), "admin role"), Inclusive("payment.authorize"))},
 		{name: "16 mappings", ann: annotation(many[:16]...)},
 		{name: "max length", ann: annotation(Exact("a." + strings.Repeat("b", 62)))},
-		{name: "undefined precision", ann: annotation(Mapping{dutyID: "payment.release", precision: 99})},
+		{name: "undefined precision", ann: annotation(withPrecision("payment.release", 99))},
 		{name: "no mappings", ann: annotation(), wantErr: "Mappings"},
 		{name: "17 mappings", ann: annotation(many...), wantErr: "Mappings"},
 		{name: "empty id", ann: annotation(Exact("")), wantErr: "DutyId"},
 		{name: "space", ann: annotation(Exact("payment release")), wantErr: "DutyId"},
 		{name: "slash", ann: annotation(Exact("payment/release")), wantErr: "DutyId"},
 		{name: "too long", ann: annotation(Exact(strings.Repeat("a", 65))), wantErr: "DutyId"},
-		{name: "unspecified precision", ann: annotation(Mapping{dutyID: "payment.release"}), wantErr: "Precision"},
-		{name: "description too long", ann: annotation(Exact("payment.release").WithDescription(strings.Repeat("x", 1025))), wantErr: "Description"},
+		{name: "unspecified precision", ann: annotation(withPrecision("payment.release", 0)), wantErr: "Precision"},
+		{name: "description too long", ann: annotation(described(Exact("payment.release"), strings.Repeat("x", 1025))), wantErr: "Description"},
 		{
 			name:    "duplicate duty",
 			ann:     annotation(Exact("payment.release"), Inclusive("payment.prepare"), Inclusive("payment.release")),
@@ -95,7 +100,7 @@ func TestValidateReportsEveryMapping(t *testing.T) {
 }
 
 func TestUndefinedPrecisionRoundTrips(t *testing.T) {
-	in := annotation(Mapping{dutyID: "payment.release", precision: 99})
+	in := annotation(withPrecision("payment.release", 99))
 	b, err := proto.Marshal(in)
 	require.NoError(t, err)
 	out := &v2.DutyMappingsAnnotation{}
@@ -104,20 +109,20 @@ func TestUndefinedPrecisionRoundTrips(t *testing.T) {
 	require.NoError(t, Validate(out))
 }
 
-func TestMappingProto(t *testing.T) {
+func TestBuilders(t *testing.T) {
 	type name string
 
-	m := Exact(name("payment.release")).Proto()
+	m := Exact(name("payment.release"))
 	require.Equal(t, "payment.release", m.GetDutyId())
 	require.Equal(t, v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT, m.GetPrecision())
 	require.Empty(t, m.GetDescription())
 
-	base := Inclusive("payment.authorize")
-	described := base.WithDescription("Finance Administrator role")
-	m = described.Proto()
+	m = Inclusive("payment.authorize")
 	require.Equal(t, "payment.authorize", m.GetDutyId())
 	require.Equal(t, v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE, m.GetPrecision())
+	require.Empty(t, m.GetDescription())
+
+	m.SetDescription("Finance Administrator role")
 	require.Equal(t, "Finance Administrator role", m.GetDescription())
-	require.Empty(t, base.Proto().GetDescription(), "WithDescription returns a copy")
-	require.Equal(t, "replaced", described.WithDescription("replaced").Proto().GetDescription())
+	require.Empty(t, Inclusive("payment.authorize").GetDescription(), "each call returns a new message")
 }

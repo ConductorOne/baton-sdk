@@ -5,7 +5,6 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/duty"
 )
 
 // sanitizeAssetRef rewrites the asset id while registering the
@@ -100,20 +99,12 @@ func handleExternalLink(_ *sanitizer, msg proto.Message, _ *assetRefSet) proto.M
 // which may name app-specific objects. Empty descriptions stay empty.
 const redactedDutyDescription = "redacted"
 
-// sanitizeDutyID keeps a duty ID in catalog form (duty.ValidID), which is
-// shared vocabulary, and HMACs any other through s.id, since it may name
-// app-specific objects. s.id emits 20 base32 characters ([A-Z2-7]), which
+// handleDutyMappings HMACs every non-empty duty ID through s.id, keeps
+// precision, and redacts non-empty descriptions. Duty IDs are
+// connector-supplied strings and may name app-specific objects, so all of
+// them are hashed. s.id emits 20 base32 characters ([A-Z2-7]), which
 // satisfies the duty_id field rule and keeps distinct inputs distinct, so no
 // duplicates appear.
-func (s *sanitizer) sanitizeDutyID(id string) string {
-	if duty.ValidID(id) {
-		return id
-	}
-	return s.id(id)
-}
-
-// handleDutyMappings keeps precision and catalog-form duty IDs, HMACs other
-// duty IDs, and redacts non-empty descriptions.
 func handleDutyMappings(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.Message {
 	in := msg.(*v2.DutyMappingsAnnotation)
 	mappings := make([]*v2.DutyMapping, 0, len(in.GetMappings()))
@@ -123,7 +114,7 @@ func handleDutyMappings(s *sanitizer, msg proto.Message, _ *assetRefSet) proto.M
 			description = redactedDutyDescription
 		}
 		mappings = append(mappings, v2.DutyMapping_builder{
-			DutyId:      s.sanitizeDutyID(m.GetDutyId()),
+			DutyId:      s.id(m.GetDutyId()),
 			Precision:   m.GetPrecision(),
 			Description: description,
 		}.Build())
