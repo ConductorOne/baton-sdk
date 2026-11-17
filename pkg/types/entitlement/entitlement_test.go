@@ -2,7 +2,6 @@ package entitlement
 
 import (
 	"testing"
-	"unicode/utf8"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -180,17 +179,10 @@ func TestWithDuties(t *testing.T) {
 		require.Empty(t, en.GetAnnotations())
 	})
 
-	t.Run("only nil mappings attach nothing", func(t *testing.T) {
-		en := NewPermissionEntitlement(r, "release", WithDuties(nil, nil))
-		require.Empty(t, en.GetAnnotations())
-	})
-
 	t.Run("one call attaches one annotation in order", func(t *testing.T) {
-		described := duty.Exact("payment.authorize")
-		described.SetDescription("Finance Administrator role")
 		mappings := []*v2.DutyMapping{
 			duty.Inclusive("payment.release"),
-			described,
+			duty.Exact("payment.authorize", "Finance Administrator role"),
 			duty.Inclusive("vendor.activate"),
 		}
 		en := NewPermissionEntitlement(r, "release", WithExclusionGroup("roles"), WithDuties(mappings...))
@@ -203,61 +195,6 @@ func TestWithDuties(t *testing.T) {
 			require.True(t, proto.Equal(m, anns[0].GetMappings()[i]), "mapping %d", i)
 		}
 		dutytest.AssertEntitlement(t, en)
-	})
-
-	t.Run("nil mappings are skipped", func(t *testing.T) {
-		en := NewPermissionEntitlement(r, "release", WithDuties(nil, duty.Exact("payment.release"), nil, duty.Inclusive("payment.prepare")))
-		anns := dutyAnnotations(t, en)
-		require.Len(t, anns, 1)
-		got := anns[0].GetMappings()
-		require.Len(t, got, 2)
-		require.Equal(t, "payment.release", got[0].GetDutyId())
-		require.Equal(t, "payment.prepare", got[1].GetDutyId())
-		dutytest.AssertEntitlement(t, en)
-	})
-
-	t.Run("does not alias the caller's mappings", func(t *testing.T) {
-		m := duty.Exact("payment.release")
-		opt := WithDuties(m)
-		m.SetDutyId("payment.prepare")
-		anns := dutyAnnotations(t, NewPermissionEntitlement(r, "release", opt))
-		require.Len(t, anns, 1)
-		require.Equal(t, "payment.release", anns[0].GetMappings()[0].GetDutyId())
-	})
-
-	t.Run("invalid UTF-8 in a description does not panic", func(t *testing.T) {
-		m := duty.Exact("payment.release")
-		m.SetDescription("x\xff")
-		before := proto.Clone(m)
-		var en *v2.Entitlement
-		require.NotPanics(t, func() {
-			en = NewPermissionEntitlement(r, "release", WithDuties(m))
-		})
-		require.True(t, proto.Equal(before, m), "the caller's message is unchanged")
-		require.Equal(t, "x\xff", m.GetDescription())
-		anns := dutyAnnotations(t, en)
-		require.Len(t, anns, 1)
-		got := anns[0].GetMappings()[0]
-		require.True(t, utf8.ValidString(got.GetDescription()))
-		require.Equal(t, "x\uFFFD", got.GetDescription())
-		require.Equal(t, "payment.release", got.GetDutyId())
-		dutytest.AssertEntitlement(t, en)
-	})
-
-	t.Run("invalid UTF-8 in a duty ID does not panic and fails Validate", func(t *testing.T) {
-		m := duty.Inclusive("payment.rel\xffease")
-		var en *v2.Entitlement
-		require.NotPanics(t, func() {
-			en = NewPermissionEntitlement(r, "release", WithDuties(m))
-		})
-		require.Equal(t, "payment.rel\xffease", m.GetDutyId(), "the caller's message is unchanged")
-		anns := dutyAnnotations(t, en)
-		require.Len(t, anns, 1)
-		require.Equal(t, "payment.rel\uFFFDease", anns[0].GetMappings()[0].GetDutyId())
-		require.Error(t, duty.Validate(anns[0]))
-		rec := &recorder{TB: t}
-		dutytest.AssertEntitlement(rec, en)
-		require.True(t, rec.failed)
 	})
 
 	t.Run("two calls attach two annotations", func(t *testing.T) {

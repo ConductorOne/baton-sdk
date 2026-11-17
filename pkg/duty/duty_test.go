@@ -13,11 +13,6 @@ func annotation(mappings ...*v2.DutyMapping) *v2.DutyMappingsAnnotation {
 	return v2.DutyMappingsAnnotation_builder{Mappings: mappings}.Build()
 }
 
-func described(m *v2.DutyMapping, text string) *v2.DutyMapping {
-	m.SetDescription(text)
-	return m
-}
-
 func withPrecision(id string, p v2.DutyMappingPrecision) *v2.DutyMapping {
 	return v2.DutyMapping_builder{DutyId: id, Precision: p}.Build()
 }
@@ -56,7 +51,7 @@ func TestValidate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "exact", ann: annotation(Exact("payment.release"))},
-		{name: "inclusive with description", ann: annotation(described(Inclusive("payment.prepare"), "admin role"), Inclusive("payment.authorize"))},
+		{name: "inclusive with description", ann: annotation(Inclusive("payment.prepare", "admin role"), Inclusive("payment.authorize"))},
 		{name: "16 mappings", ann: annotation(many[:16]...)},
 		{name: "max length", ann: annotation(Exact("a." + strings.Repeat("b", 62)))},
 		{name: "undefined precision", ann: annotation(withPrecision("payment.release", 99))},
@@ -67,7 +62,7 @@ func TestValidate(t *testing.T) {
 		{name: "slash", ann: annotation(Exact("payment/release")), wantErr: "DutyId"},
 		{name: "too long", ann: annotation(Exact(strings.Repeat("a", 65))), wantErr: "DutyId"},
 		{name: "unspecified precision", ann: annotation(withPrecision("payment.release", 0)), wantErr: "Precision"},
-		{name: "description too long", ann: annotation(described(Exact("payment.release"), strings.Repeat("x", 1025))), wantErr: "Description"},
+		{name: "description too long", ann: annotation(Exact("payment.release", strings.Repeat("x", 1025))), wantErr: "Description"},
 		{
 			name:    "duplicate duty",
 			ann:     annotation(Exact("payment.release"), Inclusive("payment.prepare"), Inclusive("payment.release")),
@@ -122,7 +117,8 @@ func TestBuilders(t *testing.T) {
 	require.Equal(t, v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE, m.GetPrecision())
 	require.Empty(t, m.GetDescription())
 
-	m.SetDescription("Finance Administrator role")
-	require.Equal(t, "Finance Administrator role", m.GetDescription())
-	require.Empty(t, Inclusive("payment.authorize").GetDescription(), "each call returns a new message")
+	require.Equal(t, "Finance Administrator role", Inclusive("payment.authorize", "Finance Administrator role").GetDescription())
+	require.Equal(t, "Finance Administrator role", Exact(name("payment.release"), "Finance Administrator role").GetDescription())
+	require.Equal(t, "first", Exact("payment.release", "first", "second").GetDescription(), "the first description wins")
+	require.Equal(t, "first", Inclusive("payment.release", "first", "second").GetDescription(), "the first description wins")
 }

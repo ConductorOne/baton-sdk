@@ -6,12 +6,13 @@
 // names will be added to this package in a later release once they are
 // settled; until then pass the ID as a string.
 //
-// Exact and Inclusive return the wire message. To add a description, set it
-// on the returned message:
+// Exact and Inclusive return the wire message and take an optional
+// description:
 //
-//	m := duty.Inclusive("payment.authorize")
-//	m.SetDescription("Finance Administrator role")
-//	entitlement.WithDuties(duty.Exact("payment.release"), m)
+//	entitlement.WithDuties(
+//		duty.Exact("payment.release"),
+//		duty.Inclusive("payment.authorize", "Finance Administrator role"),
+//	)
 package duty
 
 import (
@@ -23,24 +24,34 @@ import (
 )
 
 // Exact returns a mapping for an entitlement that exists to grant this one
-// duty. It accepts any string type so typed duty-name constants can be added
-// in a later release without an API change. Set an optional description with
-// SetDescription on the returned message.
-func Exact[T ~string](id T) *v2.DutyMapping {
-	return v2.DutyMapping_builder{
-		DutyId:    string(id),
-		Precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT,
-	}.Build()
+// duty. The optional description is a plain-English note shown to people
+// and is never matched on; if more than one is passed, the first is used,
+// and with none the description is empty. It accepts any string type so
+// typed duty-name constants can be added in a later release without an API
+// change.
+func Exact[T ~string](id T, description ...string) *v2.DutyMapping {
+	return mapping(string(id), v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_EXACT, description)
 }
 
 // Inclusive returns a mapping for a broad entitlement that allows this duty
-// among others. It accepts any string type so typed duty-name constants can
-// be added in a later release without an API change. Set an optional
-// description with SetDescription on the returned message.
-func Inclusive[T ~string](id T) *v2.DutyMapping {
+// among others. The optional description is a plain-English note shown to
+// people and is never matched on; if more than one is passed, the first is
+// used, and with none the description is empty. It accepts any string type
+// so typed duty-name constants can be added in a later release without an
+// API change.
+func Inclusive[T ~string](id T, description ...string) *v2.DutyMapping {
+	return mapping(string(id), v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE, description)
+}
+
+func mapping(id string, precision v2.DutyMappingPrecision, description []string) *v2.DutyMapping {
+	var d string
+	if len(description) > 0 {
+		d = description[0]
+	}
 	return v2.DutyMapping_builder{
-		DutyId:    string(id),
-		Precision: v2.DutyMappingPrecision_DUTY_MAPPING_PRECISION_INCLUSIVE,
+		DutyId:      id,
+		Precision:   precision,
+		Description: d,
 	}.Build()
 }
 

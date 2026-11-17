@@ -84,8 +84,7 @@ func TestLedgerStaticEntitlementPages(t *testing.T) {
 }
 func TestLedgerStaticEntitlementKeepsDuties(t *testing.T) {
 	s, f, c := staticPageFixture(t)
-	authorize := duty.Inclusive("payment.authorize")
-	authorize.SetDescription("Finance Administrator role")
+	authorize := duty.Inclusive("payment.authorize", "Finance Administrator role")
 	c.duties = []*v2.DutyMapping{duty.Exact("payment.release"), authorize}
 	want := v2.DutyMappingsAnnotation_builder{
 		Mappings: []*v2.DutyMapping{duty.Exact("payment.release"), authorize},
