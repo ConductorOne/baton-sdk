@@ -152,3 +152,17 @@ func TestInvokeIdentityPartialConstructionClosesConnector(t *testing.T) {
 	require.Error(t, err)
 	require.EqualValues(t, 1, partial.closes.Load())
 }
+
+func TestInvokeIdentityNilConstructionFailsBeforeRegistration(t *testing.T) {
+	key := identityTestKey(t)
+	encrypted, err := jwk.EncryptED25519(key.Key.(ed25519.PrivateKey).Public().(ed25519.PublicKey), []byte(`{}`))
+	require.NoError(t, err)
+	response := v1.GetConnectorConfigResponse_builder{Config: encrypted}.Build()
+	response.SetExpectedExecutionScope(identityTestScope)
+	build := newLambdaGenerationBuilder(context.Background(), viper.New(), field.Configuration{}, func(context.Context, *viper.Viper, RunTimeOpts) (types.ConnectorServer, error) {
+		return nil, nil
+	}, false, &identityConfigConn{response: response}, key, identityTestScope)
+	generation, err := buildIdentityGeneration(context.Background(), time.Second, build, "v1")
+	require.Error(t, err)
+	require.Nil(t, generation)
+}

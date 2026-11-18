@@ -256,7 +256,9 @@ func closeIdentityGeneration(parent context.Context, generation *lambdaConnector
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), lambdaConnectorCloseTimeout)
 	defer cancel()
-	_ = closeLambdaConnectorGeneration(ctx, generation.connector)
+	if err := closeLambdaConnectorGeneration(ctx, generation.connector); err != nil {
+		ctxzap.Extract(parent).Warn("lambda-run: failed to close connector generation")
+	}
 }
 
 func lambdaIdentityRuntimeFactory[T field.Configurable](v *viper.Viper, schema field.Configuration, getconnector GetConnectorFunc2[T], sessionStoreEnabled bool) lambdaIdentityFactory {
@@ -272,7 +274,9 @@ func lambdaIdentityRuntimeFactory[T field.Configurable](v *viper.Viper, schema f
 		closeClient := func() {
 			cancel()
 			if closer, ok := client.(interface{ Close() error }); ok {
-				_ = closer.Close()
+				if err := closer.Close(); err != nil {
+					ctxzap.Extract(ctx).Warn("lambda-run: failed to close identity client")
+				}
 			}
 		}
 		keep := false

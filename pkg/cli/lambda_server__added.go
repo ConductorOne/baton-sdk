@@ -649,6 +649,9 @@ func newLambdaGenerationBuilder[T field.Configurable](
 			}
 			return nil, fmt.Errorf("failed to get connector: %w", err)
 		}
+		if expectedScope != "" && c == nil {
+			return nil, fmt.Errorf("connector construction returned no server")
+		}
 
 		return &lambdaConnectorGeneration{
 			version:   version,
