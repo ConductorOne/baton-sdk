@@ -25,12 +25,13 @@ const (
 )
 
 type Request struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Method        string                 `protobuf:"bytes,1,opt,name=method,proto3" json:"method,omitempty"`
-	Req           *anypb.Any             `protobuf:"bytes,2,opt,name=req,proto3" json:"req,omitempty"`
-	Headers       *structpb.Struct       `protobuf:"bytes,3,opt,name=headers,proto3" json:"headers,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	Method         string                 `protobuf:"bytes,1,opt,name=method,proto3" json:"method,omitempty"`
+	Req            *anypb.Any             `protobuf:"bytes,2,opt,name=req,proto3" json:"req,omitempty"`
+	Headers        *structpb.Struct       `protobuf:"bytes,3,opt,name=headers,proto3" json:"headers,omitempty"`
+	InvokeIdentity *InvokeIdentity        `protobuf:"bytes,4,opt,name=invoke_identity,json=invokeIdentity,proto3" json:"invoke_identity,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Request) Reset() {
@@ -79,6 +80,13 @@ func (x *Request) GetHeaders() *structpb.Struct {
 	return nil
 }
 
+func (x *Request) GetInvokeIdentity() *InvokeIdentity {
+	if x != nil {
+		return x.InvokeIdentity
+	}
+	return nil
+}
+
 func (x *Request) SetMethod(v string) {
 	x.Method = v
 }
@@ -89,6 +97,10 @@ func (x *Request) SetReq(v *anypb.Any) {
 
 func (x *Request) SetHeaders(v *structpb.Struct) {
 	x.Headers = v
+}
+
+func (x *Request) SetInvokeIdentity(v *InvokeIdentity) {
+	x.InvokeIdentity = v
 }
 
 func (x *Request) HasReq() bool {
@@ -105,6 +117,13 @@ func (x *Request) HasHeaders() bool {
 	return x.Headers != nil
 }
 
+func (x *Request) HasInvokeIdentity() bool {
+	if x == nil {
+		return false
+	}
+	return x.InvokeIdentity != nil
+}
+
 func (x *Request) ClearReq() {
 	x.Req = nil
 }
@@ -113,12 +132,17 @@ func (x *Request) ClearHeaders() {
 	x.Headers = nil
 }
 
+func (x *Request) ClearInvokeIdentity() {
+	x.InvokeIdentity = nil
+}
+
 type Request_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Method  string
-	Req     *anypb.Any
-	Headers *structpb.Struct
+	Method         string
+	Req            *anypb.Any
+	Headers        *structpb.Struct
+	InvokeIdentity *InvokeIdentity
 }
 
 func (b0 Request_builder) Build() *Request {
@@ -128,6 +152,78 @@ func (b0 Request_builder) Build() *Request {
 	x.Method = b.Method
 	x.Req = b.Req
 	x.Headers = b.Headers
+	x.InvokeIdentity = b.InvokeIdentity
+	return m0
+}
+
+type InvokeIdentity struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	ClientId      string                 `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	ClientSecret  string                 `protobuf:"bytes,2,opt,name=client_secret,json=clientSecret,proto3" json:"client_secret,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InvokeIdentity) Reset() {
+	*x = InvokeIdentity{}
+	mi := &file_c1_transport_v1_transport_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InvokeIdentity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InvokeIdentity) ProtoMessage() {}
+
+func (x *InvokeIdentity) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_transport_v1_transport_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *InvokeIdentity) GetClientId() string {
+	if x != nil {
+		return x.ClientId
+	}
+	return ""
+}
+
+func (x *InvokeIdentity) GetClientSecret() string {
+	if x != nil {
+		return x.ClientSecret
+	}
+	return ""
+}
+
+func (x *InvokeIdentity) SetClientId(v string) {
+	x.ClientId = v
+}
+
+func (x *InvokeIdentity) SetClientSecret(v string) {
+	x.ClientSecret = v
+}
+
+type InvokeIdentity_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ClientId     string
+	ClientSecret string
+}
+
+func (b0 InvokeIdentity_builder) Build() *InvokeIdentity {
+	m0 := &InvokeIdentity{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.ClientId = b.ClientId
+	x.ClientSecret = b.ClientSecret
 	return m0
 }
 
@@ -143,7 +239,7 @@ type Response struct {
 
 func (x *Response) Reset() {
 	*x = Response{}
-	mi := &file_c1_transport_v1_transport_proto_msgTypes[1]
+	mi := &file_c1_transport_v1_transport_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -155,7 +251,7 @@ func (x *Response) String() string {
 func (*Response) ProtoMessage() {}
 
 func (x *Response) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_transport_v1_transport_proto_msgTypes[1]
+	mi := &file_c1_transport_v1_transport_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -278,36 +374,42 @@ var File_c1_transport_v1_transport_proto protoreflect.FileDescriptor
 
 const file_c1_transport_v1_transport_proto_rawDesc = "" +
 	"\n" +
-	"\x1fc1/transport/v1/transport.proto\x12\x0fc1.transport.v1\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"|\n" +
+	"\x1fc1/transport/v1/transport.proto\x12\x0fc1.transport.v1\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xc6\x01\n" +
 	"\aRequest\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12&\n" +
 	"\x03req\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x03req\x121\n" +
-	"\aheaders\x18\x03 \x01(\v2\x17.google.protobuf.StructR\aheaders\"\xca\x01\n" +
+	"\aheaders\x18\x03 \x01(\v2\x17.google.protobuf.StructR\aheaders\x12H\n" +
+	"\x0finvoke_identity\x18\x04 \x01(\v2\x1f.c1.transport.v1.InvokeIdentityR\x0einvokeIdentity\"R\n" +
+	"\x0eInvokeIdentity\x12\x1b\n" +
+	"\tclient_id\x18\x01 \x01(\tR\bclientId\x12#\n" +
+	"\rclient_secret\x18\x02 \x01(\tR\fclientSecret\"\xca\x01\n" +
 	"\bResponse\x12(\n" +
 	"\x04resp\x18\x01 \x01(\v2\x14.google.protobuf.AnyR\x04resp\x12,\n" +
 	"\x06status\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x06status\x121\n" +
 	"\aheaders\x18\x03 \x01(\v2\x17.google.protobuf.StructR\aheaders\x123\n" +
 	"\btrailers\x18\x04 \x01(\v2\x17.google.protobuf.StructR\btrailersB6Z4github.com/conductorone/baton-sdk/pb/c1/transport/v1b\x06proto3"
 
-var file_c1_transport_v1_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_c1_transport_v1_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_c1_transport_v1_transport_proto_goTypes = []any{
 	(*Request)(nil),         // 0: c1.transport.v1.Request
-	(*Response)(nil),        // 1: c1.transport.v1.Response
-	(*anypb.Any)(nil),       // 2: google.protobuf.Any
-	(*structpb.Struct)(nil), // 3: google.protobuf.Struct
+	(*InvokeIdentity)(nil),  // 1: c1.transport.v1.InvokeIdentity
+	(*Response)(nil),        // 2: c1.transport.v1.Response
+	(*anypb.Any)(nil),       // 3: google.protobuf.Any
+	(*structpb.Struct)(nil), // 4: google.protobuf.Struct
 }
 var file_c1_transport_v1_transport_proto_depIdxs = []int32{
-	2, // 0: c1.transport.v1.Request.req:type_name -> google.protobuf.Any
-	3, // 1: c1.transport.v1.Request.headers:type_name -> google.protobuf.Struct
-	2, // 2: c1.transport.v1.Response.resp:type_name -> google.protobuf.Any
-	2, // 3: c1.transport.v1.Response.status:type_name -> google.protobuf.Any
-	3, // 4: c1.transport.v1.Response.headers:type_name -> google.protobuf.Struct
-	3, // 5: c1.transport.v1.Response.trailers:type_name -> google.protobuf.Struct
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3, // 0: c1.transport.v1.Request.req:type_name -> google.protobuf.Any
+	4, // 1: c1.transport.v1.Request.headers:type_name -> google.protobuf.Struct
+	1, // 2: c1.transport.v1.Request.invoke_identity:type_name -> c1.transport.v1.InvokeIdentity
+	3, // 3: c1.transport.v1.Response.resp:type_name -> google.protobuf.Any
+	3, // 4: c1.transport.v1.Response.status:type_name -> google.protobuf.Any
+	4, // 5: c1.transport.v1.Response.headers:type_name -> google.protobuf.Struct
+	4, // 6: c1.transport.v1.Response.trailers:type_name -> google.protobuf.Struct
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_c1_transport_v1_transport_proto_init() }
@@ -321,7 +423,7 @@ func file_c1_transport_v1_transport_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_transport_v1_transport_proto_rawDesc), len(file_c1_transport_v1_transport_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

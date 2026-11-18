@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -20,6 +21,7 @@ type Config struct {
 	Audience             string        // Expected audience (optional)
 	Nonce                string        // Expected nonce (optional)
 	MaxExpirationFromNow time.Duration // Maximum expiration time from now (optional, defaults to 24 hours)
+	JWKSClient           *http.Client
 }
 
 type KeySet interface {
@@ -74,6 +76,7 @@ func NewValidator(ctx context.Context, config Config) (*Validator, error) {
 		remoteKeySet, err := xkeyset.New(ctx, xkeyset.Options{
 			URL:            config.JWKSUrl,
 			RefreshContext: ctx,
+			Client:         config.JWKSClient,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create keyset from JWKS URL: %w", err)
@@ -97,6 +100,12 @@ func NewValidator(ctx context.Context, config Config) (*Validator, error) {
 		keySet: keySet,
 		now:    time.Now,
 	}, nil
+}
+
+func (v *Validator) Close() {
+	if closer, ok := v.keySet.(interface{ Close() }); ok {
+		closer.Close()
+	}
 }
 
 // ValidateToken validates the JWT token string and returns the claims if valid.

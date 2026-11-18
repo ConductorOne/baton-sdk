@@ -258,5 +258,5 @@ func TestRequest_MarshalJSON_SizeGuardFallsBackToLegacy(t *testing.T) {
 func TestDecodeWireFrame_UnsupportedVersion(t *testing.T) {
 	rt := &Request{}
 	err := rt.UnmarshalJSON([]byte(`{"v": 3, "frame": "AA=="}`))
-	require.ErrorContains(t, err, "unsupported wire frame version 3")
+	require.EqualError(t, err, "invalid transport request")
 }

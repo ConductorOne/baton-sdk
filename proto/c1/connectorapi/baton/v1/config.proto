@@ -29,6 +29,8 @@ message GetConnectorConfigResponse {
   // sealed policy records. Absent for connectors without them; runtimes that
   // require an envelope treat absence as deny-all.
   ServedPolicyEnvelope served_policy_envelope = 4;
+  // Platform execution environment this credential is authorized to serve.
+  optional string expected_execution_scope = 5;
 }
 
 message SignedHeader {

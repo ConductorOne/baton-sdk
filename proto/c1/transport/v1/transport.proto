@@ -11,6 +11,12 @@ message Request {
   string method = 1;
   google.protobuf.Any req = 2;
   google.protobuf.Struct headers = 3;
+  InvokeIdentity invoke_identity = 4;
+}
+
+message InvokeIdentity {
+  string client_id = 1;
+  string client_secret = 2;
 }
 
 message Response {

@@ -200,7 +200,7 @@ func (f *Request) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Request{}
 	wireV2, err := unmarshalTransportJSON(b, f.msg)
 	if err != nil {
-		return err
+		return errors.New("invalid transport request")
 	}
 	f.wireV2 = wireV2
 	return nil
@@ -265,6 +265,11 @@ func (f *Request) Headers() metadata.MD {
 	return UnmarshalMetadata(f.msg.GetHeaders())
 }
 
+// InvokeIdentity is separate from Headers and is never incoming gRPC metadata.
+func (f *Request) InvokeIdentity() *pbtransport.InvokeIdentity {
+	return f.msg.GetInvokeIdentity()
+}
+
 func NewRequest(method string, req proto.Message, headers metadata.MD) (*Request, error) {
 	reqAny, err := anypb.New(req)
 	if err != nil {
@@ -303,7 +308,7 @@ func (f *Response) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Response{}
 	wireV2, err := unmarshalTransportJSON(b, f.msg)
 	if err != nil {
-		return err
+		return errors.New("invalid transport response")
 	}
 	f.wireV2 = wireV2
 	return nil
