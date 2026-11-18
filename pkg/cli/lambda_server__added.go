@@ -309,7 +309,7 @@ func closeConnectorGenerationAfterDrain(ctx context.Context, generation *lambdaC
 		if generation.cancel != nil {
 			zap.L().Warn("error closing stale lambda connector generation")
 		} else {
-			zap.L().Warn("error closing stale lambda connector generation", zap.Error(err))
+			zap.L().Warn("error closing stale lambda connector generation", zap.String("config_version", generation.version), zap.Error(err))
 		}
 	}
 }
