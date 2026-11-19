@@ -2,7 +2,7 @@
 
 ## Source, scope and claim
 
-Base: public baton-sdk `b00aa1a5`, the version-file commit immediately after the `v0.46.0` tag (`cb1cfe9d`). Implementation: `2dfdb34a`; construction/HTTP-smoke follow-up: `f2f6130f`; initial verified source: `c9a24ac674eb9d86492d59f6b6f91214f3c15b6d`, which restores the legacy connector-close warning's `config_version` field. The CI-style correction's executable source is `ef5eef7b9cb03a0c634d3ac0d44bb3677ff1de66`; CO2 records its delta and reruns.
+Base: public baton-sdk `b00aa1a5`, the version-file commit immediately after the `v0.46.0` tag (`cb1cfe9d`). Implementation: `2dfdb34a`; construction/HTTP-smoke follow-up: `f2f6130f`; initial verified source: `c9a24ac674eb9d86492d59f6b6f91214f3c15b6d`, which restores the legacy connector-close warning's `config_version` field. CO2 records the CI-style correction at `ef5eef7b`; CO3 records the current simplified source at `d59953cf85900b44bcbfb00d4bd2cc0b48cd6bdc` and its reruns.
 
 This stage adds the opt-in SDK mode, transport option/field and config response field. No dependency upgrade, deployment, AWS resource change or credential provisioning is included. Results below are reported local unit/fixture observations, not deployed AWS isolation or prepared-provider evidence. The local HTTP smoke uses the real SDK client transport against a test Lambda endpoint, not the AWS runtime.
 
@@ -20,7 +20,7 @@ The frozen plan remains unchanged. Criterion states below mean **verified to the
 
 ## Executed gates
 
-The initial G1–G3 test/build commands below ran at `c9a24ac6`, with Go `1.27.4` on Linux arm64. The CI-style correction changes executable source; CO2 records the G1–G3 reruns and mutation revalidation at `ef5eef7b`. The G1 command normalizes the temporary coverage destination to `coverage.out`; its other flags and package arguments are unchanged.
+The initial G1–G3 test/build commands below ran at `c9a24ac6`, with Go `1.27.4` on Linux arm64. CO2 records reruns at `ef5eef7b`; CO3 records the same gates and refreshed coverage at `d59953cf`. The G1 command normalizes the temporary coverage destination to `coverage.out`; its other flags and package arguments are unchanged.
 
 ### G1: touched-package suites and structural coverage — PASS
 
@@ -62,12 +62,12 @@ All six suites passed with no race report, including eight concurrent first invo
 
 ## Criterion-to-instrument results
 
-All rows below were first verified by G1 and G3 at `c9a24ac6`; their executable instruments were rerun at `ef5eef7b` as CO2 records. Each fixture asserts its setup before the postcondition; M1–M5 validate representative assertion mechanisms with planted violations and were also rerun at the CI-fix source.
+All rows below were first verified by G1 and G3 at `c9a24ac6`; their executable instruments were rerun at `ef5eef7b` and `d59953cf` as CO2/CO3 record. Each fixture asserts its setup before the postcondition. M1–M5 were regenerated and rerun at both later source revisions; CO2 adds the panic-redaction oracle and CO3 adds the key-rejection oracle.
 
 | ID / state | Instrument, premise and oracle | Covered space, outcome and reduction |
 | --- | --- | --- |
 | I1 — verified to stated coverage | `TestInvokeIdentityHostRejectionsMakeNoOutboundRequests` supplies malformed client ids and DNS/suffix cases to the real handler; fake validator and runtime-factory counters must both remain zero, status must be FailedPrecondition and runtime must remain nil. `TestInvokeIdentityMissingPlatformScopeAndPanicSanitization` checks absent platform context before either counter moves. | PASS: missing identity; empty/malformed client-id components; overlong labels/name; leading/trailing hyphens; trailing dot; wrong/look-alike suffix; extra label; uppercase; port; IP/brackets; percent encoding; URL delimiters and empty labels. Positive single-label and double-hyphen suffix examples succeed in the host parser. This enumerates named grammar classes, not every possible DNS string. |
-| I2 — verified to stated coverage | `TestInvokeIdentityJWTBeforeBuildAndRejectedFirstHostDoesNotBind` uses actual signed tokens/static validators: wrong issuer, subject, audience, expiry, not-before and signature reject with zero factory calls and no binding. An invalid first host identity is followed by a correctly signed different host, which binds and builds once. `TestInvokeIdentityJWKSRedirectRefused` sends a real redirect through the production JWKS client's redirect policy and asserts zero target requests. `TestRemoteValidatorLoadsAuthenticatesAndCloses` asserts one initial HTTP JWKS request, valid token verification, cache reuse and calls Close. | PASS. The redirect test uses a local TLS server, and the remote validator test uses a local HTTP JWKS server. Host validation and default HTTPS URL construction are composed in production and source-reviewed; the default handler validator-factory closure itself is not executed against a routed HTTPS tenant host. |
+| I2 — verified to stated coverage | `TestInvokeIdentityJWTBeforeBuildAndRejectedFirstHostDoesNotBind` uses actual signed tokens/static validators: wrong issuer, subject, audience, expiry, not-before and signature reject with zero factory calls and no binding. An invalid first host identity is followed by a correctly signed different host, which binds and builds once. `TestInvokeIdentityJWKSRedirectRefused` sends a real redirect through the production JWKS client's redirect policy and asserts zero target requests. `TestRemoteValidatorLoadsAuthenticatesAndReusesKeys` asserts one initial HTTP JWKS request, valid token verification and cache reuse; Close is cleanup, not an asserted closure oracle. | PASS. The redirect test uses a local TLS server, and the remote validator test uses a local HTTP JWKS server. Host validation and default HTTPS URL construction are composed in production and source-reviewed; the default handler validator-factory closure itself is not executed against a routed HTTPS tenant host. |
 | I3 — verified to stated coverage | `TestInvokeIdentityScopeCheckedBeforeConstructionEveryBuild` uses a real encrypted config response and actual generation builder for missing, wrong and matching scope, at versions v1 and v2. Two fetches are required; construction count is zero for missing/wrong scope and two for matching scope. `TestInvokeIdentityFailedBuildCleansUpAndCanRetry` and `TestInvokeIdentityBindReloadContextKeyAndLogs` assert FailedPrecondition for the dedicated scope error on first build and reload. | PASS. First/reload scope checks use the same production builder. The complete OAuth exchange and generation builder are not run together against a live config service. |
 | I4 — verified to stated coverage | `TestInvokeIdentityBindReloadContextKeyAndLogs` asserts the first stamped invoke builds once, later same identity serves, a different client id is refused without rebuilding, and the original connector keeps serving. `TestInvokeIdentityConcurrentFirstInvokeBindsOnce` runs eight first calls and asserts one validator and one runtime factory. `TestInvokeIdentityNilConstructionFailsBeforeRegistration` rejects a nil constructor result. | PASS. The initial build occurs directly, without entering the existing reload cap; an immediate stamped dispatch does not build a second generation. The concurrency fixture covers eight same-identity callers, not all schedules or mixed-identity interleavings. |
 | I5 — verified to stated coverage | `TestInvokeIdentityFailedBuildCleansUpAndCanRetry` injects ordinary, scope and nested Unauthenticated errors, asserts classification, one runtime close, no reloader/binding, successful retry, and final close. `TestIdentityGenerationBudgetAndPersistentLifetime` blocks on context cancellation to prove the construction timer and checks that successful context lifetime persists until close. `TestInvokeIdentityPartialConstructionClosesConnector` checks that a returned partial connector plus error is closed exactly once. `TestInvokeIdentityNilConstructionFailsBeforeRegistration` covers nil success. | PASS. Context survives the building invocation in the bind/reload fixture, and the process context has no key. Fake close counters prove handler ownership transfer; the real runtime factory/key path also runs in I8. Factory-initialization errors, cleanup-error warnings, late-success timeout and registration/replacement failure branches remain missing instruments below. Non-cooperative connector code is excluded from the context-timeout claim. |
@@ -82,7 +82,7 @@ All rows below were first verified by G1 and G3 at `c9a24ac6`; their executable 
 
 `f2f6130f` adds three top-level tests, with seven named cases when the five HTTP-smoke subcases are counted separately:
 
-- `TestRemoteValidatorLoadsAuthenticatesAndCloses` → I2 and validator ownership in I5.
+- `TestRemoteValidatorLoadsAuthenticatesAndReusesKeys` (renamed in CO3 from `TestRemoteValidatorLoadsAuthenticatesAndCloses`) → I2. The test invokes Close as cleanup but does not assert its effects.
 - `TestInvokeIdentityNilConstructionFailsBeforeRegistration` → I4/I5.
 - `TestInvokeIdentityHTTPRejectionSmoke` → I1/I2/I5/I7/I9; subcases `decode`, `missing`, `host`, `token`, `build`.
 
@@ -99,7 +99,7 @@ This is a correction required by I9's secret-safety contract, owned by transport
 
 ## Instrument validation: planted violations
 
-At final source `c9a24ac6`, five isolated Go compiler overlays modified temporary copies only. Production files remained unchanged. Each command used `CGO_ENABLED=0`, `GOMAXPROCS=2` and:
+At initial verified source `c9a24ac6`, five isolated Go compiler overlays modified temporary copies only. Production files remained unchanged. Each command used `CGO_ENABLED=0`, `GOMAXPROCS=2` and:
 
 ```sh
 go test -p 2 -mod=vendor -buildvcs=false -tags=baton_lambda_support \
@@ -118,7 +118,7 @@ These validate five distinct representative oracles, not every cross-product cel
 
 ## Uncovered changed-branch disposition
 
-Locations below are from the initial verified source `c9a24ac6`, not current line numbers after CO2's recovery-wrapper restructuring. All are **missing instruments / explicit coverage limits**, not dead code and not evidence of execution. The independent source review supplies implementation/security review, not substitute runtime proof. No uncovered new branch was silently treated as verified. CO2 records the refreshed profile's disposition.
+Locations below are from the initial verified source `c9a24ac6`, not current line numbers after CO2/CO3. All are **missing instruments / explicit coverage limits**, not dead code and not evidence of execution. The independent source review supplies implementation/security review, not substitute runtime proof. No uncovered new branch was silently treated as verified. CO2 and CO3 record refreshed-profile dispositions; CO3 removes the redundant factory key assertion and tests the shared builder's key-rejection branches.
 
 | Changed source ranges | Uncovered behavior and disposition |
 | --- | --- |
@@ -157,3 +157,31 @@ Not exercised: a deployed Lambda execution environment, real platform tenant iso
 - **Structural coverage refreshed:** coverage counts were aggregated across the package test binaries. No uncovered executable block intersects the changed production lines of the CI delta. Earlier missing-instrument categories remain coverage limits; this is not a claim of full-package or exhaustive branch closure.
 
 Commands, environments and timeout flags are the same as G1–G3 and the overlay command above; only the source revision and local artifact destinations changed. These are reported local test/build observations. No local lint was run because the CI failure detail was available through the GitHub route. The post-push CI lint rerun is pending at this evidence commit; it must not be inferred from these local checks.
+
+## CO3: centralized key validation and redundant-state cleanup
+
+**Classification:** bounded correction and simplification in this PR. No authentication ordering, bind-once policy, scope enforcement, credential custody, error class or protocol changes. The executable subject is `d59953cf85900b44bcbfb00d4bd2cc0b48cd6bdc`.
+
+**Folded changes:**
+
+- The shared generation builder owns one checked private-key assertion and an explicit nil-key guard, before config fetch. Redundant checks at the legacy startup and identity-runtime call sites are removed. The legacy fixed cast-failure diagnostic is preserved; the mode still returns a fixed Unavailable response for build failure.
+- Remove the redundant empty-suffix condition after constructor validation, retaining the required-suffix startup check and host grammar/suffix rule.
+- Remove the redundant explicit false default from the mode field; `BoolField` already defaults to false.
+- Remove the outbound request clone's unused `wireV2` copy. The reader audit, including tests, found that the flag controls server response encoding after request decoding; outbound payload marshaling reads the cloned message, not that flag.
+- Rename the remote-validator test to `TestRemoteValidatorLoadsAuthenticatesAndReusesKeys`, matching its assertions. Its cleanup still calls Close, but it does not prove Close's effects.
+
+**Deliberately unchanged:** the recovery closures were introduced by `ef5eef7b` because CI's `nonamedreturns` rule rejected the proposed named-return form. Restoring that form would reproduce the known lint failure, so recovery was not reshaped. Validator injection, test organization, startup timers, close-lock ownership and exported option APIs were not redesigned.
+
+**Affected criteria and obligations:** I1/I10 retain the same host/default behavior; I2's test name is corrected; I5 gains direct key-rejection proof; I7 retains payload encoding without copying unused client state. `TestLambdaGenerationBuilderRejectsInvalidConfigurationKeys` covers missing, wrong-type and public-only keys in legacy and identity modes. It asserts no constructor-time panic, an error with no marker value, a nil generation, zero config calls and zero connector constructions. Before the fix all six cases failed on the unchecked assertion or nil dereference. The shared guard now returns an error without fetching config or constructing a connector.
+
+**Current-source verification at d59953cf:**
+
+- **G1 PASS:** all six touched-package suites, generated-package compilation and the same coverage flags/package set recorded above.
+- **G2 PASS:** the tagged SDK build of `./...`.
+- **G3 PASS:** all six touched-package race suites; no race report.
+- **G4 carried forward:** schemas and generated output are unchanged; `git diff --check` passed.
+- **M1–M6 regenerated and rerun:** all six prior violation oracles rejected their mutants by test assertions, exit 1; no old-source overlay was reused.
+- **M7:** return success instead of rejecting an invalid private-key type in the shared guard. `TestLambdaGenerationBuilderRejectsInvalidConfigurationKeys` rejects the missing error by assertion, exit 1.
+- **Structural coverage refreshed:** aggregate counts across test binaries show no uncovered executable blocks intersecting this production delta. Historical coverage limits remain explicit; the removed redundant factory assertion is no longer a current branch.
+
+The new push's CI and the independent cleanup-delta audit are pending at this evidence commit. No local lint or deployed platform/provider check is claimed.
