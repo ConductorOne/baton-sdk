@@ -2,7 +2,7 @@
 
 ## Source, scope and claim
 
-Base: public baton-sdk `b00aa1a5`, the version-file commit immediately after the `v0.46.0` tag (`cb1cfe9d`). Implementation: `2dfdb34a`; construction/HTTP-smoke follow-up: `f2f6130f`; initial verified source: `c9a24ac674eb9d86492d59f6b6f91214f3c15b6d`, which restores the legacy connector-close warning's `config_version` field. CO2 records the CI-style correction at `ef5eef7b`; CO3 records the current simplified source at `d59953cf85900b44bcbfb00d4bd2cc0b48cd6bdc` and its reruns.
+Base: public baton-sdk `b00aa1a5`, the version-file commit immediately after the `v0.46.0` tag (`cb1cfe9d`). Implementation: `2dfdb34a`; construction/HTTP-smoke follow-up: `f2f6130f`; initial verified source: `c9a24ac6`. CO2 records the CI-style correction at `ef5eef7b`; CO3 records simplified production source `d59953cf`. Production remains unchanged by CO4, which adds mode-off compatibility tests and records gate reruns at test revision `30a8ea39fad12da583bc8535497d068a4f062661`.
 
 This stage adds the opt-in SDK mode, transport option/field and config response field. No dependency upgrade, deployment, AWS resource change or credential provisioning is included. Results below are reported local unit/fixture observations, not deployed AWS isolation or prepared-provider evidence. The local HTTP smoke uses the real SDK client transport against a test Lambda endpoint, not the AWS runtime.
 
@@ -20,7 +20,7 @@ The frozen plan remains unchanged. Criterion states below mean **verified to the
 
 ## Executed gates
 
-The initial G1–G3 test/build commands below ran at `c9a24ac6`, with Go `1.27.4` on Linux arm64. CO2 records reruns at `ef5eef7b`; CO3 records the same gates and refreshed coverage at `d59953cf`. The G1 command normalizes the temporary coverage destination to `coverage.out`; its other flags and package arguments are unchanged.
+The initial G1–G3 test/build commands below ran at `c9a24ac6`, with Go `1.27.4` on Linux arm64. CO2 records reruns at `ef5eef7b`; CO3 at `d59953cf`; CO4 records the same gates and refreshed coverage at `30a8ea39`. The G1 command normalizes the temporary coverage destination to `coverage.out`; its other flags and package arguments are unchanged.
 
 ### G1: touched-package suites and structural coverage — PASS
 
@@ -62,7 +62,7 @@ All six suites passed with no race report, including eight concurrent first invo
 
 ## Criterion-to-instrument results
 
-All rows below were first verified by G1 and G3 at `c9a24ac6`; their executable instruments were rerun at `ef5eef7b` and `d59953cf` as CO2/CO3 record. Each fixture asserts its setup before the postcondition. M1–M5 were regenerated and rerun at both later source revisions; CO2 adds the panic-redaction oracle and CO3 adds the key-rejection oracle.
+All rows below were first verified by G1 and G3 at `c9a24ac6`; their executable instruments were rerun at `ef5eef7b`, `d59953cf` and `30a8ea39` as CO2–CO4 record. Each fixture asserts its setup before the postcondition. All prior mutation oracles were regenerated and rerun at every later revision; CO4 adds direct mode-off wire-acceptance and classification oracles.
 
 | ID / state | Instrument, premise and oracle | Covered space, outcome and reduction |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ All rows below were first verified by G1 and G3 at `c9a24ac6`; their executable 
 | I7 — verified to stated coverage | `TestInvokeIdentityEncodings` round-trips the same identity through dual, frame-only and legacy payloads and checks metadata retains the bearer header but contains no identity/secret. `TestLambdaTransportInvokeIdentity` uses the real AWS client against a test HTTP endpoint, asserts the TenantId header and typed payload, checks the no-option path, and verifies the caller's request remains credential-free. | PASS. Legacy source-compatible constructor calls compile; typed function-value assignments in external repositories are not tested. |
 | I8 — verified to stated coverage | `TestInvokeIdentityBindReloadContextKeyAndLogs` checks the same parsed key reaches dispatched context, process context has none, and local records have both identity fields. `TestIdentityRuntimeKeyDecryptsDispatchedCredentials` runs the actual runtime factory, then dispatches through a controlled generation and uses `crypto.ConvertCredentialOptions` to decrypt a password addressed to the parsed key. `TestInvokeIdentityExportedLogFields` captures actual telemetry-bridge export records and asserts both attributes. | PASS. The export is through the production bridge with an in-process exporter, not a deployed collector. The real factory uses a lazy C1 connection; the fixture replaces its build to avoid a provider call. |
 | I9 — verified to stated coverage | `TestRequestDecodeErrorsDoNotExposePayload` and `TestResponseDecodeErrorsDoNotExposePayload` put the marker in parser-sensitive tokens/type URLs. Handler panic/error tests check returned status and captured logs. `TestInvokeIdentityHTTPRejectionSmoke` carries the marker through the real transport/client and test Lambda endpoint for decode, missing identity, host, token and build stages. | PASS. The decode stage creates a non-empty synthetic Lambda log tail and `LambdaInvokeFailure.LogSummary`; both, the error payload, caller error and captured records must omit the marker. Other stages return gRPC status responses rather than Lambda FunctionError, so there is no returned failure tail on those paths. This proves the SDK fixture boundary, not the real AWS runtime's logging. Arbitrary connector-authored logs are not constrained by the SDK. |
-| I10 — verified to stated coverage, with E1 | `TestInvokeIdentityModeRequiresSuffixButNotLegacyCredentials` and `TestInvokeIdentityModeEnvironmentAndFlag` check flag/env activation, required suffix and absence of a legacy-credential requirement. I8's real factory fixture sets invalid env host overrides and still initializes. `TestLegacyReloaderIgnoresInvokeIdentity` dispatches with an invalid new identity and a valid legacy JWT; the scope-builder test ignores a wrong response scope when mode is off. | PASS for activation and legacy auth/config behavior. **E1 explicitly supersedes the frozen unchanged-diagnostics/test-assertion wording**, without changing the frozen baseline text. The legacy close warning's version field is restored at `c9a24ac6`; it is not a remaining exception. |
+| I10 — verified to stated coverage, with E1 | `TestInvokeIdentityModeRequiresSuffixButNotLegacyCredentials` and `TestInvokeIdentityModeEnvironmentAndFlag` check flag/env activation, required suffix and absence of a legacy-credential requirement. I8's real factory fixture sets invalid env host overrides and still initializes. `TestLegacyReloaderIgnoresInvokeIdentity` dispatches with an invalid new identity and a valid legacy JWT; the scope-builder test ignores a wrong response scope when mode is off. `TestModeOffTransportPreservesWireAcceptanceAndErrorClassification` adds the explicit no-option transport matrix described in CO4. | PASS for activation, legacy auth/config behavior and the stated wire/classification matrix. **E1 explicitly supersedes the frozen unchanged-diagnostics/test-assertion wording**, without changing the frozen baseline text. The legacy close warning's version field is restored at `c9a24ac6`; it is not a remaining exception. |
 | I11 — verified to stated coverage | `TestExpectedExecutionScopePresenceAndFieldNumbers` checks optional presence survives binary serialization and numbers are 5 for response scope and 4 for request identity. Generated serializers are also used by I7. G1–G4 execute generation, compatibility, suites, build and races. | PASS. Generated packages contain no standalone tests. No local lint, full-repository test sweep, external consumer compile or deployed platform exercise is claimed; CI lint status is recorded separately in CO2. |
 
 ### Follow-up test accounting
@@ -94,7 +94,7 @@ This is a correction required by I9's secret-safety contract, owned by transport
 
 1. **Request and response decode diagnostics change in every mode.** `Request.UnmarshalJSON` returns `invalid transport request`; `Response.UnmarshalJSON` returns `invalid transport response`. Decoding precedes handler mode inspection, and a client can attach an identity even to a mode-off function. Returning underlying protojson/frame diagnostics can expose payload tokens or type URLs through a runtime log tail and caller error. Wire acceptance, frame preference and error/no-error classification are unchanged.
 2. **The frame-only warning is redacted in every mode.** `legacy_encoding_error` remains present but carries fixed text, not the underlying encoding error, for the same reason: arbitrary payload values must not enter logs. This reduces diagnostic detail without changing encoding selection.
-3. **An existing test assertion changes.** `TestDecodeWireFrame_UnsupportedVersion` still rejects an unsupported version through the Request wrapper, but now expects the fixed safe error instead of `unsupported wire frame version 3`. It no longer independently asserts the decoder's version-specific diagnostic. Passing through payload-free wire errors and directly testing that diagnostic are deferred optional improvements, not claimed coverage.
+3. **An existing wrapper assertion changes, with its decoder oracle restored in CO4.** `TestDecodeWireFrame_UnsupportedVersion` keeps the fixed safe error assertion through the Request wrapper. CO4 also calls `decodeWireFrame` directly, asserts `unsupported wire frame version 3`, and checks that both errors remain classified Unknown. The mode-off transport matrix independently checks the explicit acceptance table and caller-visible classifications. Passing through payload-free wire errors remains unimplemented; the global diagnostic redaction is unchanged.
 4. **No legacy close-field exception remains.** The `config_version` field was inadvertently removed from the legacy stale-generation close warning in `2dfdb34a` and remained absent at `f2f6130f`; `c9a24ac6` restores the original field. Identity-mode warnings continue to avoid arbitrary error/panic values.
 
 ## Instrument validation: planted violations
@@ -185,3 +185,32 @@ Commands, environments and timeout flags are the same as G1–G3 and the overlay
 - **Structural coverage refreshed:** aggregate counts across test binaries show no uncovered executable blocks intersecting this production delta. Historical coverage limits remain explicit; the removed redundant factory assertion is no longer a current branch.
 
 The new push's CI and the independent cleanup-delta audit are pending at this evidence commit. No local lint or deployed platform/provider check is claimed.
+
+## CO4: mode-off wire acceptance and classification proof
+
+**Classification:** test and release-note clarification in this PR; no production, protocol or dependency changes. The test subject is `30a8ea39fad12da583bc8535497d068a4f062661`; production remains byte-identical to `d59953cf`.
+
+**Public release note:** the PR body's final `Release Notes` section now states that request and response decode errors no longer quote payload content, helping keep sensitive data out of logs and returned errors. It states that error classifications and accepted/rejected payloads are unchanged, including with per-invoke identity turned off. The published text was read back exactly after the update.
+
+**I7/I10/I11 instrument:** `TestModeOffTransportPreservesWireAcceptanceAndErrorClassification` uses the real no-option Lambda client transport, a local HTTP Lambda endpoint and the ordinary transport server without the per-invoke identity handler. Every HTTP request asserts no TenantId header and no typed invoke identity, establishing the mode-off premise.
+
+The matrix has eighteen cases:
+
+- Legacy, dual and frame-only request encodings each run with application statuses OK, Unauthenticated, PermissionDenied and Unavailable. They must decode the same request, dispatch exactly once and preserve the caller-visible status; successful responses retain their config-version data.
+- Unsupported versions, invalid binary frames and malformed JSON are rejected on the request side. They must not dispatch, and the client must retain the existing Unhandled `LambdaInvokeFailure` / Unknown classification.
+- The same three rejected encoding families on the response side must remain plain transport errors classified Unknown, after exactly one dispatch, rather than becoming Lambda runtime failures.
+
+For both directions, the helper compares the sanitizing wrapper with the unchanged `unmarshalTransportJSON` decoder **and** with explicit accepted/rejected expectations. The explicit table prevents a shared decoder change from satisfying a self-comparison. `TestDecodeWireFrame_UnsupportedVersion` additionally restores the direct version-diagnostic oracle while retaining the sanitized wrapper assertion. This is bounded SDK/HTTP-fixture proof, not a deployed Lambda or external-consumer compatibility run.
+
+**Current-revision verification at 30a8ea39:**
+
+- **G1 PASS:** all six touched-package suites, generated-package compilation and refreshed coverage with the same flags/package set recorded above.
+- **G2 PASS:** the tagged SDK build of `./...`.
+- **G3 PASS:** all six touched-package race suites; no race report.
+- **G4 carried forward:** no schemas, generated code or production files changed; `git diff --check` passed.
+- **M1–M7 regenerated and rerun:** all prior oracles rejected their mutants by test assertions, exit 1; no earlier-revision overlay was reused.
+- **M8, acceptance:** disable unsupported-frame-version rejection. The new mode-off matrix rejects the changed acceptance decision by assertion, exit 1.
+- **M9, decode classification:** change response decode errors from plain errors to InvalidArgument status errors. The mode-off matrix rejects the classification change by assertion, exit 1.
+- **M10, application classification:** remap received application statuses to FailedPrecondition in the client connection. The mode-off matrix rejects the caller-visible status change by assertion, exit 1.
+
+No new production branches or resource owners are introduced. Existing coverage limitations remain; the new matrix and three planted violations validate the acceptance/classification properties specifically. The new push's CI and independent delta review are pending at this evidence commit; no local lint or deployed provider check is claimed.
