@@ -4,7 +4,6 @@ package cli
 
 import (
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net"
@@ -107,7 +106,7 @@ func invokeIdentityHost(clientID, suffix string) (string, error) {
 		}
 	}
 	prefix, ok := strings.CutSuffix(host, suffix)
-	if suffix == "" || !ok || prefix == "" || strings.Contains(prefix, ".") {
+	if !ok || prefix == "" || strings.Contains(prefix, ".") {
 		return "", fmt.Errorf("invoke host is not allowed")
 	}
 	return host, nil
@@ -296,9 +295,6 @@ func lambdaIdentityRuntimeFactory[T field.Configurable](v *viper.Viper, schema f
 				closeClient()
 			}
 		}()
-		if _, ok := webKey.Key.(ed25519.PrivateKey); !ok {
-			return nil, fmt.Errorf("invalid configuration key")
-		}
 		key, err := crypto.ParseClientSecret([]byte(identity.GetClientSecret()), true)
 		if err != nil {
 			return nil, err

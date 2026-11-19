@@ -283,7 +283,6 @@ var (
 		WithExportTarget(ExportTargetNone))
 
 	LambdaServerPerInvokeIdentityField = BoolField("lambda-per-invoke-identity",
-		WithDefaultValue(false),
 		WithDescription("Bind each isolated execution environment to its first authenticated invoke identity"),
 		WithExportTarget(ExportTargetNone))
 	LambdaServerAllowedHostSuffixField = StringField("lambda-allowed-host-suffix",

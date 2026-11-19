@@ -30,7 +30,7 @@ type lambdaTransport struct {
 func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Response, error) {
 	wireRequest := req
 	if l.identity != nil {
-		wireRequest = &Request{msg: proto.Clone(req.msg).(*pbtransport.Request), wireV2: req.wireV2}
+		wireRequest = &Request{msg: proto.Clone(req.msg).(*pbtransport.Request)}
 		wireRequest.msg.SetInvokeIdentity(pbtransport.InvokeIdentity_builder{
 			ClientId: l.identity.ClientID, ClientSecret: l.identity.ClientSecret,
 		}.Build())

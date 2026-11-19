@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRemoteValidatorLoadsAuthenticatesAndCloses(t *testing.T) {
+func TestRemoteValidatorLoadsAuthenticatesAndReusesKeys(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)

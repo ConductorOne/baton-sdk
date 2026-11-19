@@ -456,11 +456,6 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to create DPoP client: %w", err)
 		}
 
-		_, ok := webKey.Key.(ed25519.PrivateKey)
-		if !ok {
-			return fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
-		}
-
 		clientSecret := v.GetString("lambda-client-secret")
 		if clientSecret != "" {
 			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
@@ -535,7 +530,6 @@ func newLambdaGenerationBuilder[T field.Configurable](
 	expectedScope string,
 ) func(context.Context, string) (*lambdaConnectorGeneration, error) {
 	configClient := v1.NewConnectorConfigServiceClient(grpcClient)
-	ed25519PrivateKey := webKey.Key.(ed25519.PrivateKey)
 	// parse content directly for lambdas, don't read from file
 	readFromPath := false
 	decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
@@ -551,6 +545,13 @@ func newLambdaGenerationBuilder[T field.Configurable](
 	}
 
 	buildConnectorGeneration := func(ctx context.Context, requestedVersion string) (*lambdaConnectorGeneration, error) {
+		if webKey == nil {
+			return nil, fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
+		}
+		ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
+		}
 		// Get configuration, convert it to viper flag values, then proceed.
 		config, err := configClient.GetConnectorConfig(ctx, &v1.GetConnectorConfigRequest{
 			RequestedVersion: requestedVersion,

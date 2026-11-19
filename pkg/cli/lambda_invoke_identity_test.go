@@ -359,6 +359,36 @@ func TestInvokeIdentityScopeCheckedBeforeConstructionEveryBuild(t *testing.T) {
 	require.NoError(t, err, "legacy mode ignores expected execution scope")
 }
 
+func TestLambdaGenerationBuilderRejectsInvalidConfigurationKeys(t *testing.T) {
+	publicKey := identityTestKey(t).Public()
+	for name, key := range map[string]*jose.JSONWebKey{
+		"missing":    nil,
+		"wrong type": {Key: "marker-secret"},
+		"public key": &publicKey,
+	} {
+		for _, scope := range []string{"", identityTestScope} {
+			t.Run(name+"/"+scope, func(t *testing.T) {
+				conn := &identityConfigConn{response: &v1.GetConnectorConfigResponse{}}
+				constructed := 0
+				var build func(context.Context, string) (*lambdaConnectorGeneration, error)
+				require.NotPanics(t, func() {
+					build = newLambdaGenerationBuilder(context.Background(), viper.New(), field.Configuration{},
+						func(context.Context, *viper.Viper, RunTimeOpts) (types.ConnectorServer, error) {
+							constructed++
+							return &identityTestConnector{}, nil
+						}, false, conn, key, scope)
+				})
+				generation, err := build(context.Background(), "v1")
+				require.Error(t, err)
+				require.NotContains(t, err.Error(), "marker-secret")
+				require.Nil(t, generation)
+				require.Zero(t, conn.calls)
+				require.Zero(t, constructed)
+			})
+		}
+	}
+}
+
 func TestIdentityGenerationBudgetAndPersistentLifetime(t *testing.T) {
 	var buildCtx context.Context
 	_, err := buildIdentityGeneration(context.Background(), time.Millisecond, func(ctx context.Context, _ string) (*lambdaConnectorGeneration, error) {
