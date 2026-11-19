@@ -27,8 +27,8 @@ The coverage-profile destination is incidental. `isActionWarning` and `isWarning
 | Criterion | Status | Instrument and exact claim |
 | -- | -- | -- |
 | NF-01 | Verified to stated coverage | Root scheduler fixture: NotFound propagates with the original identity/code and no warning. Real-store fault matrix: root collection failure aborts rather than seals successfully, over three transports. |
-| NF-02 | Verified to stated coverage | ChildResourceListNotFoundCompletesWithWarning: populated parent type/ID, one connector call, nil error, one matching warning, completed action. Ledger warning accounting retains a parent-scoped case. |
-| NF-03 | Verified to stated coverage | EmptyRootResourceListCompletes: one successful empty response, no warnings, completed action at one/four workers. |
+| NF-02 | Evidence incomplete pending independent-review follow-up | Existing child fixture proves calls, warning identity and action completion, but has no emitted-row/content assertion yet. |
+| NF-03 | Evidence incomplete pending independent-review follow-up | Existing empty-root fixture proves scheduler completion only; zero-row and completed real-store artifact proof must be added. |
 | NF-04 | Verified to stated coverage | Root error matrix covers NotFound, PermissionDenied, Unavailable, direct/wrapped, first/continuation, one/four workers. ActionWarningScope additionally covers nil error, malformed parent scope, child lists, entitlements, grants, targeted resources, and unspecified action. |
 | NF-05 | Verified to stated coverage | Existing real-store fault matrix updated for root NotFound: verifies fault fired, unfinished persisted sync, close/reopen with fresh connector and store handle, same sync ID, eventual completion and full logical-content equality against an uninterrupted baseline. |
 | NF-06 | Verified to stated coverage | Original implementation failure plus controlled guard-removal mutation. Final instruments failed in the eight root scheduler cases and all three root fault transports, then passed after guard restoration. |

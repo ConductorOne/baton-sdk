@@ -36,3 +36,11 @@ The ledger scheduler classifies handler errors before committing a completed act
 | IM-04 | Continuation pages | Root collection scope does not change when the page token is nonempty. Sweep first/continuation page, direct/wrapped errors, and one/four workers. |
 
 No new production resources, locks, store capabilities, checkpoint fields, or formats are intended. The classifier is constant-time. Existing tests that deliberately encode root warn-and-drop behavior must be updated to distinguish root collection failure from deleted-parent behavior, not removed.
+
+## Verification-obligation addendum 2
+
+Independent review found NF-02/NF-03 incomplete at their frozen strength: action completion alone does not prove absence of fabricated resources. Production behavior and the original criteria remain unchanged.
+
+- NF-02 must compare full logical entity contents before and after the parent-scoped warning, with a nonempty seeded resource to make preservation nonvacuous.
+- NF-03 must retain scheduler controls and assert zero emitted resource rows. A separate public `Sync` fixture must close and reopen a real Pebble artifact, verify its completed run, and inspect zero resources, entitlements and grants while retaining declared resource types.
+- Retain exact successful command/revision/exit output, including execution of the shared raw-snapshot and logical-content mutation-validation tests. Re-audit these assertions independently before draft readiness.
