@@ -30,10 +30,12 @@ type lambdaTransport struct {
 func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Response, error) {
 	wireRequest := req
 	if l.identity != nil {
-		wireRequest = &Request{msg: proto.Clone(req.msg).(*pbtransport.Request)}
-		wireRequest.msg.SetInvokeIdentity(pbtransport.InvokeIdentity_builder{
-			ClientId: l.identity.ClientID, ClientSecret: l.identity.ClientSecret,
-		}.Build())
+		wireRequest = &Request{msg: pbtransport.Request_builder{
+			Method: req.msg.GetMethod(), Req: req.msg.GetReq(), Headers: req.msg.GetHeaders(),
+			InvokeIdentity: pbtransport.InvokeIdentity_builder{
+				ClientId: l.identity.ClientID, ClientSecret: l.identity.ClientSecret,
+			}.Build(),
+		}.Build()}
 	}
 	payload, frameOnly, err := wireRequest.marshalPayload()
 	if err != nil {
@@ -118,6 +120,9 @@ func NewLambdaClientTransport(ctx context.Context, client *lambda.Client, functi
 	transport := &lambdaTransport{lambdaClient: client, functionName: functionName}
 	for _, opt := range opts {
 		opt(transport)
+	}
+	if identity := transport.identity; identity != nil && (identity.ExecutionScope == "" || identity.ClientID == "" || identity.ClientSecret == "") {
+		return nil, fmt.Errorf("lambda_transport: invoke identity requires execution scope, client ID and client secret")
 	}
 	return transport, nil
 }

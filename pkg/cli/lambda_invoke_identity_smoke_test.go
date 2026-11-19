@@ -106,6 +106,9 @@ func TestInvokeIdentityHTTPRejectionSmoke(t *testing.T) {
 				require.Equal(t, codes.Unavailable, status.Code(err))
 				require.Equal(t, 1, factories)
 				require.Equal(t, 1, closes)
+			case "token":
+				require.Equal(t, codes.Unauthenticated, status.Code(err))
+				require.Zero(t, factories)
 			default:
 				require.Equal(t, codes.FailedPrecondition, status.Code(err))
 				require.Zero(t, factories)

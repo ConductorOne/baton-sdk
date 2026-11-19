@@ -109,6 +109,15 @@ func RecoveredPanicError(ctx context.Context, p interface{}, site string) error 
 	return err
 }
 
+// RecoveredPanicErrorRedacted records the stack and recovery site without the
+// panic value, which can contain credentials or configuration.
+func RecoveredPanicErrorRedacted(ctx context.Context, site, message string, fields ...zap.Field) error {
+	err := status.Error(codes.Internal, "Internal Server Error")
+	fields = append(fields, zap.Stack("stack"), zap.String("recovery_site", site), zap.Error(err))
+	ctxzap.Extract(ctx).Error(message, fields...)
+	return err
+}
+
 // recoveryHandler is only ever reached after a panic: grpc_recovery calls it
 // when its own completion flag says the handler did not return, so a nil value
 // here means a nil panic rather than no panic. Returning nil for that case would

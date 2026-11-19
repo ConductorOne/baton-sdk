@@ -179,7 +179,7 @@ func TestInvokeIdentityJWTBeforeBuildAndRejectedFirstHostDoesNotBind(t *testing.
 		require.NoError(t, err)
 		identityTestValidator(t, h, key, &validations)
 		token := identityTestToken(t, key, "tenant.example.com", changes)
-		require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v2")))
+		require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v2")))
 		require.Equal(t, 1, validations)
 		require.Zero(t, factories)
 		require.Nil(t, h.runtime)
@@ -198,7 +198,7 @@ func TestInvokeIdentityJWTBeforeBuildAndRejectedFirstHostDoesNotBind(t *testing.
 	defer h.Close()
 	identityTestValidator(t, h, key, &validations)
 	badSignature := identityTestToken(t, identityTestKey(t), "tenant.example.com", nil)
-	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", badSignature, "v2")))
+	require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", badSignature, "v2")))
 	require.Nil(t, h.runtime)
 	require.Zero(t, factories)
 	goodToken := identityTestToken(t, key, "other.example.com", nil)
@@ -223,7 +223,7 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 	h, err := newLambdaInvokeIdentityHandler(processCtx, ".example.com", func(ctx context.Context, _ *pbtransport.InvokeIdentity, _ string) (*lambdaIdentityRuntime, error) {
 		factories++
 		ctx = context.WithValue(ctx, crypto.ContextClientSecretKey, clientKey)
-		return &lambdaIdentityRuntime{ctx: ctx, close: func() {}, build: func(ctx context.Context, version string) (*lambdaConnectorGeneration, error) {
+		return &lambdaIdentityRuntime{ctx: ctx, close: func() {}, build: func(_ context.Context, version string) (*lambdaConnectorGeneration, error) {
 			builds++
 			if buildPanics {
 				panic("marker-secret")
@@ -257,7 +257,7 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, "other@tenant.example.com/use", "marker-secret", token, "v2")))
 	require.Equal(t, 1, builds)
 	h.reloader.lastRebuildAt = time.Now().Add(-time.Minute)
-	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", "bad-token", "v2")))
+	require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", "bad-token", "v2")))
 	require.Equal(t, 1, builds)
 	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v2")))
 	require.Equal(t, 2, builds)
@@ -269,21 +269,27 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 	scopeLogs := records.FilterMessage("lambda-run: execution scope mismatch on reload; serving previous generation").All()
 	require.Len(t, scopeLogs, 1)
 	require.Equal(t, map[string]any{
-		"execution_scope": identityTestScope, "client_id": identityTestClient, "requested_version": "v3", "current_version": "v2",
+		"execution_scope": identityTestScope, "client_id": identityTestClient, "requested_version": "v3", "current_version": "v2", "stage": "scope",
 	}, scopeLogs[0].ContextMap())
-	buildErr = status.Error(codes.PermissionDenied, "marker-secret")
+	buildErr = &lambdaBuildStageError{stage: "fetch", err: status.Error(codes.PermissionDenied, "marker-secret")}
 	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v3")))
 	reloadLogs := records.FilterMessage("lambda-run: failed to reload connector config; serving previous generation").All()
 	require.Len(t, reloadLogs, 1)
 	require.Equal(t, map[string]any{
 		"execution_scope": identityTestScope, "client_id": identityTestClient, "requested_version": "v3", "current_version": "v2",
-		"cause_code": "PermissionDenied",
-	}, reloadLogs[0].ContextMap(), "only the versions and the cause's gRPC code are logged, never the error")
+		"cause_code": "PermissionDenied", "stage": "fetch",
+	}, reloadLogs[0].ContextMap(), "error text is withheld")
 	buildErr, buildPanics = nil, true
 	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v3")))
 	panicLogs := records.FilterMessage("lambda-run: connector generation panic").All()
 	require.Len(t, panicLogs, 1)
-	require.Equal(t, map[string]any{"execution_scope": identityTestScope, "client_id": identityTestClient}, panicLogs[0].ContextMap(), "the panic value is not attached")
+	panicFields := panicLogs[0].ContextMap()
+	require.NotEmpty(t, panicFields["stack"])
+	delete(panicFields, "stack")
+	require.Equal(t, map[string]any{
+		"execution_scope": identityTestScope, "client_id": identityTestClient,
+		"recovery_site": "lambda_handler", "error": "rpc error: code = Internal desc = Internal Server Error",
+	}, panicFields, "the panic value is not attached")
 	require.Equal(t, 3, records.FilterLevelExact(zap.ErrorLevel).Len())
 	buildPanics = false
 	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v2")))
@@ -319,7 +325,10 @@ func TestInvokeIdentityFailedBuildCleansUpAndCanRetry(t *testing.T) {
 		req := identityTestRequest(t, identityTestClient, "marker-secret", token, "v1")
 		want := codes.Unavailable
 		wantLog := "lambda-run: failed to build connector"
-		wantFields := map[string]any{"execution_scope": identityTestScope, "client_id": identityTestClient, "requested_version": "v1", "cause_code": status.Code(buildFailure).String()}
+		wantFields := map[string]any{
+			"execution_scope": identityTestScope, "client_id": identityTestClient, "requested_version": "v1",
+			"cause_code": status.Code(buildFailure).String(), "stage": lambdaBuildErrorStage(buildFailure),
+		}
 		if errors.Is(buildFailure, errLambdaExecutionScope) {
 			want = codes.FailedPrecondition
 			wantLog = "lambda-run: execution scope mismatch on first build"
@@ -369,7 +378,7 @@ func TestInvokeIdentityScopeCheckedBeforeConstructionEveryBuild(t *testing.T) {
 		build := newLambdaGenerationBuilder(context.Background(), viper.New(), field.Configuration{}, func(ctx context.Context, cfg *viper.Viper, opts RunTimeOpts) (types.ConnectorServer, error) {
 			constructed++
 			return &identityTestConnector{}, nil
-		}, false, conn, key, identityTestScope)
+		}, false, conn, key, true, identityTestScope)
 		for _, version := range []string{"v1", "v2"} {
 			_, err := build(context.Background(), version)
 			if scope == identityTestScope {
@@ -388,7 +397,7 @@ func TestInvokeIdentityScopeCheckedBeforeConstructionEveryBuild(t *testing.T) {
 	conn := &identityConfigConn{response: v1.GetConnectorConfigResponse_builder{Config: encrypted, ExpectedExecutionScope: proto.String("wrong")}.Build()}
 	build := newLambdaGenerationBuilder(context.Background(), viper.New(), field.Configuration{}, func(context.Context, *viper.Viper, RunTimeOpts) (types.ConnectorServer, error) {
 		return &identityTestConnector{}, nil
-	}, false, conn, key, "")
+	}, false, conn, key, false, "")
 	_, err = build(context.Background(), "")
 	require.NoError(t, err, "legacy mode ignores expected execution scope")
 }
@@ -410,7 +419,7 @@ func TestLambdaGenerationBuilderRejectsInvalidConfigurationKeys(t *testing.T) {
 						func(context.Context, *viper.Viper, RunTimeOpts) (types.ConnectorServer, error) {
 							constructed++
 							return &identityTestConnector{}, nil
-						}, false, conn, key, scope)
+						}, false, conn, key, scope != "", scope)
 				})
 				generation, err := build(context.Background(), "v1")
 				require.Error(t, err)
@@ -425,14 +434,14 @@ func TestLambdaGenerationBuilderRejectsInvalidConfigurationKeys(t *testing.T) {
 
 func TestIdentityGenerationBudgetAndPersistentLifetime(t *testing.T) {
 	var buildCtx context.Context
-	_, err := buildIdentityGeneration(context.Background(), time.Millisecond, func(ctx context.Context, _ string) (*lambdaConnectorGeneration, error) {
+	_, err := buildIdentityGeneration(context.Background(), context.Background(), time.Millisecond, func(ctx context.Context, _ string) (*lambdaConnectorGeneration, error) {
 		buildCtx = ctx
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}, "v1")
 	require.Error(t, err)
 	require.ErrorIs(t, buildCtx.Err(), context.Canceled)
-	generation, err := buildIdentityGeneration(context.Background(), time.Second, func(ctx context.Context, _ string) (*lambdaConnectorGeneration, error) {
+	generation, err := buildIdentityGeneration(context.Background(), context.Background(), time.Second, func(ctx context.Context, _ string) (*lambdaConnectorGeneration, error) {
 		buildCtx = ctx
 		return &lambdaConnectorGeneration{connector: &identityTestConnector{}}, nil
 	}, "v1")
@@ -448,9 +457,10 @@ func TestInvokeIdentityJWKSRedirectRefused(t *testing.T) {
 	defer target.Close()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target.URL, http.StatusFound) }))
 	defer server.Close()
-	client := lambdaIdentityJWKSClient()
+	client, err := lambdaIdentityJWKSClient()
+	require.NoError(t, err)
 	client.Transport = server.Client().Transport
-	_, err := auth.NewValidator(context.Background(), auth.Config{
+	_, err = auth.NewValidator(context.Background(), auth.Config{
 		Issuer: "https://tenant.example.com", Subject: identityTestScope, Audience: identityTestScope,
 		JWKSUrl: server.URL, JWKSClient: client,
 	})
@@ -478,10 +488,13 @@ func TestInvokeIdentitySuffixRequiresLeadingDelimiter(t *testing.T) {
 		t.Error("must not construct")
 		return nil, errors.New("unexpected construction")
 	}
-	for _, suffix := range []string{"example.com", "com", "*.example.com", " .example.com"} {
+	for _, suffix := range []string{
+		"example.com", "com", "*.example.com", " .example.com", ".com", ".", "-", ".Example.com",
+		".example.com.", ".example..com", "-.example.com", ".example.com:443", "--route--dev.com",
+	} {
 		t.Run("rejected/"+suffix, func(t *testing.T) {
 			h, err := newLambdaInvokeIdentityHandler(context.Background(), suffix, factory)
-			require.ErrorContains(t, err, "lambda-allowed-host-suffix must begin with")
+			require.ErrorContains(t, err, "lambda-allowed-host-suffix must")
 			require.Nil(t, h)
 		})
 	}
@@ -541,8 +554,8 @@ func TestIdentityRuntimeKeyDecryptsDispatchedCredentials(t *testing.T) {
 			return nil, err
 		}
 		require.NotNil(t, runtime.ctx.Value(crypto.ContextClientSecretKey))
-		runtime.build = func(ctx context.Context, version string) (*lambdaConnectorGeneration, error) {
-			require.NotNil(t, ctx.Value(crypto.ContextClientSecretKey))
+		runtime.build = func(_ context.Context, version string) (*lambdaConnectorGeneration, error) {
+			require.NotNil(t, runtime.ctx.Value(crypto.ContextClientSecretKey))
 			return &lambdaConnectorGeneration{version: version, connector: &identityTestConnector{call: func(ctx context.Context) error {
 				key, ok := ctx.Value(crypto.ContextClientSecretKey).(*jose.JSONWebKey)
 				require.True(t, ok)
@@ -589,9 +602,18 @@ func TestInvokeIdentityMissingPlatformScopeAndPanicSanitization(t *testing.T) {
 	require.NotContains(t, fmt.Sprint(records.All()), "marker-secret")
 	panicLogs := records.FilterMessage("lambda-run: invoke identity handler panic").All()
 	require.Len(t, panicLogs, 1, "a recovered panic must leave a fixed-text log record")
-	require.Empty(t, panicLogs[0].Context, "the panic value must not be attached as a field")
-	_, err = lambdaIdentityRecoveryInterceptor()(processCtx, nil, &grpc.UnaryServerInfo{}, func(context.Context, any) (any, error) { panic("marker-secret") })
+	require.NotEmpty(t, panicLogs[0].ContextMap()["stack"])
+	require.NotContains(t, panicLogs[0].ContextMap(), "method")
+	require.Equal(t, "lambda_handler", panicLogs[0].ContextMap()["recovery_site"])
+	require.NotContains(t, panicLogs[0].ContextMap(), "panic")
+	_, err = lambdaIdentityRecoveryInterceptor()(processCtx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Call"}, func(context.Context, any) (any, error) { panic("marker-secret") })
 	require.Equal(t, codes.Internal, status.Code(err))
+	connectorPanicLogs := records.FilterMessage("lambda-run: connector handler panic").All()
+	require.Len(t, connectorPanicLogs, 1)
+	require.NotEmpty(t, connectorPanicLogs[0].ContextMap()["stack"])
+	require.Equal(t, "/test.Service/Call", connectorPanicLogs[0].ContextMap()["method"])
+	require.Equal(t, "interceptor", connectorPanicLogs[0].ContextMap()["recovery_site"])
+	require.NotContains(t, connectorPanicLogs[0].ContextMap(), "panic")
 	require.NotContains(t, err.Error(), "marker-secret")
 	require.NotContains(t, fmt.Sprint(records.All()), "marker-secret")
 }

@@ -263,7 +263,8 @@ func TestDecodeWireFrame_UnsupportedVersion(t *testing.T) {
 	require.Equal(t, codes.Unknown, status.Code(originalErr))
 	rt := &Request{}
 	err := rt.UnmarshalJSON(payload)
-	require.EqualError(t, err, "invalid transport request")
+	require.EqualError(t, err, "invalid transport request: unsupported wire frame version 3")
+	require.ErrorIs(t, err, ErrInvalidTransportRequest)
 	require.Equal(t, status.Code(originalErr), status.Code(err))
 }
 
@@ -272,12 +273,20 @@ func TestTransportDecodeErrorsAreClassifiableSentinels(t *testing.T) {
 		requestErr := (&Request{}).UnmarshalJSON([]byte(payload))
 		require.ErrorIs(t, requestErr, ErrInvalidTransportRequest)
 		require.NotErrorIs(t, requestErr, ErrInvalidTransportResponse)
-		require.EqualError(t, requestErr, "invalid transport request")
+		if payload == `{"v": 3, "frame": "AA=="}` {
+			require.EqualError(t, requestErr, "invalid transport request: unsupported wire frame version 3")
+		} else {
+			require.EqualError(t, requestErr, "invalid transport request")
+		}
 
 		responseErr := (&Response{}).UnmarshalJSON([]byte(payload))
 		require.ErrorIs(t, responseErr, ErrInvalidTransportResponse)
 		require.NotErrorIs(t, responseErr, ErrInvalidTransportRequest)
-		require.EqualError(t, responseErr, "invalid transport response")
+		if payload == `{"v": 3, "frame": "AA=="}` {
+			require.EqualError(t, responseErr, "invalid transport response: unsupported wire frame version 3")
+		} else {
+			require.EqualError(t, responseErr, "invalid transport response")
+		}
 	}
 
 	// encoding/json is how the Lambda runtime and the client transport reach

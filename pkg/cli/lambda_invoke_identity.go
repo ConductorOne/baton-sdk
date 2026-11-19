@@ -21,6 +21,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/field"
 	lambdaGrpc "github.com/conductorone/baton-sdk/pkg/lambda/grpc"
 	lambdaConfig "github.com/conductorone/baton-sdk/pkg/lambda/grpc/config"
+	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -47,6 +48,9 @@ type lambdaInvokeIdentityHandler struct {
 	suffix       string
 	factory      lambdaIdentityFactory
 	newValidator func(context.Context, string, string) (*auth.Validator, error)
+	// restoreLogLevel puts the process log level back to its startup setting.
+	// It is nil when no startup level was supplied.
+	restoreLogLevel func()
 
 	clientID  string
 	scope     string
@@ -59,11 +63,12 @@ func newLambdaInvokeIdentityHandler(ctx context.Context, suffix string, factory 
 	if suffix == "" {
 		return nil, fmt.Errorf("lambda-run: lambda-allowed-host-suffix is required with per-invoke identity")
 	}
-	// The suffix is compared with the host as a raw string, so it has to carry
-	// its own delimiter. Without one, "example.com" would also accept
-	// "evilexample.com" and trust that host's keys.
-	if suffix[0] != '.' && suffix[0] != '-' {
-		return nil, fmt.Errorf("lambda-run: lambda-allowed-host-suffix must begin with \".\" or \"-\"")
+	if err := validateAllowedHostSuffix(suffix); err != nil {
+		return nil, err
+	}
+	jwksClient, err := lambdaIdentityJWKSClient()
+	if err != nil {
+		return nil, fmt.Errorf("lambda-run: failed to configure the identity key client: %w", err)
 	}
 	return &lambdaInvokeIdentityHandler{
 		processCtx: ctx, suffix: suffix, factory: factory,
@@ -72,17 +77,61 @@ func newLambdaInvokeIdentityHandler(ctx context.Context, suffix string, factory 
 			jwksURL := (&url.URL{Scheme: "https", Host: host, Path: "/auth/v1/jwks"}).String()
 			return auth.NewValidator(ctx, auth.Config{
 				Issuer: issuer, Subject: scope, Audience: scope, JWKSUrl: jwksURL,
-				JWKSClient: lambdaIdentityJWKSClient(),
+				JWKSClient: jwksClient,
 			})
 		},
 	}, nil
 }
 
-func lambdaIdentityJWKSClient() *http.Client {
+// validateAllowedHostSuffix checks DNS syntax, not public-suffix ownership.
+// Operators must not use a public suffix such as ".co.uk".
+func validateAllowedHostSuffix(suffix string) error {
+	if suffix == "" {
+		return fmt.Errorf("lambda-run: lambda-allowed-host-suffix is required with per-invoke identity")
+	}
+	// The suffix is compared with the host as a raw string, so it has to carry
+	// its own delimiter. Without one, "example.com" would also accept
+	// "evilexample.com" and trust that host's keys.
+	if suffix[0] != '.' && suffix[0] != '-' {
+		return fmt.Errorf("lambda-run: lambda-allowed-host-suffix must begin with \".\" or \"-\"")
+	}
+	// A host is one label followed by the suffix, so the shortest host this
+	// suffix admits must itself be a valid host. That rejects uppercase, empty
+	// labels and a trailing dot, none of which a runtime host can match.
+	_, domain, _ := strings.Cut("a"+suffix, ".")
+	if !validInvokeHostSyntax("a"+suffix) || !strings.Contains(domain, ".") {
+		// The domain under the first label needs two labels of its own, or a
+		// suffix such as ".com" would trust every host directly under it.
+		return fmt.Errorf("lambda-run: lambda-allowed-host-suffix must be a lowercase DNS suffix under a domain of at least two labels, for example \".example.com\"")
+	}
+	return nil
+}
+
+// setStartupLogLevel records the level to return to when a first build fails
+// after the builder has already applied the fetched configuration's level.
+func (h *lambdaInvokeIdentityHandler) setStartupLogLevel(config lambdaLogLevelConfig) {
+	h.restoreLogLevel = func() {
+		if err := applyLambdaLogLevel(config, time.Now()); err != nil {
+			ctxzap.Extract(h.processCtx).Warn("lambda-run: failed to restore log level after a failed first build", zap.Error(err))
+		}
+	}
+}
+
+// lambdaIdentityJWKSClient trusts the same roots as the token and
+// configuration clients for the same host, including the CA bundle named by
+// BATON_LAMBDA_CA_CERT_PATH.
+func lambdaIdentityJWKSClient() (*http.Client, error) {
+	tlsConfig, err := lambdaConfig.TLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = tlsConfig
 	return &http.Client{
+		Transport:     transport,
 		Timeout:       30 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
+	}, nil
 }
 
 func invokeIdentityHost(clientID, suffix string) (string, error) {
@@ -95,27 +144,36 @@ func invokeIdentityHost(clientID, suffix string) (string, error) {
 		return "", fmt.Errorf("invalid invoke client id")
 	}
 	host := parts[0]
-	labels := strings.Split(host, ".")
-	if len(host) > 253 || len(labels) < 2 || net.ParseIP(host) != nil {
+	if !validInvokeHostSyntax(host) {
 		return "", fmt.Errorf("invalid invoke host")
-	}
-	for _, label := range labels {
-		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return "", fmt.Errorf("invalid invoke host")
-		}
-		for _, c := range label {
-			isLowercaseLetter := c >= 'a' && c <= 'z'
-			isDigit := c >= '0' && c <= '9'
-			if !isLowercaseLetter && !isDigit && c != '-' {
-				return "", fmt.Errorf("invalid invoke host")
-			}
-		}
 	}
 	prefix, ok := strings.CutSuffix(host, suffix)
 	if !ok || prefix == "" || strings.Contains(prefix, ".") {
 		return "", fmt.Errorf("invoke host is not allowed")
 	}
 	return host, nil
+}
+
+// validInvokeHostSyntax reports whether host is a lowercase DNS name of at
+// least two labels, with no port, no trailing dot and no IP literal.
+func validInvokeHostSyntax(host string) bool {
+	labels := strings.Split(host, ".")
+	if len(host) > 253 || len(labels) < 2 || net.ParseIP(host) != nil {
+		return false
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, c := range label {
+			isLowercaseLetter := c >= 'a' && c <= 'z'
+			isDigit := c >= '0' && c <= '9'
+			if !isLowercaseLetter && !isDigit && c != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (h *lambdaInvokeIdentityHandler) Handler(ctx context.Context, req *lambdaGrpc.Request) (*lambdaGrpc.Response, error) {
@@ -126,9 +184,8 @@ func (h *lambdaInvokeIdentityHandler) Handler(ctx context.Context, req *lambdaGr
 		defer func() {
 			_ = recover()
 			if !completed {
-				// Fixed text only: a panic value can carry request or credential
-				// content, so it is never logged.
-				ctxzap.Extract(h.processCtx).Error("lambda-run: invoke identity handler panic")
+				_ = ugrpc.RecoveredPanicErrorRedacted(h.processCtx, ugrpc.RecoverySiteLambdaHandler,
+					"lambda-run: invoke identity handler panic")
 				resp, err = lambdaGrpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: identity initialization failed")), nil
 			}
 		}()
@@ -158,12 +215,29 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 	}
 
 	validator := h.validator
-	keepValidator := false
+	host := ""
 	if validator == nil {
-		host, err := invokeIdentityHost(identity.GetClientId(), h.suffix)
+		var err error
+		host, err = invokeIdentityHost(identity.GetClientId(), h.suffix)
 		if err != nil {
 			return ctx, nil, status.Error(codes.FailedPrecondition, "lambda-run: invoke host is not allowed")
 		}
+	}
+	// Check that a bearer token is present before building a validator: on an
+	// unbound environment that is an outbound key fetch made while holding
+	// h.mu, and a request without a token should not be able to cause one.
+	// These are credential failures, so they carry the same code the
+	// mode-off auth interceptor uses.
+	values := req.Headers().Get("authorization")
+	if len(values) != 1 {
+		return ctx, nil, status.Error(codes.Unauthenticated, "lambda-run: could not authenticate invoke")
+	}
+	token, err := auth.ExtractBearerToken(values[0])
+	if err != nil {
+		return ctx, nil, status.Error(codes.Unauthenticated, "lambda-run: could not authenticate invoke")
+	}
+	keepValidator := false
+	if validator == nil {
 		validator, err = h.newValidator(h.processCtx, host, lc.TenantID)
 		if err != nil {
 			return ctx, nil, status.Error(codes.FailedPrecondition, "lambda-run: could not authenticate invoke")
@@ -174,16 +248,8 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 			}
 		}()
 	}
-	values := req.Headers().Get("authorization")
-	if len(values) != 1 {
-		return ctx, nil, status.Error(codes.FailedPrecondition, "lambda-run: could not authenticate invoke")
-	}
-	token, err := auth.ExtractBearerToken(values[0])
-	if err == nil {
-		_, err = validator.ValidateToken(ctx, token)
-	}
-	if err != nil {
-		return ctx, nil, status.Error(codes.FailedPrecondition, "lambda-run: could not authenticate invoke")
+	if _, err := validator.ValidateToken(ctx, token); err != nil {
+		return ctx, nil, status.Error(codes.Unauthenticated, "lambda-run: could not authenticate invoke")
 	}
 	if h.runtime == nil {
 		boundCtx := ctxzap.ToContext(h.processCtx, ctxzap.Extract(h.processCtx).With(
@@ -205,16 +271,25 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 		if versions := req.Headers().Get(lambdaConnectorConfigVersionHeader); len(versions) > 0 {
 			requestedVersion = versions[0]
 		}
-		generation, err := runtime.build(runtime.ctx, requestedVersion)
+		registered := false
+		// The builder applies the fetched configuration's log level before it
+		// constructs the connector. If this first build does not end in a
+		// registered generation, nothing owns that level, so put it back.
+		defer func() {
+			if !registered && h.restoreLogLevel != nil {
+				h.restoreLogLevel()
+			}
+		}()
+		generation, err := runtime.build(ctx, requestedVersion)
 		if err != nil {
 			if errors.Is(err, errLambdaExecutionScope) {
-				ctxzap.Extract(boundCtx).Error("lambda-run: execution scope mismatch on first build", zap.String("requested_version", requestedVersion))
+				ctxzap.Extract(boundCtx).Error("lambda-run: execution scope mismatch on first build", zap.String("requested_version", requestedVersion), zap.String("stage", lambdaBuildErrorStage(err)))
 				return ctx, nil, status.Error(codes.FailedPrecondition, "lambda-run: execution scope mismatch")
 			}
-			ctxzap.Extract(boundCtx).Error("lambda-run: failed to build connector", zap.String("requested_version", requestedVersion), zap.Stringer("cause_code", status.Code(err)))
+			ctxzap.Extract(boundCtx).Error("lambda-run: failed to build connector",
+				zap.String("requested_version", requestedVersion), zap.Stringer("cause_code", status.Code(err)), zap.String("stage", lambdaBuildErrorStage(err)))
 			return ctx, nil, status.Error(codes.Unavailable, "lambda-run: failed to build connector")
 		}
-		registered := false
 		defer func() {
 			if !registered {
 				closeIdentityGeneration(runtime.ctx, generation)
@@ -223,7 +298,7 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 		server := lambdaGrpc.NewServer(lambdaIdentityRecoveryInterceptor())
 		connector.Register(runtime.ctx, server, generation.connector, &connector.RegisterOps{ProvisioningEnabled: true, TicketingEnabled: true})
 		h.reloader = &lambdaConnectorReloader{
-			server: server, current: generation, build: runtime.build, redactErrors: true,
+			server: server, current: generation, build: runtime.build, identityMode: true,
 			lastRebuildAt: time.Now(), lastRebuildRequestedVersion: requestedVersion,
 		}
 		h.runtime, h.validator = runtime, validator
@@ -245,8 +320,8 @@ func lambdaIdentityRecoveryInterceptor() grpc.UnaryServerInterceptor {
 			defer func() {
 				_ = recover()
 				if !completed {
-					ctxzap.Extract(ctx).Error("lambda-run: connector handler panic")
-					resp, err = nil, status.Error(codes.Internal, "Internal Server Error")
+					resp, err = nil, ugrpc.RecoveredPanicErrorRedacted(ctx, ugrpc.RecoverySiteInterceptor,
+						"lambda-run: connector handler panic", zap.String("method", info.FullMethod))
 				}
 			}()
 			resp, err = handler(ctx, req)
@@ -314,10 +389,10 @@ func lambdaIdentityRuntimeFactory[T field.Configurable](v *viper.Viper, schema f
 			return nil, err
 		}
 		ctx = context.WithValue(ctx, crypto.ContextClientSecretKey, key)
-		build := newLambdaGenerationBuilder(ctx, v, schema, getconnector, sessionStoreEnabled, client, webKey, scope)
+		build := newLambdaGenerationBuilder(ctx, v, schema, getconnector, sessionStoreEnabled, client, webKey, true, scope)
 		runtime := &lambdaIdentityRuntime{ctx: ctx, close: closeClient}
-		runtime.build = func(_ context.Context, requestedVersion string) (*lambdaConnectorGeneration, error) {
-			return buildIdentityGeneration(ctx, lambdaIdentityBuildTimeout, build, requestedVersion)
+		runtime.build = func(invokeCtx context.Context, requestedVersion string) (*lambdaConnectorGeneration, error) {
+			return buildIdentityGeneration(ctx, invokeCtx, lambdaIdentityBuildTimeout, build, requestedVersion)
 		}
 		if !timer.Stop() || ctx.Err() != nil {
 			return nil, fmt.Errorf("identity client initialization exceeded its time budget")
@@ -328,7 +403,7 @@ func lambdaIdentityRuntimeFactory[T field.Configurable](v *viper.Viper, schema f
 }
 
 func buildIdentityGeneration(
-	ctx context.Context,
+	ctx, invokeCtx context.Context,
 	timeout time.Duration,
 	build func(context.Context, string) (*lambdaConnectorGeneration, error),
 	requestedVersion string,
@@ -336,9 +411,11 @@ func buildIdentityGeneration(
 	generationCtx, cancel := context.WithCancel(ctx)
 	// Stop the construction budget on success without canceling the generation's lifetime.
 	timer := time.AfterFunc(timeout, cancel)
+	stopInvoke := context.AfterFunc(invokeCtx, cancel)
 	keep := false
 	defer func() {
 		timer.Stop()
+		stopInvoke()
 		if !keep {
 			cancel()
 		}
@@ -347,7 +424,7 @@ func buildIdentityGeneration(
 	if err != nil {
 		return nil, err
 	}
-	if !timer.Stop() || generationCtx.Err() != nil {
+	if !timer.Stop() || !stopInvoke() || generationCtx.Err() != nil || invokeCtx.Err() != nil {
 		closeIdentityGeneration(ctx, generation)
 		return nil, fmt.Errorf("connector build exceeded its time budget")
 	}

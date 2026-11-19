@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
@@ -19,10 +20,9 @@ import (
 
 const annotationsFieldName = "annotations"
 
-// ErrInvalidTransportRequest and ErrInvalidTransportResponse are returned when
-// a transport payload cannot be decoded. They are returned as-is, without the
-// underlying decode error, because that error can quote payload content such
-// as tokens or type URLs. Match them with errors.Is rather than on the text.
+// ErrInvalidTransportRequest and ErrInvalidTransportResponse classify decode
+// failures with errors.Is. Unsupported versions include the version number;
+// other decode errors are withheld because they can quote payload content.
 var (
 	// ErrInvalidTransportRequest is returned by Request.UnmarshalJSON.
 	ErrInvalidTransportRequest = errors.New("invalid transport request")
@@ -211,6 +211,10 @@ func (f *Request) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Request{}
 	wireV2, err := unmarshalTransportJSON(b, f.msg)
 	if err != nil {
+		var versionErr *unsupportedWireVersionError
+		if errors.As(err, &versionErr) {
+			return fmt.Errorf("%w: unsupported wire frame version %d", ErrInvalidTransportRequest, versionErr.version)
+		}
 		return ErrInvalidTransportRequest
 	}
 	f.wireV2 = wireV2
@@ -319,6 +323,10 @@ func (f *Response) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Response{}
 	wireV2, err := unmarshalTransportJSON(b, f.msg)
 	if err != nil {
+		var versionErr *unsupportedWireVersionError
+		if errors.As(err, &versionErr) {
+			return fmt.Errorf("%w: unsupported wire frame version %d", ErrInvalidTransportResponse, versionErr.version)
+		}
 		return ErrInvalidTransportResponse
 	}
 	f.wireV2 = wireV2

@@ -119,3 +119,33 @@ func TestExpectedExecutionScopePresenceAndFieldNumbers(t *testing.T) {
 	require.EqualValues(t, 5, response.ProtoReflect().Descriptor().Fields().ByName("expected_execution_scope").Number())
 	require.EqualValues(t, 4, (&pbtransport.Request{}).ProtoReflect().Descriptor().Fields().ByName("invoke_identity").Number())
 }
+
+func TestNewLambdaClientTransportRejectsIncompleteInvokeIdentity(t *testing.T) {
+	valid := InvokeIdentity{ExecutionScope: "execution-scope", ClientID: "client@tenant.example.com/connector", ClientSecret: "marker-secret"}
+	for _, missing := range []string{"all", "scope", "client", "secret"} {
+		t.Run(missing, func(t *testing.T) {
+			identity := valid
+			switch missing {
+			case "all":
+				identity = InvokeIdentity{}
+			case "scope":
+				identity.ExecutionScope = ""
+			case "client":
+				identity.ClientID = ""
+			case "secret":
+				identity.ClientSecret = ""
+			}
+			transport, err := NewLambdaClientTransport(context.Background(), nil, "test-function", WithInvokeIdentity(identity))
+			require.Error(t, err)
+			require.Nil(t, transport)
+			require.NotContains(t, err.Error(), valid.ClientSecret)
+			require.NotContains(t, err.Error(), valid.ClientID)
+		})
+	}
+	transport, err := NewLambdaClientTransport(context.Background(), nil, "test-function", WithInvokeIdentity(valid))
+	require.NoError(t, err)
+	require.NotNil(t, transport)
+	transport, err = NewLambdaClientTransport(context.Background(), nil, "test-function")
+	require.NoError(t, err)
+	require.NotNil(t, transport)
+}

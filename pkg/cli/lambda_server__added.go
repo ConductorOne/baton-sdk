@@ -75,10 +75,11 @@ var lambdaConnectorReloadMinInterval = 5 * time.Second
 var lambdaConnectorReloadGlobalFloor = 1 * time.Second
 
 type lambdaConnectorGeneration struct {
-	version   string
-	connector types.ConnectorServer
-	logging   lambdaLogLevelConfig
-	cancel    context.CancelFunc
+	version      string
+	connector    types.ConnectorServer
+	logging      lambdaLogLevelConfig
+	cancel       context.CancelFunc
+	identityMode bool
 }
 
 type lambdaLogLevelConfig struct {
@@ -106,7 +107,7 @@ type lambdaConnectorReloader struct {
 	server       *c1_lambda_grpc.Server
 	current      *lambdaConnectorGeneration
 	build        func(context.Context, string) (*lambdaConnectorGeneration, error)
-	redactErrors bool
+	identityMode bool
 
 	// lastRebuildAt/lastRebuildRequestedVersion back the reload rate-cap. When
 	// the server persistently serves a config_version different from the
@@ -148,10 +149,9 @@ func (r *lambdaConnectorReloader) Handler(ctx context.Context, req *c1_lambda_gr
 			if !panicked {
 				return
 			}
-			if r.redactErrors {
-				// Fixed text only: the panic value can carry configuration or
-				// request content, so it is never logged.
-				ctxzap.Extract(ctx).Error("lambda-run: connector generation panic")
+			if r.identityMode {
+				_ = ugrpc.RecoveredPanicErrorRedacted(ctx, ugrpc.RecoverySiteLambdaHandler,
+					"lambda-run: connector generation panic")
 				resp, err = c1_lambda_grpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: connector generation failed")), nil
 				return
 			}
@@ -178,11 +178,11 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 
 	if requestedVersion != "" {
 		if err := r.reloadIfNeeded(ctx, requestedVersion); err != nil {
-			if r.redactErrors {
+			if r.identityMode {
 				// The error is withheld from the caller and from the log because it
 				// can quote configuration or request content. Its gRPC code is safe
 				// and tells a failing configuration call from a local failure.
-				versions := []zap.Field{zap.String("requested_version", requestedVersion), zap.String("current_version", r.currentVersion())}
+				versions := []zap.Field{zap.String("requested_version", requestedVersion), zap.String("current_version", r.currentVersion()), zap.String("stage", lambdaBuildErrorStage(err))}
 				if errors.Is(err, errLambdaExecutionScope) {
 					ctxzap.Extract(ctx).Error("lambda-run: execution scope mismatch on reload; serving previous generation", versions...)
 					return c1_lambda_grpc.ErrorResponse(status.Error(codes.FailedPrecondition, "lambda-run: execution scope mismatch")), nil
@@ -280,7 +280,7 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	previous := r.current
 	swapped := false
 	defer func() {
-		if !swapped && r.redactErrors {
+		if !swapped {
 			closeIdentityGeneration(ctx, next)
 		}
 	}()
@@ -325,7 +325,7 @@ func closeConnectorGenerationAfterDrain(ctx context.Context, generation *lambdaC
 	defer cancel()
 
 	if err := closeLambdaConnectorGeneration(closeCtx, generation.connector); err != nil {
-		if generation.cancel != nil {
+		if generation.identityMode {
 			zap.L().Warn("error closing stale lambda connector generation")
 		} else {
 			zap.L().Warn("error closing stale lambda connector generation", zap.String("config_version", generation.version), zap.Error(err))
@@ -391,6 +391,8 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 		if v.GetBool(field.LambdaServerPerInvokeIdentityField.GetName()) {
+			// Cobra validates required-flag annotations after PreRunE. Identity
+			// mode supplies credentials per invoke instead of through these flags.
 			for _, f := range lambdaSchema.Fields {
 				if f.Required {
 					delete(cmd.Flags().Lookup(f.GetName()).Annotations, cobra.BashCompOneRequiredFlag)
@@ -456,7 +458,8 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			if err != nil {
 				return err
 			}
-			defer handler.Close()
+			handler.setStartupLogLevel(startupLogLevel)
+			// StartWithOptions exits the process; deferred cleanup cannot run.
 			aws_lambda.StartWithOptions(handler.Handler, aws_lambda.WithContext(runCtx))
 			return nil
 		}
@@ -484,7 +487,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
-		buildConnectorGeneration := newLambdaGenerationBuilder(runCtx, v, connectorSchema, getconnector, sessionStoreEnabled, grpcClient, webKey, "")
+		buildConnectorGeneration := newLambdaGenerationBuilder(runCtx, v, connectorSchema, getconnector, sessionStoreEnabled, grpcClient, webKey, false, "")
 		initialGeneration, err := buildConnectorGeneration(runCtx, "")
 		if err != nil {
 			return err
@@ -546,6 +549,7 @@ func newLambdaGenerationBuilder[T field.Configurable](
 	sessionStoreEnabled bool,
 	grpcClient grpc.ClientConnInterface,
 	webKey *jose.JSONWebKey,
+	identityMode bool,
 	expectedScope string,
 ) func(context.Context, string) (*lambdaConnectorGeneration, error) {
 	configClient := v1.NewConnectorConfigServiceClient(grpcClient)
@@ -565,44 +569,44 @@ func newLambdaGenerationBuilder[T field.Configurable](
 
 	buildConnectorGeneration := func(ctx context.Context, requestedVersion string) (*lambdaConnectorGeneration, error) {
 		if webKey == nil {
-			return nil, fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
+			return nil, &lambdaBuildStageError{stage: "decrypt", err: fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")}
 		}
 		ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
 		if !ok {
-			return nil, fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
+			return nil, &lambdaBuildStageError{stage: "decrypt", err: fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")}
 		}
 		// Get configuration, convert it to viper flag values, then proceed.
 		config, err := configClient.GetConnectorConfig(ctx, &v1.GetConnectorConfigRequest{
 			RequestedVersion: requestedVersion,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("lambda-run: failed to get connector config: %w", err)
+			return nil, &lambdaBuildStageError{stage: "fetch", err: fmt.Errorf("lambda-run: failed to get connector config: %w", err)}
 		}
-		if expectedScope != "" && (!config.HasExpectedExecutionScope() || config.GetExpectedExecutionScope() != expectedScope) {
-			return nil, errLambdaExecutionScope
+		if identityMode && (!config.HasExpectedExecutionScope() || config.GetExpectedExecutionScope() != expectedScope) {
+			return nil, &lambdaBuildStageError{stage: "scope", err: errLambdaExecutionScope}
 		}
 
 		decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, config.GetConfig())
 		if err != nil {
-			return nil, fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
+			return nil, &lambdaBuildStageError{stage: "decrypt", err: fmt.Errorf("lambda-run: failed to decrypt config: %w", err)}
 		}
 
 		configStruct := structpb.Struct{}
 		err = json.Unmarshal(decrypted, &configStruct)
 		if err != nil {
-			return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
+			return nil, &lambdaBuildStageError{stage: "unmarshal", err: fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)}
 		}
 
 		connectorConfig := configStruct.AsMap()
 		effectiveConfig := effectiveLambdaConfig(v, connectorConfig, connectorSchema)
 		logLevelConfig, err := lambdaLogLevelConfigFromViper(effectiveConfig)
 		if err != nil {
-			return nil, err
+			return nil, &lambdaBuildStageError{stage: "validate", err: err}
 		}
 
 		t, err := makeLambdaConnectorConfiguration[T](v, effectiveConfig, connectorConfig, decodeOpts)
 		if err != nil {
-			return nil, fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
+			return nil, &lambdaBuildStageError{stage: "validate", err: fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)}
 		}
 
 		var (
@@ -624,7 +628,7 @@ func newLambdaGenerationBuilder[T field.Configurable](
 		}
 
 		if err := field.Validate(connectorSchema, t, fieldOptions...); err != nil {
-			return nil, fmt.Errorf("failed to validate config: %w", err)
+			return nil, &lambdaBuildStageError{stage: "validate", err: fmt.Errorf("failed to validate config: %w", err)}
 		}
 
 		policy, version := egressPolicyAndGenerationVersion(ctx, requestedVersion, config)
@@ -654,32 +658,52 @@ func newLambdaGenerationBuilder[T field.Configurable](
 		// post-build apply below.
 		if requestedVersion != "" {
 			if err := applyLambdaLogLevel(logLevelConfig, time.Now()); err != nil {
-				return nil, err
+				return nil, &lambdaBuildStageError{stage: "validate", err: err}
 			}
 		}
 
 		constructionCtx := runCtx
-		if expectedScope != "" {
+		if identityMode {
 			constructionCtx = ctx
 		}
 		c, err := getconnector(constructionCtx, t, ops)
 		if err != nil {
-			if expectedScope != "" && c != nil {
-				closeIdentityGeneration(ctx, &lambdaConnectorGeneration{connector: c})
+			if identityMode && c != nil {
+				closeIdentityGeneration(ctx, &lambdaConnectorGeneration{connector: c, identityMode: identityMode})
 			}
-			return nil, fmt.Errorf("failed to get connector: %w", err)
+			return nil, &lambdaBuildStageError{stage: "construct", err: fmt.Errorf("failed to get connector: %w", err)}
 		}
-		if expectedScope != "" && c == nil {
-			return nil, fmt.Errorf("connector construction returned no server")
+		if identityMode && c == nil {
+			return nil, &lambdaBuildStageError{stage: "construct", err: fmt.Errorf("connector construction returned no server")}
 		}
 
 		return &lambdaConnectorGeneration{
-			version:   version,
-			connector: c,
-			logging:   logLevelConfig,
+			version:      version,
+			connector:    c,
+			logging:      logLevelConfig,
+			identityMode: identityMode,
 		}, nil
 	}
 	return buildConnectorGeneration
+}
+
+type lambdaBuildStageError struct {
+	stage string
+	err   error
+}
+
+func (e *lambdaBuildStageError) Error() string { return e.err.Error() }
+func (e *lambdaBuildStageError) Unwrap() error { return e.err }
+
+func lambdaBuildErrorStage(err error) string {
+	var staged *lambdaBuildStageError
+	if errors.As(err, &staged) {
+		return staged.stage
+	}
+	if errors.Is(err, errLambdaExecutionScope) {
+		return "scope"
+	}
+	return "unknown"
 }
 
 // lambdaUnaryInterceptorChain builds the interceptor chain the lambda transport

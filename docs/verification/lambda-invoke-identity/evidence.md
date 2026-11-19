@@ -252,3 +252,121 @@ Covered exits: reload failure, execution scope mismatch on reload, a recovered p
 - **Planted violations:** attaching the error to the reload record fails the field-set assertion; deleting the scope and panic log lines fails the record-count assertions. Both were reverted.
 
 Not rerun here: the other packages, the wider G1 to G4 gates and mutants M1 to M10, local lint, and any deployed check.
+
+## CO7: adjudicated feedback corrections
+
+Parent revision: `e0d8b0b2494a58f004aba9437e14a73903843565`. This entry
+supersedes the earlier diagnostic-only exception and mode-off-unchanged claims
+where stated below. The frozen baseline is retained; the approved correction
+and compatibility amendments are recorded in the plan's CO7.
+
+### Completion and instruments
+
+| Item | Implementation and observed fixture coverage |
+| --- | --- |
+| 1 | `config.TLSConfig` exposes the existing system/custom-CA configuration. The identity handler creates its JWKS client once at startup. `TestInvokeIdentityJWKSClientTrustsConfiguredCA` rejects the fixture certificate without the bundle, accepts it with the bundle, and rejects an unreadable bundle at handler startup. Redirect refusal remains tested. |
+| 2 | First-build cleanup restores the startup level unless registration succeeds, including panic. `TestInvokeIdentityFailedFirstBuildRestoresLogLevel` observes info → failed debug build → info, then a successful debug build that keeps debug, for error and panic. Registration failure uses the same deferred guard; it is not separately injected here. |
+| 3–4 | Missing/malformed/multiple authorization headers and invalid tokens return Unauthenticated; host/identity/scope rejections retain FailedPrecondition. `TestInvokeIdentityBearerRejectedBeforeValidator` asserts zero validator builds for absent or malformed bearer headers. The signed-token tests and HTTP rejection smoke assert the new token code. The host check still precedes the header check. |
+| 5 | Explicitly excluded pending a separate ruling. The prototype secret digest, change warning and rotation test were removed. Key-load failures also retain their prior FailedPrecondition status; changing them to Unavailable is excluded. |
+| 6 | Startup validation checks the shortest admitted host's complete DNS syntax and requires a domain of at least two labels. The suffix table covers invalid delimiters, case, empty labels, trailing dots, ports and insufficient domain labels. Flag help and the validator document that public-suffix ownership is not checked; `.co.uk` is not rejected by a suffix list. |
+| 7 | `identityMode` is explicit on the builder, reloader and generation. Scope is no longer a proxy for construction behavior, and cancel presence is no longer a proxy for cleanup redaction. `TestLambdaGenerationIdentityModeIsExplicit` supplies a nonempty expected scope in both modes and checks constructor context and generation marking. `TestGenerationCloseRedactionUsesIdentityModeNotCancel` tests both disagreeing flag/cancel combinations. Existing partial/nil-construction and legacy-scope tests still run. |
+| 8 | Every unswapped new generation is closed, including mode off. `TestLambdaReloadClosesUnswappedGenerationInBothModes` covers both modes × replacement error/no matches, asserts the previous generation is retained, and checks exactly one close plus cancellation. **This is an approved mode-off lifecycle change fixing an existing leak**, beyond E1's diagnostics. |
+| 9, 14 | All three identity recovery sites call `ugrpc.RecoveredPanicErrorRedacted`, which records the stack, recovery site and fixed status, never the panic value. Only the interceptor adds the resolved RPC method; pre-dispatch wrappers do not log the untrusted request method. Updated record assertions cover stack/method/redaction. `TestIdentityRecoveriesTreatNilPanicAsFailure` exercises all three sites, including under `GODEBUG=panicnil=1`. Caller codes remain Unavailable for build wrappers and Internal for dispatched RPC panics. |
+| 10 | Builder errors retain their original text and unwrap chain while carrying fetch/scope/decrypt/unmarshal/validate/construct stages. First-build and reload logs add the stage without the cause text; untagged injected errors use `unknown`. `TestLambdaGenerationBuilderFailureStages` injects each stage through the real builder and checks scope/cause/status preservation and construction counts. Existing first/reload record assertions cover logged stages. |
+| 11 | A typed unsupported-version error lets both wrappers retain the numeric version and wrap the appropriate sentinel: `invalid transport request: unsupported wire frame version N`, or the response equivalent. Exact-text and `errors.Is` assertions pass through direct and JSON decoding. **This supersedes E1's claim that every decode error is fixed text/unwrapped**; other parser details remain withheld. Acceptance and status classification are unchanged. |
+| 12 | Removed the ineffective `defer handler.Close()` and documented that `StartWithOptions` exits the process. Explicit Close remains available to tests. No runtime cleanup-on-exit claim is made. |
+| 13 | The build context remains process-derived. An invoke-cancellation callback cancels construction and is stopped before successful ownership transfer; it cannot cancel a successful generation later. `TestIdentityBuildHonorsInvokeCancellationOnlyDuringBuild` checks cancellation during construction and survival after success. The construction timeout/persistent-lifetime and dispatched-key tests also pass. |
+| 15 | Kept the annotation removal with a comment explaining Cobra's post-PreRunE required-flag check, rather than changing legacy required-flag error text. Flag/environment and missing-suffix tests pass. |
+| 16 | The transport creates a new request envelope sharing payload/headers, instead of deep-cloning the entire protobuf. `TestLambdaTransportInvokeIdentity` still checks the real encoded request and that the caller's request has no retained identity. The extra envelope work is constant-size; existing serialization costs are unchanged. No allocation benchmark is claimed. |
+| 17 | `NewLambdaClientTransport` rejects an option with any empty identity field without including its values in the error. `TestNewLambdaClientTransportRejectsIncompleteInvokeIdentity` covers each field, all empty, a complete identity and no option. |
+
+### Final-source gates
+
+The following commands passed on the production/test source accompanying CO7.
+Each race invocation ran seven package suites: auth, CLI, field, transport,
+configuration, middleware and ugrpc. No race report occurred.
+
+```sh
+env GOMAXPROCS=4 CGO_ENABLED=1 go test -p 4 -race -mod=vendor \
+  -buildvcs=false -tags=baton_lambda_support -count=1 -timeout=10m \
+  ./pkg/auth ./pkg/cli ./pkg/field ./pkg/lambda/grpc/... ./pkg/ugrpc
+env GOMAXPROCS=4 CGO_ENABLED=1 go test -p 4 -race -mod=vendor \
+  -buildvcs=false -count=1 -timeout=10m \
+  ./pkg/auth ./pkg/cli ./pkg/field ./pkg/lambda/grpc/... ./pkg/ugrpc
+env GOMAXPROCS=4 CGO_ENABLED=0 go build -p 4 -mod=vendor \
+  -buildvcs=false -tags=baton_lambda_support ./...
+env GOMAXPROCS=4 CGO_ENABLED=0 go build -p 4 -mod=vendor \
+  -buildvcs=false ./...
+env GOMAXPROCS=4 CGO_ENABLED=0 go vet -p 4 -mod=vendor \
+  -buildvcs=false -tags=baton_lambda_support \
+  ./pkg/auth ./pkg/cli ./pkg/field ./pkg/lambda/grpc/... ./pkg/ugrpc
+env GOMAXPROCS=4 CGO_ENABLED=0 go vet -p 4 -mod=vendor \
+  -buildvcs=false ./pkg/auth ./pkg/cli ./pkg/field ./pkg/lambda/grpc/... ./pkg/ugrpc
+env GOMAXPROCS=2 CGO_ENABLED=0 GODEBUG=panicnil=1 go test -p 2 \
+  -mod=vendor -buildvcs=false -tags=baton_lambda_support -count=1 -timeout=2m \
+  -run 'TestIdentityRecoveriesTreatNilPanicAsFailure|TestInvokeIdentityHTTPRejectionSmoke|TestRecoveryHandlerTreatsNilPanicValueAsAPanic' \
+  ./pkg/cli ./pkg/ugrpc
+```
+
+The real client/HTTP-endpoint rejection smoke ran in the tagged race suite and
+again in the explicit command above. This is SDK/local-fixture evidence, not a
+deployed Lambda, AWS isolation or prepared-provider check.
+
+Development failures were corrected before these gates: a fixture passed a
+string to a byte field, a replacement-error assertion used the wrong phrase,
+and a runtime-build override incorrectly expected its invoke argument to carry
+the process-owned key. An intermediate whitespace check found a trailing blank
+line in the new plan section; it was removed. These failed attempts are not
+counted as passing checks.
+
+### Instrument validation
+
+Twenty-one isolated compiler overlays were regenerated from the final source.
+Every planted violation exited 1 through a test assertion, not a compile error.
+The originals were never modified by the overlays; temporary copies were removed.
+Each used `GOMAXPROCS=2 CGO_ENABLED=0` and:
+
+```sh
+go test -p 2 -mod=vendor -buildvcs=false -tags=baton_lambda_support \
+  -count=1 -timeout=2m -overlay=<isolated-overlay.json> \
+  -run '^<instrument-name>$' <instrument-package>
+```
+
+| Violation | Rejecting instrument |
+| --- | --- |
+| Remove JWKS custom-CA TLS configuration | `TestInvokeIdentityJWKSClientTrustsConfiguredCA` |
+| Disable startup-level restoration | `TestInvokeIdentityFailedFirstBuildRestoresLogLevel` |
+| Change token failure status back to FailedPrecondition | `TestInvokeIdentityBearerRejectedBeforeValidator` |
+| Build a validator before checking the header | `TestInvokeIdentityBearerRejectedBeforeValidator` |
+| Disable whole-suffix syntax/domain validation | `TestInvokeIdentitySuffixRequiresLeadingDelimiter` |
+| Use nonempty expected scope instead of the builder mode flag | `TestLambdaGenerationIdentityModeIsExplicit` |
+| Use cancel presence instead of the generation mode flag for redaction | `TestGenerationCloseRedactionUsesIdentityModeNotCancel` |
+| Disable identity-mode reloader handling | `TestInvokeIdentityBindReloadContextKeyAndLogs` |
+| Skip unswapped cleanup in mode off | `TestLambdaReloadClosesUnswappedGenerationInBothModes` |
+| Drop the interceptor's resolved method | `TestInvokeIdentityMissingPlatformScopeAndPanicSanitization` |
+| Mislabel decrypt-stage errors as unknown | `TestLambdaGenerationBuilderFailureStages` |
+| Drop the unsupported-version diagnostic from the request wrapper | `TestDecodeWireFrame_UnsupportedVersion` |
+| Detach construction cancellation from the invoke | `TestIdentityBuildHonorsInvokeCancellationOnlyDuringBuild` |
+| Drop stacks from the shared redacting panic helper | `TestInvokeIdentityMissingPlatformScopeAndPanicSanitization` |
+| Retain Cobra-required annotations in identity mode | `TestInvokeIdentityModeRequiresSuffixButNotLegacyCredentials` and `TestInvokeIdentityModeEnvironmentAndFlag` |
+| Mutate the caller's request when adding identity | `TestLambdaTransportInvokeIdentity` |
+| Accept incomplete identity options | `TestNewLambdaClientTransportRejectsIncompleteInvokeIdentity` |
+| Disable the scope guard | `TestInvokeIdentityScopeCheckedBeforeConstructionEveryBuild` |
+| Omit the wire client secret | `TestLambdaTransportInvokeIdentity` |
+| Rename the exported execution-scope attribute | `TestInvokeIdentityExportedLogFields` |
+| Return underlying request decode errors | `TestRequestDecodeErrorsDoNotExposePayload` |
+
+The first overlay batch correctly failed the invoke-budget test with `t.Fatal`,
+but its output classifier recognized only structured assertion output. That
+instrument was changed to `require.FailNow`, and the entire batch was regenerated
+and rerun successfully. No invalid or surviving mutant is counted above.
+
+### Limits and handoff
+
+`git diff --check` passes after the documentation whitespace correction.
+The suites rerun existing compatibility/security tests, but no refreshed
+structural-coverage profile, complete historical M1–M10 overlay batch, protobuf
+generation/breaking check, local lint, allocation benchmark or external-consumer
+build is claimed here. Protocol/generated files are unchanged. New-source CI and
+independent review remain separate gates; prior CI/review results are not carried
+forward as approval. No deployed or prepared-provider test was run.

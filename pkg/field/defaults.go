@@ -286,7 +286,8 @@ var (
 		WithDescription("Bind each isolated execution environment to its first authenticated invoke identity"),
 		WithExportTarget(ExportTargetNone))
 	LambdaServerAllowedHostSuffixField = StringField("lambda-allowed-host-suffix",
-		WithDescription("Allowed configuration host suffix for per-invoke identity. Must begin with \".\" or \"-\", for example \".example.com\""),
+		WithDescription("Allowed lowercase DNS host suffix for per-invoke identity. Must begin with \".\" or \"-\" under a domain of at least two labels, "+
+			"for example \".example.com\". Do not use a public suffix; ownership is not checked"),
 		WithExportTarget(ExportTargetNone))
 
 	LambdaServerClientIDField = StringField("lambda-client-id", WithRequired(true), WithDescription("The oauth client id to use with the configuration endpoint"),

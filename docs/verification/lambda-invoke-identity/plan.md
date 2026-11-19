@@ -24,3 +24,42 @@ Use table-driven host/protocol tests, signed-token fixtures, fake exchange/confi
 ## Implementation obligations
 
 Append resource ownership, registration/binding atomicity, validator lifetime, context and secret-error obligations after implementation, without weakening the baseline above. Independent evidence audit and focused implementation review remain required before signoff.
+
+## CO7: approved feedback corrections
+
+Source: adjudicated review of `e0d8b0b2494a58f004aba9437e14a73903843565`.
+The approved correction set belongs in this SDK stage; secret rotation and
+changing key-load failures to Unavailable are excluded pending a separate ruling.
+
+- I1/I2: validate the whole operator suffix at startup, share the configured CA
+  roots for JWKS, reject absent/malformed bearer headers before fetching keys,
+  and classify token failures as Unauthenticated. DNS syntax does not establish
+  domain ownership or detect multi-label public suffixes.
+- I3/I5/I6/I9: use an explicit identity-mode flag in the builder, reloader and
+  generation; preserve error causes while tagging build stages; record redacted
+  panic stacks and recovery sites, plus the resolved method in the interceptor;
+  restore the startup log level on every failed first build, including panic.
+  Invoke cancellation stops a build,
+  but a successful generation remains process-derived and outlives the invoke.
+- I7: reject empty identity-option fields and attach credentials using a new
+  request envelope sharing the original payload and headers, without mutating
+  the caller's request.
+- I10 compatibility amendment: in both modes, close a newly built generation
+  when replacement fails or matches no registered service. This fixes an
+  existing mode-off resource leak and is an explicit exception to the baseline's
+  mode-off-unchanged claim. Unsupported-version diagnostics retain the numeric
+  version while still wrapping the transport sentinel; other parser details
+  remain redacted. Wire acceptance and status classifications do not change.
+- Keep Cobra's existing required-flag behavior in mode off; document why
+  identity mode removes those annotations in PreRunE. Remove the ineffective
+  cleanup defer around the process-exiting Lambda runtime entry point.
+
+Risk remains HIGH: authentication, cross-invoke resource lifetime and remote
+error contracts. No sync/storage hot-path cost curve changes. Required additional
+instruments cover custom-CA trust/startup failure, startup-level restoration,
+bearer ordering/classification, suffix syntax, stage/cause preservation,
+mode-dependent context/redaction, unswapped cleanup in both modes, invoke-only
+construction cancellation, redacted panic diagnostics and incomplete options.
+Validate representative oracles with isolated planted violations and rerun
+affected race suites, builds and vet in both build modes. Results and explicit
+remaining limits belong in the CO7 evidence entry.

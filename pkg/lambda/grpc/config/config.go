@@ -145,6 +145,14 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string, op
 	return client, jwk, reuseTokenSource, nil
 }
 
+// TLSConfig returns the TLS configuration used for the configuration host:
+// the system roots plus any CA bundle named by BATON_LAMBDA_CA_CERT_PATH.
+// Other clients that talk to the same host use it so that they trust the
+// same certificates.
+func TLSConfig() (*tls.Config, error) {
+	return lambdaTLSConfig()
+}
+
 func lambdaTLSConfig() (*tls.Config, error) {
 	systemCertPool, err := x509.SystemCertPool()
 	if err != nil || systemCertPool == nil {

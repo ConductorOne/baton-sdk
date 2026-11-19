@@ -147,8 +147,8 @@ func TestInvokeIdentityPartialConstructionClosesConnector(t *testing.T) {
 	partial := &identityPartialConnector{}
 	build := newLambdaGenerationBuilder(context.Background(), viper.New(), field.Configuration{}, func(context.Context, *viper.Viper, RunTimeOpts) (types.ConnectorServer, error) {
 		return partial, errors.New("marker-secret")
-	}, false, conn, key, identityTestScope)
-	_, err = buildIdentityGeneration(context.Background(), time.Second, build, "v1")
+	}, false, conn, key, true, identityTestScope)
+	_, err = buildIdentityGeneration(context.Background(), context.Background(), time.Second, build, "v1")
 	require.Error(t, err)
 	require.EqualValues(t, 1, partial.closes.Load())
 }
@@ -161,8 +161,8 @@ func TestInvokeIdentityNilConstructionFailsBeforeRegistration(t *testing.T) {
 	response.SetExpectedExecutionScope(identityTestScope)
 	build := newLambdaGenerationBuilder(context.Background(), viper.New(), field.Configuration{}, func(context.Context, *viper.Viper, RunTimeOpts) (types.ConnectorServer, error) {
 		return nil, nil
-	}, false, &identityConfigConn{response: response}, key, identityTestScope)
-	generation, err := buildIdentityGeneration(context.Background(), time.Second, build, "v1")
+	}, false, &identityConfigConn{response: response}, key, true, identityTestScope)
+	generation, err := buildIdentityGeneration(context.Background(), context.Background(), time.Second, build, "v1")
 	require.Error(t, err)
 	require.Nil(t, generation)
 }
