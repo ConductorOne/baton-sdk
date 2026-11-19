@@ -27,8 +27,8 @@ The coverage-profile destination is incidental. `isActionWarning` and `isWarning
 | Criterion | Status | Instrument and exact claim |
 | -- | -- | -- |
 | NF-01 | Verified to stated coverage | Root scheduler fixture: NotFound propagates with the original identity/code and no warning. Real-store fault matrix: root collection failure aborts rather than seals successfully, over three transports. |
-| NF-02 | Evidence incomplete pending independent-review follow-up | Existing child fixture proves calls, warning identity and action completion, but has no emitted-row/content assertion yet. |
-| NF-03 | Evidence incomplete pending independent-review follow-up | Existing empty-root fixture proves scheduler completion only; zero-row and completed real-store artifact proof must be added. |
+| NF-02 | Verified to stated coverage at d41c9976 | The parent-scoped NotFound fixture now seeds a surviving resource, verifies the single request and warning, and compares full logical entity contents before and after completion. This is an in-process scheduler fixture, not a real-store deleted-parent cold-resume test. |
+| NF-03 | Verified to stated coverage at d41c9976 | The scheduler fixture asserts zero resources, entitlements, and grants. A separate public `Sync` fixture for one and four workers closes and reopens a Pebble artifact, verifies the run ended, retains declared resource types, and checks zero entity rows and the expected store identities. |
 | NF-04 | Verified to stated coverage | Root error matrix covers NotFound, PermissionDenied, Unavailable, direct/wrapped, first/continuation, one/four workers. ActionWarningScope additionally covers nil error, malformed parent scope, child lists, entitlements, grants, targeted resources, and unspecified action. |
 | NF-05 | Verified to stated coverage | Existing real-store fault matrix updated for root NotFound: verifies fault fired, unfinished persisted sync, close/reopen with fresh connector and store handle, same sync ID, eventual completion and full logical-content equality against an uninterrupted baseline. |
 | NF-06 | Verified to stated coverage | Original implementation failure plus controlled guard-removal mutation. Final instruments failed in the eight root scheduler cases and all three root fault transports, then passed after guard restoration. |
@@ -54,3 +54,29 @@ Full repository tests, lint, build, race checks, independent evidence audit, and
 - Technical GitHub CI reached green on this production commit. This does not establish a clean local full race gate, human approval, or merge permission.
 
 Independent criterion/evidence audit and focused implementation review remain separate from these execution results.
+
+## Follow-up proof at d41c9976
+
+With `CGO_ENABLED=0 GOMAXPROCS=4 GOFLAGS='-p=4 -mod=vendor -buildvcs=false'`, the CI-tagged scoped `pkg/sync` command passed in 22.918 seconds at this head:
+
+```sh
+go test -tags=baton_lambda_support -count=1 \
+  -run 'Test(RootResourceListErrorRetainsPendingPage|ChildResourceListNotFoundCompletesWithWarning|EmptyRootResourceListCompletes|EmptyRootCollectionSyncCompletesArtifact|ActionWarningScope|ChaosConnectorResourcesAndEntitlementsFaultMatrix|LedgerExistingSchedulerWarningCommitsAccounting|SpawnedCursorErrorCategoriesEndToEnd)$' ./pkg/sync
+```
+
+This closes the NF-02/NF-03 fixture-content omissions identified by the earlier evidence audit, not the missing real-store deleted-parent warning case noted in PR review. Full repository gates and an independent re-audit of the final proof remain separate from this scoped run. The default root `NotFound` behavior break also requires a downstream rollout note; no format change or unchanged exported API removes that compatibility cost.
+
+## Default-path behavior and release note
+
+This change is an intentional behavior break, despite leaving exported Go signatures and artifact formats unchanged: a connector that returned `codes.NotFound` for a root `ListResources` operation and previously finished with a warning will now fail that sync. An unlicensed, disabled, or unavailable collection endpoint may trigger this path. A connector that has positive evidence of an empty collection should return an empty successful page; it should not translate an unknown failure into success.
+
+Before upgrading a deployed connector to a release containing this fix, its owner should audit root collection `NotFound` handling and verify optional/unlicensed feature behavior with a connector-specific test. Stage SDK upgrades for affected connectors and watch sync failure counts and the newly surfaced NotFound responses. If failures appear, correct the connector's root-list contract and retry the sync; do not roll out the SDK as if this were an artifact-format-only change. Release sequencing and affected deployed connectors remain unverified here, so this note is guidance to the rollout owner, not an assertion that migration is complete.
+
+## Repository gate results at d41c9976
+
+- CI-tagged scoped `pkg/sync` controls passed as recorded above.
+- CI-tagged full `make test` passed: no failed packages or panic markers in the retained output.
+- `make build` passed, including the embedded frontend, and the newly built `dist/linux_arm64/baton --help` exited successfully.
+- Local `make lint` failed on the unchanged `pkg/connectorbuilder/connectorbuilder.go:426` predeclared-identifier finding already recorded above. It is not a clean lint gate, and this change does not touch that package.
+- An initial `make race-check` attempt failed before tests because `CGO_ENABLED=0` disables Go's race detector; the command was rerun with `CGO_ENABLED=1`. The full rerun failed in unchanged `pkg/dotc1z/engine/pebble`: `TestErrorFSEndSyncWindowSweep` panicked with `fatal error: sync: unlock of unlocked mutex`. This matches the failure previously reproduced on pristine base. The changed `pkg/sync` passed race instrumentation (244.106 seconds); `pkg/sync/expand/scc` passed in this run. The full race gate remains red.
+- An independent final-proof evidence audit and focused implementation review remain pending; full test/build and changed-path race results do not constitute that review.
