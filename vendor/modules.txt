@@ -365,13 +365,13 @@ github.com/cockroachdb/swiss
 # github.com/cockroachdb/tokenbucket v0.0.0-20250429170803-42689b6311bb
 ## explicit; go 1.19
 github.com/cockroachdb/tokenbucket
-# github.com/conductorone/dpop v0.4.0
+# github.com/conductorone/dpop v0.4.1
 ## explicit; go 1.26.0
 github.com/conductorone/dpop/pkg/dpop
-# github.com/conductorone/dpop/integrations/dpop_grpc v0.4.0
+# github.com/conductorone/dpop/integrations/dpop_grpc v0.4.1
 ## explicit; go 1.26.0
 github.com/conductorone/dpop/integrations/dpop_grpc
-# github.com/conductorone/dpop/integrations/dpop_oauth2 v0.4.0
+# github.com/conductorone/dpop/integrations/dpop_oauth2 v0.4.1
 ## explicit; go 1.26.0
 github.com/conductorone/dpop/integrations/dpop_oauth2
 # github.com/containerd/console v1.0.5
