@@ -150,9 +150,8 @@ func (r *lambdaConnectorReloader) Handler(ctx context.Context, req *c1_lambda_gr
 				return
 			}
 			if r.identityMode {
-				_ = ugrpc.RecoveredPanicErrorRedacted(ctx, ugrpc.RecoverySiteLambdaHandler,
-					"lambda-run: connector generation panic")
-				resp, err = c1_lambda_grpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: connector generation failed")), nil
+				resp, err = c1_lambda_grpc.ErrorResponse(ugrpc.RecoveredPanicErrorRedacted(ctx, ugrpc.RecoverySiteLambdaHandler,
+					"lambda-run: connector generation panic", status.Error(codes.Unavailable, "lambda-run: connector generation failed"))), nil
 				return
 			}
 			// Internal, deliberately not the Unavailable that reload's error exits

@@ -75,7 +75,7 @@ func TestInvokeIdentityHTTPRejectionSmoke(t *testing.T) {
 			}))
 			defer server.Close()
 			client := lambda.NewFromConfig(aws.Config{Region: "us-west-2", Credentials: aws.AnonymousCredentials{}}, func(opts *lambda.Options) { opts.BaseEndpoint = aws.String(server.URL) })
-			identity := lambdaGrpc.InvokeIdentity{ExecutionScope: identityTestScope, ClientID: identityTestClient, ClientSecret: "marker-secret"}
+			identity := lambdaGrpc.InvokeIdentity{ExecutionScope: identityTestScope, ClientID: identityTestClient, ClientSecret: testSecret(t)}
 			if stage == "host" {
 				identity.ClientID = "id@not-allowed.example.net/use"
 			}

@@ -215,7 +215,7 @@ func (*feedbackCloseErrorConnector) Close(context.Context) error { return errors
 func TestGenerationCloseRedactionUsesIdentityModeNotCancel(t *testing.T) {
 	core, records := observer.New(zap.DebugLevel)
 	previous := zap.L()
-	defer zap.ReplaceGlobals(previous)
+	defer func() { zap.ReplaceGlobals(previous) }()
 	zap.ReplaceGlobals(zap.New(core))
 	ctx := ctxzap.ToContext(context.Background(), zap.L())
 	drained := make(chan struct{})
@@ -235,16 +235,18 @@ func TestIdentityRecoveriesTreatNilPanicAsFailure(t *testing.T) {
 	key := identityTestKey(t)
 	validations := 0
 	h, err := newLambdaInvokeIdentityHandler(ctx, ".example.com", func(context.Context, *pbtransport.InvokeIdentity, string) (*lambdaIdentityRuntime, error) {
-		panic(nil)
+		panic(nil) //nolint:govet // Exercise nil-panic recovery under GODEBUG=panicnil=1.
 	})
 	require.NoError(t, err)
 	identityTestValidator(t, h, key, &validations)
-	req := identityTestRequest(t, identityTestClient, "marker-secret", identityTestToken(t, key, "tenant.example.com", nil), "v2")
+	req := identityTestRequest(t, identityTestClient, testSecret(t), identityTestToken(t, key, "tenant.example.com", nil), "v2")
 	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), req))
 	r := &lambdaConnectorReloader{
 		identityMode: true,
 		current:      &lambdaConnectorGeneration{version: "v1", logging: lambdaLogLevelConfig{level: "info"}},
-		build:        func(context.Context, string) (*lambdaConnectorGeneration, error) { panic(nil) },
+		build: func(context.Context, string) (*lambdaConnectorGeneration, error) {
+			panic(nil) //nolint:govet // Exercise nil-panic recovery under GODEBUG=panicnil=1.
+		},
 	}
 	response, err := r.Handler(ctx, req)
 	require.NoError(t, err)
@@ -252,12 +254,19 @@ func TestIdentityRecoveriesTreatNilPanicAsFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, codes.Unavailable, st.Code())
 	responseAny, err := lambdaIdentityRecoveryInterceptor()(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Call"},
-		func(context.Context, any) (any, error) { panic(nil) })
+		func(context.Context, any) (any, error) {
+			panic(nil) //nolint:govet // Exercise nil-panic recovery under GODEBUG=panicnil=1.
+		})
 	require.Nil(t, responseAny)
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.Len(t, records.All(), 3)
-	for _, record := range records.All() {
+	for i, record := range records.All() {
 		require.NotEmpty(t, record.ContextMap()["stack"])
 		require.NotContains(t, record.ContextMap(), "panic")
+		wantCode := codes.Unavailable
+		if i == 2 {
+			wantCode = codes.Internal
+		}
+		require.Contains(t, record.ContextMap()["error"], "code = "+wantCode.String())
 	}
 }

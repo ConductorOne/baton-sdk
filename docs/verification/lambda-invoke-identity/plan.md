@@ -63,3 +63,38 @@ construction cancellation, redacted panic diagnostics and incomplete options.
 Validate representative oracles with isolated planted violations and rerun
 affected race suites, builds and vet in both build modes. Results and explicit
 remaining limits belong in the CO7 evidence entry.
+
+## CO8: architect rulings and delta-review corrections
+
+Source: R12/R13 rulings and delta review of `e263006412f5c010209dfc05070bd7906b0af9ec`.
+This supersedes CO7's exclusions for secret rotation and key-load classification.
+Risk remains HIGH; the SDK owns the new binding and key-refresh lifecycle.
+
+- R12 / I4/I5/I9: bind the client id, client key and platform execution scope
+  once. Check repeated raw secrets with a constant-time equality fast path;
+  otherwise parse and compare JWK thumbprints, not serialization or supplied
+  key ids. Accept equivalent serializations, reject different or unparseable
+  keys before dispatch, and retain the original generation. Different-key
+  refusal is FailedPrecondition with a message distinct from the different-client
+  refusal. No rebind is allowed. A key change requires a new execution scope
+  and its new environment. Messages/logs never contain a secret or its digest;
+  emit no key-change log rather than maintaining a warning cache.
+- R13 / I2/I5/I9: a failed key load is Unavailable. A loaded key set missing the
+  token's key gets exactly one refresh; a still-missing key is FailedPrecondition.
+  Neither outcome is Unauthenticated or PermissionDenied. Failed provisional
+  validators are discarded and nothing is bound. Refresh is opt-in for the
+  identity handler; legacy validation does not gain a refresh. Replaced key sets
+  and failed initialization contexts must be released.
+- Review corrections: fix the five CI lint findings; record the same panic
+  status returned to the caller; tag construction cancellation separately from
+  budget expiry with accurate messages/causes; retain legacy error/version
+  warning fields when closing an unswapped mode-off generation; document new
+  exported helpers and auth classification options.
+
+Instruments must cover R12's equivalent/different/unparseable keys, pre-dispatch
+refusal and original-generation survival, fast-path selection and secret/digest
+redaction; R13's network/timeout/status/document failures, one-refresh missing-key
+refusal, refresh success and provisional cleanup; and the review's diagnostic
+contracts. Validate representative oracles with planted violations, rerun
+affected race suites in both build modes, builds, nil-panic smoke and compatible
+lint. Record CI lint separately from local proof in CO8 evidence.

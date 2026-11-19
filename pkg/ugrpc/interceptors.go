@@ -111,8 +111,9 @@ func RecoveredPanicError(ctx context.Context, p interface{}, site string) error 
 
 // RecoveredPanicErrorRedacted records the stack and recovery site without the
 // panic value, which can contain credentials or configuration.
-func RecoveredPanicErrorRedacted(ctx context.Context, site, message string, fields ...zap.Field) error {
-	err := status.Error(codes.Internal, "Internal Server Error")
+// responseErr must be a fixed, payload-free status returned to the caller.
+func RecoveredPanicErrorRedacted(ctx context.Context, site, message string, responseErr error, fields ...zap.Field) error {
+	err := responseErr
 	fields = append(fields, zap.Stack("stack"), zap.String("recovery_site", site), zap.Error(err))
 	ctxzap.Extract(ctx).Error(message, fields...)
 	return err

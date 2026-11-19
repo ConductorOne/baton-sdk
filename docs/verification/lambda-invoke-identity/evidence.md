@@ -370,3 +370,156 @@ generation/breaking check, local lint, allocation benchmark or external-consumer
 build is claimed here. Protocol/generated files are unchanged. New-source CI and
 independent review remain separate gates; prior CI/review results are not carried
 forward as approval. No deployed or prepared-provider test was run.
+
+## CO8: architect rulings R12/R13 and delta-review corrections
+
+Parent revision: `e263006412f5c010209dfc05070bd7906b0af9ec`. R12/R13 are
+approved corrections in this stage, superseding CO7's two explicit exclusions.
+The plan's CO8 records the contract and new key-refresh resource obligations.
+
+### R12: one client key for the environment lifetime
+
+`lambdaIdentityBinding` is published only with successful generation registration.
+It holds the original raw secret for `subtle.ConstantTimeCompare` and the parsed
+JWK thumbprint for equivalent-serialization checks. It does not hash the raw
+secret. Repeated identical bytes bypass parsing; other serializations are parsed
+and compared by key thumbprint, ignoring supplied key ids. A different key is
+refused with FailedPrecondition and a distinct fixed message directing the
+caller to a new execution scope. Unparseable secrets are refused before runtime
+construction or dispatch. There is no rebind and no key-change log or warning
+cache; neither secret values nor their digests enter messages/logs.
+
+`TestIdentityBindingKeyLifetimeAndRedaction` uses real serialized private keys,
+accepts the same key with changed JSON formatting and key-id metadata,
+rejects a different key and an unparseable secret, observes no dispatch on those
+refusals, and dispatches the original identity afterward through the same
+generation. It checks raw secrets and their hex/base64 SHA-256 digests against
+every captured message and log. `TestIdentityBindingRawEqualityFastPath` poisons
+the slow-path thumbprint to observe identical-byte fast-path selection. This
+does not claim timing measurements; the constant-time primitive is explicit in
+the production comparison.
+
+Existing handler fixtures now supply valid serialized test secrets rather than
+unparseable placeholders. Their marker-bearing token, error, panic and parser
+inputs remain in place, and the new ruling fixture checks actual secret values.
+
+### R13: load failure versus missing token key
+
+The identity validator opts into `auth.Config.RefreshOnUnknownKey`; legacy
+validation retains its no-refresh behavior. A loaded set missing the token key
+is refreshed once. A second missing-key result is `auth.ErrTokenKeyNotFound` and
+becomes FailedPrecondition, not Unauthenticated/PermissionDenied. Network,
+timeout, HTTP-status and document-decode failures are
+`auth.ErrKeySetUnavailable` and become Unavailable. Typed load errors preserve
+their prior text and unwrap chain.
+
+Refresh replaces and closes the previous key set under the validator lock.
+Fetches honor the invoke context, while refresh lifetime remains process-derived.
+Failed initial loads cancel their allocated refresh context. Handler failure
+exits close provisional validators, including a constructor returning both a
+validator and an error; nothing is bound.
+
+- `TestInvokeIdentityKeyLoadAndMissingKidClassification` covers network,
+  timeout, non-success status, undecodable document, missing kid after exactly
+  one refresh, failed refresh load and successful refresh authentication.
+  Retries require fresh provisional validators. Close counters and nil
+  validator/runtime/binding assertions cover disposal and lack of binding.
+  The success case deliberately stops at a failing runtime factory; factory
+  calls prove authentication progress, not a deployed credential exchange.
+- `TestInvokeIdentityDiscardsValidatorReturnedWithLoadError` proves exactly
+  one close when initialization returns a provisional validator plus an error.
+- `TestRemoteValidatorRefreshIsOptInAndClosesReplacedKeys` covers refresh off/on,
+  replaced-key closure, one process-owned refresh registration after the invoke
+  ends, and zero registrations after Close.
+- `TestFailedRemoteKeyLoadReleasesRefreshContext` observes no outstanding
+  refresh-context registration after failed initialization.
+- `TestKeySetLoadErrorsPreserveCauseAndClassification` checks `errors.Is`,
+  the underlying cause and unchanged error text.
+
+### Delta review
+
+The three deliberate nil-panic sites carry justified `govet` suppressions; the
+logger restore uses a deferred closure, and the overlong log statement is split.
+The shared redacting recovery helper logs the exact fixed status it returns:
+Unavailable for initialization/reload wrappers, Internal for dispatched RPC
+panics. The nil-panic test compares those recorded codes with the returned codes.
+
+Construction cancellation and budget expiry carry distinct `cancel`/`budget`
+stages and preserve context causes. Invoke cancellation no longer says it
+exceeded the time budget. `TestIdentityBuildCancellationAndBudgetStages` checks
+stage, cause and message. `TestUnswappedCloseWarningsPreserveModeOffDetails`
+checks legacy error/version fields for mode-off cleanup and their absence in
+identity mode. The PR release notes describe `config.TLSConfig`,
+`ugrpc.RecoveredPanicErrorRedacted` and the new auth classification/refresh API.
+
+### Final-source verification
+
+The following passed on the production/test source accompanying CO8:
+
+- Seven affected-package suites under `-race`, both with and without
+  `baton_lambda_support`, with no race report.
+- Full `go build ./...` and affected-package `go vet`, both build modes.
+- Explicit `GODEBUG=panicnil=1` recovery and HTTP rejection smoke.
+- Compatible, repository-pinned golangci-lint v2.14.0 on all affected packages,
+  with no issue filtering: **0 issues**.
+- Eighteen freshly generated isolated planted violations, each rejected by a
+  test assertion rather than a build failure.
+
+The test/build/vet commands are the same seven-package commands recorded in
+CO7. The explicit smoke command is:
+
+```sh
+env GOMAXPROCS=2 CGO_ENABLED=0 GODEBUG=panicnil=1 go test -p 2 \
+  -mod=vendor -buildvcs=false -tags=baton_lambda_support -count=1 -timeout=2m \
+  -run 'TestIdentityRecoveriesTreatNilPanicAsFailure|TestInvokeIdentityHTTPRejectionSmoke' \
+  ./pkg/cli
+```
+
+The lint command uses the v2.14.0 binary built with Go 1.27.4:
+
+```sh
+env GOMAXPROCS=4 golangci-lint run --timeout=10m \
+  ./pkg/auth/... ./pkg/cli/... ./pkg/lambda/grpc/... ./pkg/field/... ./pkg/ugrpc/...
+```
+
+An initial system linter built with Go 1.26 refused the module's Go 1.27.4
+version; it supplied no lint verdict. A full-repository run of the compatible
+linter found one pre-existing, untouched finding:
+`pkg/uhttp/error_messages_test.go:892`, unchecked `resp.Body.Close()` (`revive`,
+`unhandled-error`). It is explicitly excluded from this PR; the bounded fix
+would be `require.NoError(t, resp.Body.Close())`. No full-repository lint pass is
+claimed. CI lint is observed after pushing, separately from the local result.
+
+Each mutation used `GOMAXPROCS=2 CGO_ENABLED=0` and the CO7 isolated-overlay
+command (`-count=1 -timeout=2m`, tagged, with an exact instrument-name filter):
+
+| Planted violation | Rejecting instrument |
+| --- | --- |
+| Allow a different bound key | `TestIdentityBindingKeyLifetimeAndRedaction` |
+| Reject all nonidentical secret serializations | `TestIdentityBindingKeyLifetimeAndRedaction` |
+| Skip malformed-secret validation | `TestIdentityBindingKeyLifetimeAndRedaction` |
+| Disable the raw-equality fast path | `TestIdentityBindingRawEqualityFastPath` |
+| Echo the presented secret in a key-refusal message | `TestIdentityBindingKeyLifetimeAndRedaction` |
+| Classify key-load failure as Unauthenticated | `TestInvokeIdentityKeyLoadAndMissingKidClassification` |
+| Classify missing kid as Unauthenticated | `TestInvokeIdentityKeyLoadAndMissingKidClassification` |
+| Disable missing-key refresh | `TestInvokeIdentityKeyLoadAndMissingKidClassification` |
+| Perform an extra refresh | `TestInvokeIdentityKeyLoadAndMissingKidClassification` |
+| Skip provisional-validator Close | `TestInvokeIdentityDiscardsValidatorReturnedWithLoadError` and the key-load/missing-kid matrix |
+| Retain the context allocated by a failed initial load | `TestFailedRemoteKeyLoadReleasesRefreshContext` |
+| Omit closure of a replaced key set | `TestRemoteValidatorRefreshIsOptInAndClosesReplacedKeys` |
+| Record Internal for an Unavailable panic response | `TestIdentityRecoveriesTreatNilPanicAsFailure` |
+| Mislabel cancellation as unknown | `TestIdentityBuildCancellationAndBudgetStages` |
+| Mislabel budget expiry as unknown | `TestIdentityBuildCancellationAndBudgetStages` |
+| Describe invoke cancellation as time-budget expiry | `TestIdentityBuildCancellationAndBudgetStages` |
+| Redact legacy cleanup error/version fields | `TestUnswappedCloseWarningsPreserveModeOffDetails` |
+| Parent refreshed-key lifetime to the invoke | `TestRemoteValidatorRefreshIsOptInAndClosesReplacedKeys` |
+
+All overlays were regenerated after the final lifetime-counter assertions, and
+all eighteen were rejected. Original source files were not mutated.
+
+These are SDK/unit and local HTTP fixture observations, not deployed Lambda,
+AWS isolation or prepared-provider evidence. No schema/generated files changed;
+protobuf generation/breaking checks, a refreshed coverage profile, timing or
+allocation benchmarks, external-consumer builds, and the complete earlier
+mutation batches were not rerun. Existing suites did rerun their compatibility
+and redaction tests. Independent review remains a separate gate.

@@ -42,19 +42,25 @@ type lambdaIdentityRuntime struct {
 
 type lambdaIdentityFactory func(context.Context, *pbtransport.InvokeIdentity, string) (*lambdaIdentityRuntime, error)
 
+type lambdaIdentityValidator interface {
+	ValidateToken(context.Context, string) (map[string]interface{}, error)
+	Close()
+}
+
 type lambdaInvokeIdentityHandler struct {
 	mu           sync.Mutex
 	processCtx   context.Context
 	suffix       string
 	factory      lambdaIdentityFactory
-	newValidator func(context.Context, string, string) (*auth.Validator, error)
+	newValidator func(context.Context, string, string) (lambdaIdentityValidator, error)
 	// restoreLogLevel puts the process log level back to its startup setting.
 	// It is nil when no startup level was supplied.
 	restoreLogLevel func()
 
 	clientID  string
 	scope     string
-	validator *auth.Validator
+	validator lambdaIdentityValidator
+	binding   *lambdaIdentityBinding
 	runtime   *lambdaIdentityRuntime
 	reloader  *lambdaConnectorReloader
 }
@@ -72,13 +78,17 @@ func newLambdaInvokeIdentityHandler(ctx context.Context, suffix string, factory 
 	}
 	return &lambdaInvokeIdentityHandler{
 		processCtx: ctx, suffix: suffix, factory: factory,
-		newValidator: func(ctx context.Context, host, scope string) (*auth.Validator, error) {
+		newValidator: func(ctx context.Context, host, scope string) (lambdaIdentityValidator, error) {
 			issuer := (&url.URL{Scheme: "https", Host: host}).String()
 			jwksURL := (&url.URL{Scheme: "https", Host: host, Path: "/auth/v1/jwks"}).String()
-			return auth.NewValidator(ctx, auth.Config{
+			validator, err := auth.NewValidator(ctx, auth.Config{
 				Issuer: issuer, Subject: scope, Audience: scope, JWKSUrl: jwksURL,
-				JWKSClient: jwksClient,
+				JWKSClient: jwksClient, RefreshOnUnknownKey: true,
 			})
+			if err != nil {
+				return nil, err
+			}
+			return validator, nil
 		},
 	}, nil
 }
@@ -184,9 +194,8 @@ func (h *lambdaInvokeIdentityHandler) Handler(ctx context.Context, req *lambdaGr
 		defer func() {
 			_ = recover()
 			if !completed {
-				_ = ugrpc.RecoveredPanicErrorRedacted(h.processCtx, ugrpc.RecoverySiteLambdaHandler,
-					"lambda-run: invoke identity handler panic")
-				resp, err = lambdaGrpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: identity initialization failed")), nil
+				resp, err = lambdaGrpc.ErrorResponse(ugrpc.RecoveredPanicErrorRedacted(h.processCtx, ugrpc.RecoverySiteLambdaHandler,
+					"lambda-run: invoke identity handler panic", status.Error(codes.Unavailable, "lambda-run: identity initialization failed"))), nil
 			}
 		}()
 		callCtx, reloader, prepareErr := h.prepare(ctx, req)
@@ -240,7 +249,10 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 	if validator == nil {
 		validator, err = h.newValidator(h.processCtx, host, lc.TenantID)
 		if err != nil {
-			return ctx, nil, status.Error(codes.FailedPrecondition, "lambda-run: could not authenticate invoke")
+			if validator != nil {
+				validator.Close()
+			}
+			return ctx, nil, status.Error(codes.Unavailable, "lambda-run: could not load invoke verification keys")
 		}
 		defer func() {
 			if !keepValidator {
@@ -249,7 +261,22 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 		}()
 	}
 	if _, err := validator.ValidateToken(ctx, token); err != nil {
+		if errors.Is(err, auth.ErrKeySetUnavailable) {
+			return ctx, nil, status.Error(codes.Unavailable, "lambda-run: could not load invoke verification keys")
+		}
+		if errors.Is(err, auth.ErrTokenKeyNotFound) {
+			return ctx, nil, status.Error(codes.FailedPrecondition, "lambda-run: no verification key for invoke token")
+		}
 		return ctx, nil, status.Error(codes.Unauthenticated, "lambda-run: could not authenticate invoke")
+	}
+	binding := h.binding
+	if binding == nil {
+		binding, err = newLambdaIdentityBinding(identity.GetClientSecret())
+	} else {
+		err = binding.check(identity.GetClientSecret())
+	}
+	if err != nil {
+		return ctx, nil, err
 	}
 	if h.runtime == nil {
 		boundCtx := ctxzap.ToContext(h.processCtx, ctxzap.Extract(h.processCtx).With(
@@ -283,7 +310,8 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 		generation, err := runtime.build(ctx, requestedVersion)
 		if err != nil {
 			if errors.Is(err, errLambdaExecutionScope) {
-				ctxzap.Extract(boundCtx).Error("lambda-run: execution scope mismatch on first build", zap.String("requested_version", requestedVersion), zap.String("stage", lambdaBuildErrorStage(err)))
+				ctxzap.Extract(boundCtx).Error("lambda-run: execution scope mismatch on first build",
+					zap.String("requested_version", requestedVersion), zap.String("stage", lambdaBuildErrorStage(err)))
 				return ctx, nil, status.Error(codes.FailedPrecondition, "lambda-run: execution scope mismatch")
 			}
 			ctxzap.Extract(boundCtx).Error("lambda-run: failed to build connector",
@@ -303,6 +331,7 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 		}
 		h.runtime, h.validator = runtime, validator
 		h.clientID, h.scope = identity.GetClientId(), lc.TenantID
+		h.binding = binding
 		keepRuntime, keepValidator, registered = true, true, true
 		zap.ReplaceGlobals(ctxzap.Extract(runtime.ctx))
 	}
@@ -321,7 +350,7 @@ func lambdaIdentityRecoveryInterceptor() grpc.UnaryServerInterceptor {
 				_ = recover()
 				if !completed {
 					resp, err = nil, ugrpc.RecoveredPanicErrorRedacted(ctx, ugrpc.RecoverySiteInterceptor,
-						"lambda-run: connector handler panic", zap.String("method", info.FullMethod))
+						"lambda-run: connector handler panic", status.Error(codes.Internal, "Internal Server Error"), zap.String("method", info.FullMethod))
 				}
 			}()
 			resp, err = handler(ctx, req)
@@ -356,7 +385,12 @@ func closeIdentityGeneration(parent context.Context, generation *lambdaConnector
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), lambdaConnectorCloseTimeout)
 	defer cancel()
 	if err := closeLambdaConnectorGeneration(ctx, generation.connector); err != nil {
-		ctxzap.Extract(parent).Warn("lambda-run: failed to close connector generation")
+		if generation.identityMode {
+			ctxzap.Extract(parent).Warn("lambda-run: failed to close connector generation")
+		} else {
+			ctxzap.Extract(parent).Warn("lambda-run: failed to close connector generation",
+				zap.String("config_version", generation.version), zap.Error(err))
+		}
 	}
 }
 
@@ -408,9 +442,10 @@ func buildIdentityGeneration(
 	build func(context.Context, string) (*lambdaConnectorGeneration, error),
 	requestedVersion string,
 ) (*lambdaConnectorGeneration, error) {
-	generationCtx, cancel := context.WithCancel(ctx)
-	// Stop the construction budget on success without canceling the generation's lifetime.
-	timer := time.AfterFunc(timeout, cancel)
+	generationCtx, cancelCause := context.WithCancelCause(ctx)
+	cancel := func() { cancelCause(context.Canceled) }
+	// Stop construction cancellation before transferring the generation's lifetime.
+	timer := time.AfterFunc(timeout, func() { cancelCause(context.DeadlineExceeded) })
 	stopInvoke := context.AfterFunc(invokeCtx, cancel)
 	keep := false
 	defer func() {
@@ -421,12 +456,26 @@ func buildIdentityGeneration(
 		}
 	}()
 	generation, err := build(generationCtx, requestedVersion)
-	if err != nil {
-		return nil, err
-	}
-	if !timer.Stop() || !stopInvoke() || generationCtx.Err() != nil || invokeCtx.Err() != nil {
+	timerStopped, invokeStopped := timer.Stop(), stopInvoke()
+	if err != nil || !timerStopped || !invokeStopped || generationCtx.Err() != nil || invokeCtx.Err() != nil {
 		closeIdentityGeneration(ctx, generation)
-		return nil, fmt.Errorf("connector build exceeded its time budget")
+		if invokeCtx.Err() != nil || !invokeStopped {
+			cause := invokeCtx.Err()
+			if cause == nil {
+				cause = context.Canceled
+			}
+			return nil, &lambdaBuildStageError{stage: "cancel", err: fmt.Errorf("connector build canceled by invoke: %w", cause)}
+		}
+		if !timerStopped && ctx.Err() == nil {
+			return nil, &lambdaBuildStageError{stage: "budget", err: fmt.Errorf("connector build exceeded its time budget: %w", context.DeadlineExceeded)}
+		}
+		if cause := context.Cause(generationCtx); cause != nil {
+			if errors.Is(cause, context.DeadlineExceeded) && ctx.Err() == nil {
+				return nil, &lambdaBuildStageError{stage: "budget", err: fmt.Errorf("connector build exceeded its time budget: %w", cause)}
+			}
+			return nil, &lambdaBuildStageError{stage: "cancel", err: fmt.Errorf("connector build canceled: %w", cause)}
+		}
+		return nil, err
 	}
 	generation.cancel = cancel
 	keep = true

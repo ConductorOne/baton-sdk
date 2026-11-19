@@ -82,7 +82,7 @@ func TestInvokeIdentityFailedFirstBuildRestoresLogLevel(t *testing.T) {
 			defer h.Close()
 			h.setStartupLogLevel(lambdaLogLevelConfig{level: "info"})
 			identityTestValidator(t, h, key, &validations)
-			req := identityTestRequest(t, identityTestClient, "marker-secret", identityTestToken(t, key, "tenant.example.com", nil), "v1")
+			req := identityTestRequest(t, identityTestClient, testSecret(t), identityTestToken(t, key, "tenant.example.com", nil), "v1")
 
 			require.False(t, debugEnabled())
 			require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), req))
@@ -104,11 +104,11 @@ func TestInvokeIdentityMissingTokenBuildsNoValidator(t *testing.T) {
 	require.NoError(t, err)
 	identityTestValidator(t, h, key, &validations)
 
-	missing := identityTestRequest(t, identityTestClient, "marker-secret", "", "v1")
+	missing := identityTestRequest(t, identityTestClient, testSecret(t), "", "v1")
 	require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), missing))
 	require.Zero(t, validations, "a request without a bearer token must not cause a key fetch")
 
-	malformed := identityTestRequest(t, identityTestClient, "marker-secret", "not-a-jwt", "v1")
+	malformed := identityTestRequest(t, identityTestClient, testSecret(t), "not-a-jwt", "v1")
 	require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), malformed))
 	require.Equal(t, 1, validations, "a present token is judged by the validator")
 	require.Zero(t, factories)

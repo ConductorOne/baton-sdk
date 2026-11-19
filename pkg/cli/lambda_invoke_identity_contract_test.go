@@ -72,7 +72,7 @@ func TestInvokeIdentityExportedLogFields(t *testing.T) {
 	defer h.Close()
 	identityTestValidator(t, h, key, &validations)
 	token := identityTestToken(t, key, "tenant.example.com", nil)
-	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v1")))
+	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), token, "v1")))
 	require.NoError(t, provider.ForceFlush(context.Background()))
 	exporter.mu.Lock()
 	defer exporter.mu.Unlock()

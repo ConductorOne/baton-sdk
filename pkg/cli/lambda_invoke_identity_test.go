@@ -53,6 +53,14 @@ func identityTestKey(t *testing.T) *jose.JSONWebKey {
 	return &jose.JSONWebKey{Key: private, KeyID: "test-key", Algorithm: string(jose.EdDSA)}
 }
 
+func testSecret(t *testing.T) string {
+	t.Helper()
+	key := &jose.JSONWebKey{Key: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), KeyID: "fixture-key"}
+	data, err := key.MarshalJSON()
+	require.NoError(t, err)
+	return "client:secret:v1:" + base64.RawURLEncoding.EncodeToString(data)
+}
+
 func identityTestToken(t *testing.T, key *jose.JSONWebKey, host string, changes map[string]any) string {
 	t.Helper()
 	claims := map[string]any{"iss": "https://" + host, "sub": identityTestScope, "aud": identityTestScope,
@@ -60,7 +68,7 @@ func identityTestToken(t *testing.T, key *jose.JSONWebKey, host string, changes 
 	for k, v := range changes {
 		claims[k] = v
 	}
-	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.EdDSA, Key: key}, (&jose.SignerOptions{}).WithType("JWT"))
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.EdDSA, Key: key}, (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", key.KeyID))
 	require.NoError(t, err)
 	payload, err := json.Marshal(claims)
 	require.NoError(t, err)
@@ -107,7 +115,7 @@ func identityTestValidator(t *testing.T, h *lambdaInvokeIdentityHandler, key *jo
 	publicKey := key.Public()
 	public, err := publicKey.MarshalJSON()
 	require.NoError(t, err)
-	h.newValidator = func(ctx context.Context, host, scope string) (*auth.Validator, error) {
+	h.newValidator = func(ctx context.Context, host, scope string) (lambdaIdentityValidator, error) {
 		*calls++
 		return auth.NewValidator(ctx, auth.Config{PublicKeyJWK: string(public), Issuer: "https://" + host, Subject: scope, Audience: scope})
 	}
@@ -146,11 +154,11 @@ func TestInvokeIdentityHostRejectionsMakeNoOutboundRequests(t *testing.T) {
 				return nil, errors.New("marker-secret")
 			})
 			require.NoError(t, err)
-			h.newValidator = func(context.Context, string, string) (*auth.Validator, error) {
+			h.newValidator = func(context.Context, string, string) (lambdaIdentityValidator, error) {
 				outbound++
 				return nil, errors.New("marker-secret")
 			}
-			require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, id, "marker-secret", "bad-token", "v2")))
+			require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, id, testSecret(t), "bad-token", "v2")))
 			require.Zero(t, outbound)
 			require.Zero(t, factories)
 			require.Nil(t, h.runtime)
@@ -179,7 +187,7 @@ func TestInvokeIdentityJWTBeforeBuildAndRejectedFirstHostDoesNotBind(t *testing.
 		require.NoError(t, err)
 		identityTestValidator(t, h, key, &validations)
 		token := identityTestToken(t, key, "tenant.example.com", changes)
-		require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v2")))
+		require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), token, "v2")))
 		require.Equal(t, 1, validations)
 		require.Zero(t, factories)
 		require.Nil(t, h.runtime)
@@ -198,11 +206,11 @@ func TestInvokeIdentityJWTBeforeBuildAndRejectedFirstHostDoesNotBind(t *testing.
 	defer h.Close()
 	identityTestValidator(t, h, key, &validations)
 	badSignature := identityTestToken(t, identityTestKey(t), "tenant.example.com", nil)
-	require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", badSignature, "v2")))
+	require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), badSignature, "v2")))
 	require.Nil(t, h.runtime)
 	require.Zero(t, factories)
 	goodToken := identityTestToken(t, key, "other.example.com", nil)
-	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, "id@other.example.com/use", "marker-secret", goodToken, "v2")))
+	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, "id@other.example.com/use", testSecret(t), goodToken, "v2")))
 	require.Equal(t, 1, factories)
 	require.Equal(t, 1, builds)
 	require.Equal(t, 2, validations)
@@ -248,23 +256,23 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 	identityTestValidator(t, h, key, &validations)
 	token := identityTestToken(t, key, "tenant.example.com", nil)
 	invokeCtx, endInvoke := context.WithCancel(identityTestContext(context.Background()))
-	req := identityTestRequest(t, identityTestClient, "marker-secret", token, "v1")
+	req := identityTestRequest(t, identityTestClient, testSecret(t), token, "v1")
 	require.Equal(t, codes.OK, identityTestCode(t, h, invokeCtx, req))
 	endInvoke()
 	require.NoError(t, constructionCtx.Err())
 	require.Nil(t, processCtx.Value(crypto.ContextClientSecretKey))
 	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), req))
-	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, "other@tenant.example.com/use", "marker-secret", token, "v2")))
+	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, "other@tenant.example.com/use", testSecret(t), token, "v2")))
 	require.Equal(t, 1, builds)
 	h.reloader.lastRebuildAt = time.Now().Add(-time.Minute)
-	require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", "bad-token", "v2")))
+	require.Equal(t, codes.Unauthenticated, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), "bad-token", "v2")))
 	require.Equal(t, 1, builds)
-	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v2")))
+	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), token, "v2")))
 	require.Equal(t, 2, builds)
 	h.reloader.lastRebuildAt = time.Now().Add(-time.Minute)
 	buildErr = errLambdaExecutionScope
 	require.Zero(t, records.FilterLevelExact(zap.ErrorLevel).Len(), "successful and rejected invokes log no reload failure")
-	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v3")))
+	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), token, "v3")))
 	require.Equal(t, "v2", h.reloader.current.version)
 	scopeLogs := records.FilterMessage("lambda-run: execution scope mismatch on reload; serving previous generation").All()
 	require.Len(t, scopeLogs, 1)
@@ -272,7 +280,7 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 		"execution_scope": identityTestScope, "client_id": identityTestClient, "requested_version": "v3", "current_version": "v2", "stage": "scope",
 	}, scopeLogs[0].ContextMap())
 	buildErr = &lambdaBuildStageError{stage: "fetch", err: status.Error(codes.PermissionDenied, "marker-secret")}
-	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v3")))
+	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), token, "v3")))
 	reloadLogs := records.FilterMessage("lambda-run: failed to reload connector config; serving previous generation").All()
 	require.Len(t, reloadLogs, 1)
 	require.Equal(t, map[string]any{
@@ -280,7 +288,7 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 		"cause_code": "PermissionDenied", "stage": "fetch",
 	}, reloadLogs[0].ContextMap(), "error text is withheld")
 	buildErr, buildPanics = nil, true
-	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v3")))
+	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), token, "v3")))
 	panicLogs := records.FilterMessage("lambda-run: connector generation panic").All()
 	require.Len(t, panicLogs, 1)
 	panicFields := panicLogs[0].ContextMap()
@@ -288,11 +296,11 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 	delete(panicFields, "stack")
 	require.Equal(t, map[string]any{
 		"execution_scope": identityTestScope, "client_id": identityTestClient,
-		"recovery_site": "lambda_handler", "error": "rpc error: code = Internal desc = Internal Server Error",
+		"recovery_site": "lambda_handler", "error": "rpc error: code = Unavailable desc = lambda-run: connector generation failed",
 	}, panicFields, "the panic value is not attached")
 	require.Equal(t, 3, records.FilterLevelExact(zap.ErrorLevel).Len())
 	buildPanics = false
-	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v2")))
+	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), token, "v2")))
 	require.Equal(t, 1, factories)
 	require.Equal(t, 1, validations)
 	require.Equal(t, 4, calls)
@@ -322,7 +330,7 @@ func TestInvokeIdentityFailedBuildCleansUpAndCanRetry(t *testing.T) {
 		require.NoError(t, err)
 		identityTestValidator(t, h, key, &validations)
 		token := identityTestToken(t, key, "tenant.example.com", nil)
-		req := identityTestRequest(t, identityTestClient, "marker-secret", token, "v1")
+		req := identityTestRequest(t, identityTestClient, testSecret(t), token, "v1")
 		want := codes.Unavailable
 		wantLog := "lambda-run: failed to build connector"
 		wantFields := map[string]any{
@@ -523,7 +531,7 @@ func TestInvokeIdentityConcurrentFirstInvokeBindsOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
-			require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v1")))
+			require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, testSecret(t), token, "v1")))
 		})
 	}
 	wg.Wait()
@@ -589,7 +597,7 @@ func TestInvokeIdentityMissingPlatformScopeAndPanicSanitization(t *testing.T) {
 	require.NoError(t, err)
 	identityTestValidator(t, h, key, &validations)
 	token := identityTestToken(t, key, "tenant.example.com", nil)
-	req := identityTestRequest(t, identityTestClient, "marker-secret", token, "v1")
+	req := identityTestRequest(t, identityTestClient, testSecret(t), token, "v1")
 	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, context.Background(), req))
 	require.Zero(t, validations)
 	require.Zero(t, factories)
