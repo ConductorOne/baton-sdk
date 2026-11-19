@@ -79,4 +79,22 @@ Before upgrading a deployed connector to a release containing this fix, its owne
 - `make build` passed, including the embedded frontend, and the newly built `dist/linux_arm64/baton --help` exited successfully.
 - Local `make lint` failed on the unchanged `pkg/connectorbuilder/connectorbuilder.go:426` predeclared-identifier finding already recorded above. It is not a clean lint gate, and this change does not touch that package.
 - An initial `make race-check` attempt failed before tests because `CGO_ENABLED=0` disables Go's race detector; the command was rerun with `CGO_ENABLED=1`. The full rerun failed in unchanged `pkg/dotc1z/engine/pebble`: `TestErrorFSEndSyncWindowSweep` panicked with `fatal error: sync: unlock of unlocked mutex`. This matches the failure previously reproduced on pristine base. The changed `pkg/sync` passed race instrumentation (244.106 seconds); `pkg/sync/expand/scc` passed in this run. The full race gate remains red.
-- An independent final-proof evidence audit and focused implementation review remain pending; full test/build and changed-path race results do not constitute that review.
+- Independent read-only final-code review at `4cbefe35882d9d9872d4ed3e9af43ddc74d3ef42` found no additional source-backed critical defect and confirmed the NF-02/NF-03 assertion design at its stated scope. The reviewer did not run tests or independently validate the raw gate logs; real-store deleted-parent warning resume, default grant/expansion, and deployed upgrade compatibility remain unproved. The review is not release approval.
+
+## Explicit mutation-validator execution after independent review
+
+The reviewer identified that the scoped command above did not select the shared oracle validation tests. With `CGO_ENABLED=0 GOMAXPROCS=4 GOFLAGS='-p=4 -mod=vendor -buildvcs=false'` at `4cbefe35882d9d9872d4ed3e9af43ddc74d3ef42`, the parent ran these exact commands:
+
+```sh
+go test -tags=baton_lambda_support -count=1 -run '^TestLedgerRawSnapshotDetectsValueMutation$' -v ./pkg/sync
+# === RUN   TestLedgerRawSnapshotDetectsValueMutation
+# --- PASS: TestLedgerRawSnapshotDetectsValueMutation (0.01s)
+# PASS; ok github.com/conductorone/baton-sdk/pkg/sync 0.020s; exit 0
+
+go test -tags=baton_lambda_support -count=1 -run '^TestLogicalContentOracleRejectsPlantedMutation$' -v ./internal/chaosconnector/oracle
+# === RUN   TestLogicalContentOracleRejectsPlantedMutation
+# --- PASS: TestLogicalContentOracleRejectsPlantedMutation (0.00s)
+# PASS; ok github.com/conductorone/baton-sdk/internal/chaosconnector/oracle 0.006s; exit 0
+```
+
+An earlier guessed oracle test selector matched no tests and reported `[no tests to run]`; it is not counted as validation. The two explicit `=== RUN` lines above show that both mutation validators executed. This is parent-observed unit-fixture proof, not an independently executed review or a test of the full public artifact path under a planted mutation.
