@@ -256,7 +256,13 @@ func TestRequest_MarshalJSON_SizeGuardFallsBackToLegacy(t *testing.T) {
 }
 
 func TestDecodeWireFrame_UnsupportedVersion(t *testing.T) {
+	payload := []byte(`{"v": 3, "frame": "AA=="}`)
+	framed, originalErr := decodeWireFrame(payload, &pbtransport.Request{})
+	require.True(t, framed)
+	require.ErrorContains(t, originalErr, "unsupported wire frame version 3")
+	require.Equal(t, codes.Unknown, status.Code(originalErr))
 	rt := &Request{}
-	err := rt.UnmarshalJSON([]byte(`{"v": 3, "frame": "AA=="}`))
+	err := rt.UnmarshalJSON(payload)
 	require.EqualError(t, err, "invalid transport request")
+	require.Equal(t, status.Code(originalErr), status.Code(err))
 }
