@@ -439,6 +439,26 @@ func TestInvokeIdentityModeRequiresSuffixButNotLegacyCredentials(t *testing.T) {
 	require.NotContains(t, err.Error(), "lambda-client-id")
 }
 
+func TestInvokeIdentitySuffixRequiresLeadingDelimiter(t *testing.T) {
+	factory := func(context.Context, *pbtransport.InvokeIdentity, string) (*lambdaIdentityRuntime, error) {
+		t.Error("must not construct")
+		return nil, errors.New("unexpected construction")
+	}
+	for _, suffix := range []string{"example.com", "com", "*.example.com", " .example.com"} {
+		t.Run("rejected/"+suffix, func(t *testing.T) {
+			h, err := newLambdaInvokeIdentityHandler(context.Background(), suffix, factory)
+			require.ErrorContains(t, err, "lambda-allowed-host-suffix must begin with")
+			require.Nil(t, h)
+		})
+	}
+	for _, suffix := range []string{".example.com", "--route--dev.example.com"} {
+		t.Run("accepted/"+suffix, func(t *testing.T) {
+			_, err := newLambdaInvokeIdentityHandler(context.Background(), suffix, factory)
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestInvokeIdentityConcurrentFirstInvokeBindsOnce(t *testing.T) {
 	key := identityTestKey(t)
 	factories, validations := 0, 0
@@ -526,12 +546,16 @@ func TestInvokeIdentityMissingPlatformScopeAndPanicSanitization(t *testing.T) {
 	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, context.Background(), req))
 	require.Zero(t, validations)
 	require.Zero(t, factories)
+	require.Zero(t, records.FilterMessage("lambda-run: invoke identity handler panic").Len(), "a rejected invoke is not a panic")
 	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), req))
 	require.Equal(t, 1, factories)
 	require.Equal(t, 1, closes)
 	require.Nil(t, h.runtime)
 	require.Nil(t, h.reloader)
 	require.NotContains(t, fmt.Sprint(records.All()), "marker-secret")
+	panicLogs := records.FilterMessage("lambda-run: invoke identity handler panic").All()
+	require.Len(t, panicLogs, 1, "a recovered panic must leave a fixed-text log record")
+	require.Empty(t, panicLogs[0].Context, "the panic value must not be attached as a field")
 	_, err = lambdaIdentityRecoveryInterceptor()(processCtx, nil, &grpc.UnaryServerInfo{}, func(context.Context, any) (any, error) { panic("marker-secret") })
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.NotContains(t, err.Error(), "marker-secret")

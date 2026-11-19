@@ -59,6 +59,12 @@ func newLambdaInvokeIdentityHandler(ctx context.Context, suffix string, factory 
 	if suffix == "" {
 		return nil, fmt.Errorf("lambda-run: lambda-allowed-host-suffix is required with per-invoke identity")
 	}
+	// The suffix is compared with the host as a raw string, so it has to carry
+	// its own delimiter. Without one, "example.com" would also accept
+	// "evilexample.com" and trust that host's keys.
+	if suffix[0] != '.' && suffix[0] != '-' {
+		return nil, fmt.Errorf("lambda-run: lambda-allowed-host-suffix must begin with \".\" or \"-\"")
+	}
 	return &lambdaInvokeIdentityHandler{
 		processCtx: ctx, suffix: suffix, factory: factory,
 		newValidator: func(ctx context.Context, host, scope string) (*auth.Validator, error) {
@@ -120,6 +126,9 @@ func (h *lambdaInvokeIdentityHandler) Handler(ctx context.Context, req *lambdaGr
 		defer func() {
 			_ = recover()
 			if !completed {
+				// Fixed text only: a panic value can carry request or credential
+				// content, so it is never logged.
+				ctxzap.Extract(h.processCtx).Error("lambda-run: invoke identity handler panic")
 				resp, err = lambdaGrpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: identity initialization failed")), nil
 			}
 		}()

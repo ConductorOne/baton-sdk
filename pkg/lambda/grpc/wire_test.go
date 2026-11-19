@@ -266,3 +266,22 @@ func TestDecodeWireFrame_UnsupportedVersion(t *testing.T) {
 	require.EqualError(t, err, "invalid transport request")
 	require.Equal(t, status.Code(originalErr), status.Code(err))
 }
+
+func TestTransportDecodeErrorsAreClassifiableSentinels(t *testing.T) {
+	for _, payload := range []string{`{"v": 3, "frame": "AA=="}`, `{"v": 2, "frame": "AA=="}`, `{"method":`, `["marker-secret"]`} {
+		requestErr := (&Request{}).UnmarshalJSON([]byte(payload))
+		require.ErrorIs(t, requestErr, ErrInvalidTransportRequest)
+		require.NotErrorIs(t, requestErr, ErrInvalidTransportResponse)
+		require.EqualError(t, requestErr, "invalid transport request")
+
+		responseErr := (&Response{}).UnmarshalJSON([]byte(payload))
+		require.ErrorIs(t, responseErr, ErrInvalidTransportResponse)
+		require.NotErrorIs(t, responseErr, ErrInvalidTransportRequest)
+		require.EqualError(t, responseErr, "invalid transport response")
+	}
+
+	// encoding/json is how the Lambda runtime and the client transport reach
+	// these decoders, so the sentinel has to survive that path too.
+	require.ErrorIs(t, json.Unmarshal([]byte(`{"v": 3, "frame": "AA=="}`), &Request{}), ErrInvalidTransportRequest)
+	require.ErrorIs(t, json.Unmarshal([]byte(`{"v": 3, "frame": "AA=="}`), &Response{}), ErrInvalidTransportResponse)
+}

@@ -214,3 +214,21 @@ For both directions, the helper compares the sanitizing wrapper with the unchang
 - **M10, application classification:** remap received application statuses to FailedPrecondition in the client connection. The mode-off matrix rejects the caller-visible status change by assertion, exit 1.
 
 No new production branches or resource owners are introduced. Existing coverage limitations remain; the new matrix and three planted violations validate the acceptance/classification properties specifically. The new push's CI and independent delta review are pending at this evidence commit; no local lint or deployed provider check is claimed.
+
+## CO5: review suggestions on the allowed-host suffix, panic logging, decode sentinels and fixture assertions
+
+Four review suggestions on `988597ae` were checked against the source and all four were applied. Parent revision: `988597ae`.
+
+1. **Allowed-host suffix needs its own delimiter.** `invokeIdentityHost` compares the suffix as a raw string, so a suffix of `example.com` also accepted `evilexample.com` and would have trusted that host's keys. `newLambdaInvokeIdentityHandler` now rejects a suffix that does not begin with `.` or `-`, and the flag help states the rule. A misconfigured function fails at startup instead of accepting a wider set of hosts. `TestInvokeIdentitySuffixRequiresLeadingDelimiter` covers four rejected and two accepted suffixes.
+2. **A recovered panic in the identity handler is logged.** `Handler` now logs the fixed message `lambda-run: invoke identity handler panic` on the process logger. The panic value is not logged or attached as a field. `TestInvokeIdentityMissingPlatformScopeAndPanicSanitization` asserts one such record with no fields, none for an ordinary rejected invoke, and still asserts that the planted secret is absent from all records.
+3. **Decode errors are exported sentinels.** `Request.UnmarshalJSON` returns `ErrInvalidTransportRequest` and `Response.UnmarshalJSON` returns `ErrInvalidTransportResponse`. The text is unchanged from E1 and the underlying decode error is still not wrapped, so no payload content is reachable through `Error` or `Unwrap`. Callers that matched the earlier diagnostic text can use `errors.Is`. `TestTransportDecodeErrorsAreClassifiableSentinels` checks both directions, that the two sentinels do not match each other, and that the sentinel survives `encoding/json`. This adds two exported variables to `pkg/lambda/grpc`; nothing is removed or renamed.
+4. **Fixture handler assertions no longer stop the server goroutine.** The mode-off matrix handler and `assertModeOffDecodeCompatibility` use `assert` and return early with an HTTP 500, so a failed check is reported as that assertion rather than as a transport error. The checks themselves are unchanged.
+
+**Verification at this revision:**
+
+- `go vet` and `go build ./...`, with and without the `baton_lambda_support` tag: pass.
+- `go test -race -count=1 -tags baton_lambda_support ./pkg/cli/ ./pkg/lambda/... ./pkg/field/...`: pass, no race report.
+- `go test -count=1 ./pkg/cli/ ./pkg/lambda/... ./pkg/field/...` without the tag: pass.
+- **Planted violations:** removing the panic log line fails the panic-sanitization test by assertion; disabling the delimiter check fails the suffix test by assertion. Both were reverted.
+
+Not rerun here: the wider G1 to G4 gates and mutants M1 to M10, local lint, and any deployed check. The new push's CI and review are pending at this commit.

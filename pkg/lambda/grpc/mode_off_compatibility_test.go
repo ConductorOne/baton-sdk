@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	pbtransport "github.com/conductorone/baton-sdk/pb/c1/transport/v1"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -84,36 +85,69 @@ func TestModeOffTransportPreservesWireAcceptanceAndErrorClassification(t *testin
 				modeOffServer := NewServer(nil)
 				v1.RegisterConnectorConfigServiceServer(modeOffServer, service)
 				endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					require.Empty(t, r.Header.Get("X-Amz-Tenant-Id"))
+					// This runs on the server goroutine, where FailNow must not be
+					// called. Record the failure with assert and still answer, so the
+					// test reports the assertion rather than a broken connection.
+					passed := func(ok bool) bool {
+						if !ok {
+							http.Error(w, "mode-off fixture assertion failed", http.StatusInternalServerError)
+						}
+						return ok
+					}
+					if !passed(assert.Empty(t, r.Header.Get("X-Amz-Tenant-Id"))) {
+						return
+					}
 					incoming, err := io.ReadAll(r.Body)
-					require.NoError(t, err)
+					if !passed(assert.NoError(t, err)) {
+						return
+					}
 					original := &Request{}
-					require.NoError(t, original.UnmarshalJSON(incoming))
-					require.Nil(t, original.InvokeIdentity(), "the client must be on the no-option path")
+					if !passed(assert.NoError(t, original.UnmarshalJSON(incoming))) {
+						return
+					}
+					if !passed(assert.Nil(t, original.InvokeIdentity(), "the client must be on the no-option path")) {
+						return
+					}
 					payload, err := tc.requestEncoding(original.msg)
-					require.NoError(t, err)
+					if !passed(assert.NoError(t, err)) {
+						return
+					}
 					request := &Request{}
 					decodeErr := request.UnmarshalJSON(payload)
-					assertModeOffDecodeCompatibility(t, payload, &pbtransport.Request{}, decodeErr, tc.requestAccepted)
+					if !passed(assertModeOffDecodeCompatibility(t, payload, &pbtransport.Request{}, decodeErr, tc.requestAccepted)) {
+						return
+					}
 					if decodeErr != nil {
-						w.Header().Set("X-Amz-Function-Error", "Unhandled")
 						failure, err := json.Marshal(map[string]string{"errorType": "DecodeError", "errorMessage": decodeErr.Error()})
-						require.NoError(t, err)
+						if !passed(assert.NoError(t, err)) {
+							return
+						}
+						w.Header().Set("X-Amz-Function-Error", "Unhandled")
 						_, _ = w.Write(failure)
 						return
 					}
-					require.True(t, proto.Equal(original.msg, request.msg))
+					if !passed(assert.True(t, proto.Equal(original.msg, request.msg))) {
+						return
+					}
 					response, err := modeOffServer.Handler(r.Context(), request)
-					require.NoError(t, err)
+					if !passed(assert.NoError(t, err)) {
+						return
+					}
 					encoded, err := response.MarshalJSON()
-					require.NoError(t, err)
+					if !passed(assert.NoError(t, err)) {
+						return
+					}
 					if tc.responseEncoding != nil {
 						encoded, err = tc.responseEncoding(response.msg)
-						require.NoError(t, err)
+						if !passed(assert.NoError(t, err)) {
+							return
+						}
 					}
 					decodedResponse := &Response{}
 					responseErr := decodedResponse.UnmarshalJSON(encoded)
-					assertModeOffDecodeCompatibility(t, encoded, &pbtransport.Response{}, responseErr, tc.responseAccepted)
+					if !passed(assertModeOffDecodeCompatibility(t, encoded, &pbtransport.Response{}, responseErr, tc.responseAccepted)) {
+						return
+					}
 					_, _ = w.Write(encoded)
 				}))
 				defer endpoint.Close()
@@ -154,10 +188,14 @@ func TestModeOffTransportPreservesWireAcceptanceAndErrorClassification(t *testin
 	}
 }
 
-func assertModeOffDecodeCompatibility(t *testing.T, payload []byte, original proto.Message, sanitizedErr error, accepted bool) {
+// assertModeOffDecodeCompatibility reports whether every check passed. It is
+// called from the fixture's server goroutine, so it records failures with
+// assert instead of stopping the goroutine with require.
+func assertModeOffDecodeCompatibility(t *testing.T, payload []byte, original proto.Message, sanitizedErr error, accepted bool) bool {
 	t.Helper()
 	_, originalErr := unmarshalTransportJSON(payload, original)
-	require.Equal(t, accepted, originalErr == nil, "the unchanged decoder must match the explicit acceptance table")
-	require.Equal(t, accepted, sanitizedErr == nil, "redaction must not change acceptance")
-	require.Equal(t, status.Code(originalErr), status.Code(sanitizedErr), "redaction must not change error classification")
+	matchesTable := assert.Equal(t, accepted, originalErr == nil, "the unchanged decoder must match the explicit acceptance table")
+	sameAcceptance := assert.Equal(t, accepted, sanitizedErr == nil, "redaction must not change acceptance")
+	sameClass := assert.Equal(t, status.Code(originalErr), status.Code(sanitizedErr), "redaction must not change error classification")
+	return matchesTable && sameAcceptance && sameClass
 }

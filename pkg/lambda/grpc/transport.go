@@ -19,6 +19,17 @@ import (
 
 const annotationsFieldName = "annotations"
 
+// ErrInvalidTransportRequest and ErrInvalidTransportResponse are returned when
+// a transport payload cannot be decoded. They are returned as-is, without the
+// underlying decode error, because that error can quote payload content such
+// as tokens or type URLs. Match them with errors.Is rather than on the text.
+var (
+	// ErrInvalidTransportRequest is returned by Request.UnmarshalJSON.
+	ErrInvalidTransportRequest = errors.New("invalid transport request")
+	// ErrInvalidTransportResponse is returned by Response.UnmarshalJSON.
+	ErrInvalidTransportResponse = errors.New("invalid transport response")
+)
+
 /*
 unmarshalTransportJSON unmarshals transport JSON into msg. It reports whether
 the payload carried a v2 wire frame (binary proto, see wireFrame), which is
@@ -200,7 +211,7 @@ func (f *Request) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Request{}
 	wireV2, err := unmarshalTransportJSON(b, f.msg)
 	if err != nil {
-		return errors.New("invalid transport request")
+		return ErrInvalidTransportRequest
 	}
 	f.wireV2 = wireV2
 	return nil
@@ -308,7 +319,7 @@ func (f *Response) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Response{}
 	wireV2, err := unmarshalTransportJSON(b, f.msg)
 	if err != nil {
-		return errors.New("invalid transport response")
+		return ErrInvalidTransportResponse
 	}
 	f.wireV2 = wireV2
 	return nil
