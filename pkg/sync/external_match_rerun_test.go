@@ -783,18 +783,18 @@ func TestExternalMatchTwoCarriersOneOnMatchedPrincipalCut(t *testing.T) {
 
 func externalMatchResumeOverOldRows(
 	t *testing.T, f externalMatchRerunFixture, carriers, oldRows []*v2.Grant,
-) (wantPending map[string][]string, want []string, gotPending map[string][]string, got []string) {
+) (map[string][]string, []string, map[string][]string, []string) {
 	t.Helper()
 	ctx := t.Context()
 	f.grants = carriers
 	golden, goldenDst := newExternalMatchRerunSyncer(t, f)
 	require.NoError(t, golden.SyncExternalResourcesUsersAndGroups(ctx))
-	wantPending, want = externalMatchAnnotatedLines(t, goldenDst)
+	wantPending, want := externalMatchAnnotatedLines(t, goldenDst)
 
 	f.grants = oldRows
 	s, dst := newExternalMatchRerunSyncer(t, f)
 	require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
-	gotPending, got = externalMatchAnnotatedLines(t, dst)
+	gotPending, got := externalMatchAnnotatedLines(t, dst)
 	return wantPending, want, gotPending, got
 }
 
