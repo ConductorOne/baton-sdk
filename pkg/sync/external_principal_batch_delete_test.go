@@ -177,7 +177,7 @@ func TestProcessGrantsWithExternalPrincipalsBatchSkipsReissuedGrants(t *testing.
 	}.Build()
 	// newGrantForExternalPrincipal derives the expanded grant's id from the
 	// (principal, entitlement) pair, so pin the carrier's id to that value.
-	carrier.SetId(newGrantForExternalPrincipal(carrier, principal).GetId())
+	carrier.SetId(newGrantForExternalPrincipal(carrier, principal, withoutExternalMatchAnnotations(carrier.GetAnnotations())).GetId())
 
 	base := &batchDeleteRouteStore{}
 	base.grants.rows = append(base.grants.rows, c1zstore.GrantAnnotation{Grant: carrier})

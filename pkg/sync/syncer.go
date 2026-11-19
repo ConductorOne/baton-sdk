@@ -2020,10 +2020,11 @@ func (s *syncer) rewriteGrantForExternalPrincipal(
 	l *zap.Logger,
 	grant *v2.Grant,
 	principal *v2.Resource,
+	filteredAnnos []*anypb.Any,
 	expandableAnno *v2.GrantExpandable,
 	expandableEntitlementsResourceMap map[string][]string,
 ) (*v2.Grant, error) {
-	newGrant := newGrantForExternalPrincipal(grant, principal)
+	newGrant := newGrantForExternalPrincipal(grant, principal, filteredAnnos)
 	if expandableAnno == nil {
 		return newGrant, nil
 	}
@@ -2197,6 +2198,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	for _, ga := range externalMatchGrants {
 		grant := ga.Grant
 		annos := annotations.Annotations(grant.GetAnnotations())
+		filteredAnnos := withoutExternalMatchAnnotations(grant.GetAnnotations())
 
 		// Expansion annotation (may be nil for non-expandable grants).
 		expandableAnno := ga.Annotation
@@ -2248,7 +2250,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 			for _, principal := range principalsByTrait[trait] {
 				newGrant, err := s.rewriteGrantForExternalPrincipal(
-					ctx, l, grant, principal,
+					ctx, l, grant, principal, filteredAnnos,
 					expandableAnno, expandableEntitlementsResourceMap,
 				)
 				if err != nil {
@@ -2272,7 +2274,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if matchResourceMatchIDAnno != nil {
 			if principal, ok := principalMap[matchResourceMatchIDAnno.GetId()]; ok {
 				newGrant, err := s.rewriteGrantForExternalPrincipal(
-					ctx, l, grant, principal,
+					ctx, l, grant, principal, filteredAnnos,
 					expandableAnno, expandableEntitlementsResourceMap,
 				)
 				if err != nil {
@@ -2321,7 +2323,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				}
 				for _, i := range positions {
 					newGrant, err := s.rewriteGrantForExternalPrincipal(
-						ctx, l, grant, idx.principalAt(i),
+						ctx, l, grant, idx.principalAt(i), filteredAnnos,
 						expandableAnno, expandableEntitlementsResourceMap,
 					)
 					if err != nil {
@@ -2348,7 +2350,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				idx := indexByTrait[trait]
 				for _, i := range idx.matchProfile(matchKey, matchValue) {
 					newGrant, err := s.rewriteGrantForExternalPrincipal(
-						ctx, l, grant, idx.principalAt(i),
+						ctx, l, grant, idx.principalAt(i), filteredAnnos,
 						expandableAnno, expandableEntitlementsResourceMap,
 					)
 					if err != nil {
@@ -2441,8 +2443,18 @@ type grantsByRefsBatchDeleter interface {
 	DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error
 }
 
-func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {
-	src := grant.GetAnnotations()
+func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource, filteredAnnos []*anypb.Any) *v2.Grant {
+	newGrant := v2.Grant_builder{
+		Entitlement: grant.GetEntitlement(),
+		Principal:   principal,
+		Id:          batonGrant.NewGrantID(principal, grant.GetEntitlement()),
+		Sources:     grant.GetSources(),
+		Annotations: filteredAnnos,
+	}.Build()
+	return newGrant
+}
+
+func withoutExternalMatchAnnotations(src []*anypb.Any) []*anypb.Any {
 	annos := make([]*anypb.Any, 0, len(src))
 	for _, anno := range src {
 		if anno.MessageIs(&v2.ExternalResourceMatch{}) ||
@@ -2452,14 +2464,7 @@ func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.G
 		}
 		annos = append(annos, anno)
 	}
-	newGrant := v2.Grant_builder{
-		Entitlement: grant.GetEntitlement(),
-		Principal:   principal,
-		Id:          batonGrant.NewGrantID(principal, grant.GetEntitlement()),
-		Sources:     grant.GetSources(),
-		Annotations: annos,
-	}.Build()
-	return newGrant
+	return annos
 }
 
 type grantRefsKey struct {

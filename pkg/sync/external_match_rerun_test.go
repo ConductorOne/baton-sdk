@@ -435,10 +435,7 @@ func TestExternalMatchLookalikeProfileFanoutRerun(t *testing.T) {
 	require.Equal(t, wantGrants, grants, "rerun")
 }
 
-// TestExternalMatchRemapOntoOtherResourceFailsGraphBuild: the store one run leaves in
-// TestExternalMatchMatchIDRemapNamesEntitlementOnOtherResource, handed to the graph
-// builder.
-func TestExternalMatchRemapOntoOtherResourceFailsGraphBuild(t *testing.T) {
+func TestExternalMatchRemapSkipsEntitlementOnOtherResourceSoGraphBuilds(t *testing.T) {
 	ctx := t.Context()
 	fresh := expansionReplayUser(t, "fresh")
 	other := expansionReplayUser(t, "other")

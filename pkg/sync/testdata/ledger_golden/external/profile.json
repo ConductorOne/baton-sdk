@@ -47,15 +47,7 @@
           "resource": "fresh"
         }
       },
-      "id": "group:application:member:user:fresh",
-      "annotations": [
-        {
-          "@type": "type.googleapis.com/c1.connector.v2.ExternalResourceMatch",
-          "resourceType": "TRAIT_USER",
-          "key": "email",
-          "value": "fresh@example.com"
-        }
-      ]
+      "id": "group:application:member:user:fresh"
     },
     {
       "entitlement": {
