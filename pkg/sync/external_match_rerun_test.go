@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -1228,6 +1231,16 @@ func externalMatchCutScenarios(t *testing.T) []externalMatchCutScenario {
 			},
 		},
 		{
+			name:   "stand-in matching p1 and p2; p1 row names itself, p2 row matches nothing",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "a0", match: externalMatchCutDept("eng"), label: "stand-in"},
+				{principal: "p1", match: externalMatchCutID("p1"), label: "own"},
+				{principal: "p2", match: externalMatchCutID("absent"), label: "x"},
+			},
+			want: []string{`p1 label="own"`, `p2 label="stand-in"`},
+		},
+		{
 			name:   "stand-in matching p1 and p2 with p2 row matching nothing, then a stand-in for p1",
 			groups: eng2,
 			rows: []externalMatchCutRow{
@@ -1244,6 +1257,110 @@ func externalMatchCutScenarios(t *testing.T) []externalMatchCutScenario {
 				{principal: "p1", match: externalMatchCutDept("ops"), label: "B"},
 			},
 		},
+	}
+}
+
+const externalMatchOverlapWarning = "external principal matching: connector grants for the same entitlement overlap; a sync interrupted during this step may keep a different one of them on resume"
+
+func TestExternalMatchWarnsOnOverlapOrderingCannotFix(t *testing.T) {
+	eng2 := map[string]string{"p1": "eng", "p2": "eng"}
+	team := v2.ExternalResourceMatch_builder{Key: "team", Value: "t", ResourceType: v2.ResourceType_TRAIT_GROUP}.Build()
+	cases := []struct {
+		name string
+		sc   externalMatchCutScenario
+		want int
+	}{
+		{
+			name: "carrier on p2 and a later stand-in, each matching p2 and p3",
+			sc: externalMatchCutScenario{
+				groups: map[string]string{"p2": "eng", "p3": "eng"},
+				rows: []externalMatchCutRow{
+					{principal: "p2", match: externalMatchCutDept("eng"), label: "p2"},
+					{principal: "zz", match: externalMatchCutDept("eng"), label: "zz"},
+				},
+			},
+			want: 1,
+		},
+		{
+			name: "stand-in for p2 and p3, then a carrier on p2 naming p3",
+			sc: externalMatchCutScenario{
+				groups: map[string]string{"p2": "eng", "p3": "eng"},
+				rows: []externalMatchCutRow{
+					{principal: "a0", match: externalMatchCutDept("eng"), label: "a0"},
+					{principal: "p2", match: externalMatchCutID("p3"), label: "p2"},
+				},
+			},
+			want: 1,
+		},
+		{
+			name: "stand-in matching p2 and p3, then a carrier on p1 matching p1 and p2",
+			sc: externalMatchCutScenario{
+				groups: map[string]string{"p1": "", "p2": "eng", "p3": "eng"},
+				profile: map[string]map[string]any{
+					"p1": {"team": "t"},
+					"p2": {"team": "t"},
+				},
+				rows: []externalMatchCutRow{
+					{principal: "a0", match: externalMatchCutDept("eng"), label: "stand-in"},
+					{principal: "p1", match: team, label: "L"},
+				},
+			},
+			want: 1,
+		},
+		{
+			name: "stand-in matching p1 and p2; p1 row names itself, p2 row matches nothing",
+			sc: externalMatchCutScenario{
+				groups: eng2,
+				rows: []externalMatchCutRow{
+					{principal: "a0", match: externalMatchCutDept("eng"), label: "stand-in"},
+					{principal: "p1", match: externalMatchCutID("p1"), label: "own"},
+					{principal: "p2", match: externalMatchCutID("absent"), label: "x"},
+				},
+			},
+		},
+		{
+			name: "carrier on p1 naming itself, then a stand-in matching p1 and p2",
+			sc: externalMatchCutScenario{
+				groups: eng2,
+				rows: []externalMatchCutRow{
+					{principal: "p1", match: externalMatchCutID("p1"), label: "own"},
+					{principal: "zz", match: externalMatchCutDept("eng"), label: "stand-in"},
+				},
+			},
+		},
+		{
+			name: "two stand-ins for one principal",
+			sc: externalMatchCutScenario{
+				groups: eng2,
+				rows: []externalMatchCutRow{
+					{principal: "a1", match: externalMatchCutID("p1"), label: "first"},
+					{principal: "a2", match: externalMatchCutID("p1"), label: "second"},
+				},
+			},
+		},
+		{
+			name: "one stand-in matching two principals",
+			sc: externalMatchCutScenario{
+				groups: eng2,
+				rows:   []externalMatchCutRow{{principal: "a0", match: externalMatchCutDept("eng"), label: "stand-in"}},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			core, logs := observer.New(zap.WarnLevel)
+			ctx := ctxzap.ToContext(t.Context(), zap.New(core))
+			ext := newExternalMatchCutExternal(t, tc.sc)
+			s, _ := newExternalMatchCutRun(t, tc.sc, ext)
+			require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
+			got := logs.FilterMessage(externalMatchOverlapWarning).All()
+			if tc.want == 0 {
+				require.Empty(t, got)
+				return
+			}
+			require.Len(t, got, 1)
+			require.EqualValues(t, tc.want, got[0].ContextMap()["overlapping_grants"])
+		})
 	}
 }
 

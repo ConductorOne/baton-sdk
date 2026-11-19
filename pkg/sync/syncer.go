@@ -2162,7 +2162,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	grantsToDelete := make([]*v2.Grant, 0, len(externalMatchGrants))
 	carrierKeys := mapset.NewSet[grantRefsKey]()
-	// A slice length is an int and can exceed a 32-bit index.
 	carrierIndexOf := make(map[*v2.Grant]int, len(externalMatchGrants))
 	for i, ga := range externalMatchGrants {
 		carrierKeys.Add(grantRefsKeyOf(ga.Grant))
@@ -2173,6 +2172,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	const deferredWriter = -1
 	outputWriter := make(map[grantRefsKey]int)
 	produced := make([]bool, len(externalMatchGrants))
+	lost := make([]bool, len(externalMatchGrants))
+	deferredLosers := make(map[grantRefsKey][]int)
+	var bufferLosers map[grantRefsKey][]int
 	expandedBuf := make([]*v2.Grant, 0, putChunk)
 	expandedCount := 0
 	type deferredOutput struct {
@@ -2216,13 +2218,28 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		produced[carrierIndex] = true
 		source := grantRefsKeyOf(carrier)
 		if !carrierKeys.ContainsOne(key) {
+			if w, ok := outputWriter[key]; ok && w >= 0 && w != carrierIndex {
+				lost[w] = true
+				if bufferLosers == nil {
+					bufferLosers = make(map[grantRefsKey][]int)
+				}
+				bufferLosers[key] = append(bufferLosers[key], w)
+			}
 			outputWriter[key] = carrierIndex
 			return addExpanded(output)
 		}
 		outputWriter[key] = deferredWriter
 		own := key == source
-		if prev, ok := deferred[key]; ok && prev.own && !own {
-			return nil
+		if prev, ok := deferred[key]; ok {
+			if prev.own && !own {
+				lost[carrierIndex] = true
+				deferredLosers[key] = append(deferredLosers[key], carrierIndex)
+				return nil
+			}
+			if prev.sourceIndex != carrierIndex {
+				lost[prev.sourceIndex] = true
+				deferredLosers[key] = append(deferredLosers[key], prev.sourceIndex)
+			}
 		}
 		deferred[key] = deferredOutput{grant: output, sourceIndex: carrierIndex, own: own}
 		return nil
@@ -2419,9 +2436,11 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return err
 	}
 
-	// A carrier that produced output but won no key is deleted before the
-	// deferred writes. Every other carrier whose row is not itself an output
-	// is deleted after those writes.
+	// A carrier that produced output but won no key is deleted before any
+	// deferred write. An own-row write stays until after the remaining
+	// carrier deletes when that carrier lost nothing and a late-deleted
+	// carrier lost the key to it. Every other deferred write happens before
+	// those deletes.
 	deleteCarriers := func(pending []*v2.Grant) error {
 		if len(pending) == 0 {
 			return nil
@@ -2474,6 +2493,82 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		}
 		lateDeletes = append(lateDeletes, grantToDelete)
 	}
+	inLateDelete := make([]bool, len(externalMatchGrants))
+	for _, grantToDelete := range lateDeletes {
+		inLateDelete[carrierIndexOf[grantToDelete]] = true
+	}
+	heldDeferred := func(key grantRefsKey, entry deferredOutput) bool {
+		if !entry.own || lost[entry.sourceIndex] {
+			return false
+		}
+		for _, idx := range deferredLosers[key] {
+			if inLateDelete[idx] {
+				return true
+			}
+		}
+		return false
+	}
+	if len(deferredLosers) > 0 || len(bufferLosers) > 0 {
+		exposed := make([]bool, len(externalMatchGrants))
+		overlapping := 0
+		markExposed := func(idx int) {
+			if exposed[idx] {
+				return
+			}
+			exposed[idx] = true
+			overlapping++
+		}
+		for key, losers := range deferredLosers {
+			entry, ok := deferred[key]
+			if ok && heldDeferred(key, entry) {
+				continue
+			}
+			for _, idx := range losers {
+				if inLateDelete[idx] {
+					markExposed(idx)
+				}
+			}
+		}
+		for key, losers := range bufferLosers {
+			w, ok := outputWriter[key]
+			if !ok || w < 0 {
+				continue
+			}
+			writerKey := grantRefsKeyOf(externalMatchGrants[w].Grant)
+			entry, ok := deferred[writerKey]
+			if !ok || heldDeferred(writerKey, entry) {
+				continue
+			}
+			for _, idx := range losers {
+				if inLateDelete[idx] {
+					markExposed(idx)
+				}
+			}
+		}
+		if overlapping > 0 {
+			sample := make([]string, 0, min(overlapping, 5))
+			seen := make(map[string]struct{}, min(overlapping, 5))
+			for i, ga := range externalMatchGrants {
+				if !exposed[i] {
+					continue
+				}
+				id := ga.Grant.GetEntitlement().GetId()
+				if _, dup := seen[id]; dup {
+					continue
+				}
+				seen[id] = struct{}{}
+				sample = append(sample, id)
+				if len(sample) == 5 {
+					break
+				}
+			}
+			l.Warn(
+				"external principal matching: connector grants for the same entitlement overlap; a sync interrupted during this step may keep a different one of them on resume",
+				zap.Int("overlapping_grants", overlapping),
+				zap.Strings("sample_entitlement_ids", sample),
+			)
+		}
+	}
 	if err = deleteCarriers(earlyDeletes); err != nil {
 		return err
 	}
@@ -2492,23 +2587,30 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		deferredBuf = deferredBuf[:0]
 		return nil
 	}
-	for _, ga := range externalMatchGrants {
-		entry, ok := deferred[grantRefsKeyOf(ga.Grant)]
-		if !ok {
-			continue
+	writeDeferred := func(held bool) error {
+		for _, ga := range externalMatchGrants {
+			key := grantRefsKeyOf(ga.Grant)
+			entry, ok := deferred[key]
+			if !ok || heldDeferred(key, entry) != held {
+				continue
+			}
+			deferredBuf = append(deferredBuf, entry.grant)
+			if len(deferredBuf) < putChunk {
+				continue
+			}
+			if err := flushDeferred(); err != nil {
+				return err
+			}
 		}
-		deferredBuf = append(deferredBuf, entry.grant)
-		if len(deferredBuf) < putChunk {
-			continue
-		}
-		if err = flushDeferred(); err != nil {
-			return err
-		}
+		return flushDeferred()
 	}
-	if err = flushDeferred(); err != nil {
+	if err = writeDeferred(false); err != nil {
 		return err
 	}
-	err = deleteCarriers(lateDeletes)
+	if err = deleteCarriers(lateDeletes); err != nil {
+		return err
+	}
+	err = writeDeferred(true)
 	return err
 }
 
