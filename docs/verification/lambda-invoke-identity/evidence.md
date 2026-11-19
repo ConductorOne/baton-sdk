@@ -2,7 +2,7 @@
 
 ## Source, scope and claim
 
-Base: public baton-sdk `b00aa1a5`, the version-file commit immediately after the `v0.46.0` tag (`cb1cfe9d`). Implementation: `2dfdb34a`; construction/HTTP-smoke follow-up: `f2f6130f`; final source: `c9a24ac674eb9d86492d59f6b6f91214f3c15b6d`. The final source differs from `f2f6130f` only by restoring the legacy connector-close warning's `config_version` field.
+Base: public baton-sdk `b00aa1a5`, the version-file commit immediately after the `v0.46.0` tag (`cb1cfe9d`). Implementation: `2dfdb34a`; construction/HTTP-smoke follow-up: `f2f6130f`; initial verified source: `c9a24ac674eb9d86492d59f6b6f91214f3c15b6d`, which restores the legacy connector-close warning's `config_version` field. The CI-style correction's executable source is `ef5eef7b9cb03a0c634d3ac0d44bb3677ff1de66`; CO2 records its delta and reruns.
 
 This stage adds the opt-in SDK mode, transport option/field and config response field. No dependency upgrade, deployment, AWS resource change or credential provisioning is included. Results below are reported local unit/fixture observations, not deployed AWS isolation or prepared-provider evidence. The local HTTP smoke uses the real SDK client transport against a test Lambda endpoint, not the AWS runtime.
 
@@ -20,7 +20,7 @@ The frozen plan remains unchanged. Criterion states below mean **verified to the
 
 ## Executed gates
 
-All final-source test/build commands below ran at `c9a24ac6`, with Go `1.27.4` on Linux arm64. Later evidence-only commits do not alter their executable subject. The G1 command normalizes the temporary coverage destination to `coverage.out`; its other flags and package arguments are unchanged.
+The initial G1–G3 test/build commands below ran at `c9a24ac6`, with Go `1.27.4` on Linux arm64. The CI-style correction changes executable source; CO2 records the G1–G3 reruns and mutation revalidation at `ef5eef7b`. The G1 command normalizes the temporary coverage destination to `coverage.out`; its other flags and package arguments are unchanged.
 
 ### G1: touched-package suites and structural coverage — PASS
 
@@ -58,11 +58,11 @@ All six suites passed with no race report, including eight concurrent first invo
 - `git diff --exit-code -- pb` after the second generation was clean: generated output reproduced the committed files.
 - `buf breaking --against '.git#branch=main'` passed against `b00aa1a5`. The schema is unchanged between that check and `c9a24ac6`.
 - `git diff --check` passed.
-- No lint was run in this stage, as requested. CI remains responsible for lint.
+- No local lint was run, as originally requested. The later CI lint failure and its bounded correction are recorded in CO2; local execution does not claim a lint verdict.
 
 ## Criterion-to-instrument results
 
-All rows below reference G1 and G3 at `c9a24ac6` unless another revision is named. Each fixture asserts its setup before the postcondition; M1–M5 below validate representative assertion mechanisms with planted violations.
+All rows below were first verified by G1 and G3 at `c9a24ac6`; their executable instruments were rerun at `ef5eef7b` as CO2 records. Each fixture asserts its setup before the postcondition; M1–M5 validate representative assertion mechanisms with planted violations and were also rerun at the CI-fix source.
 
 | ID / state | Instrument, premise and oracle | Covered space, outcome and reduction |
 | --- | --- | --- |
@@ -76,7 +76,7 @@ All rows below reference G1 and G3 at `c9a24ac6` unless another revision is name
 | I8 — verified to stated coverage | `TestInvokeIdentityBindReloadContextKeyAndLogs` checks the same parsed key reaches dispatched context, process context has none, and local records have both identity fields. `TestIdentityRuntimeKeyDecryptsDispatchedCredentials` runs the actual runtime factory, then dispatches through a controlled generation and uses `crypto.ConvertCredentialOptions` to decrypt a password addressed to the parsed key. `TestInvokeIdentityExportedLogFields` captures actual telemetry-bridge export records and asserts both attributes. | PASS. The export is through the production bridge with an in-process exporter, not a deployed collector. The real factory uses a lazy C1 connection; the fixture replaces its build to avoid a provider call. |
 | I9 — verified to stated coverage | `TestRequestDecodeErrorsDoNotExposePayload` and `TestResponseDecodeErrorsDoNotExposePayload` put the marker in parser-sensitive tokens/type URLs. Handler panic/error tests check returned status and captured logs. `TestInvokeIdentityHTTPRejectionSmoke` carries the marker through the real transport/client and test Lambda endpoint for decode, missing identity, host, token and build stages. | PASS. The decode stage creates a non-empty synthetic Lambda log tail and `LambdaInvokeFailure.LogSummary`; both, the error payload, caller error and captured records must omit the marker. Other stages return gRPC status responses rather than Lambda FunctionError, so there is no returned failure tail on those paths. This proves the SDK fixture boundary, not the real AWS runtime's logging. Arbitrary connector-authored logs are not constrained by the SDK. |
 | I10 — verified to stated coverage, with E1 | `TestInvokeIdentityModeRequiresSuffixButNotLegacyCredentials` and `TestInvokeIdentityModeEnvironmentAndFlag` check flag/env activation, required suffix and absence of a legacy-credential requirement. I8's real factory fixture sets invalid env host overrides and still initializes. `TestLegacyReloaderIgnoresInvokeIdentity` dispatches with an invalid new identity and a valid legacy JWT; the scope-builder test ignores a wrong response scope when mode is off. | PASS for activation and legacy auth/config behavior. **E1 explicitly supersedes the frozen unchanged-diagnostics/test-assertion wording**, without changing the frozen baseline text. The legacy close warning's version field is restored at `c9a24ac6`; it is not a remaining exception. |
-| I11 — verified to stated coverage | `TestExpectedExecutionScopePresenceAndFieldNumbers` checks optional presence survives binary serialization and numbers are 5 for response scope and 4 for request identity. Generated serializers are also used by I7. G1–G4 execute generation, compatibility, suites, build and races. | PASS. Generated packages contain no standalone tests. No lint, full-repository test sweep, external consumer compile or deployed platform exercise is claimed. |
+| I11 — verified to stated coverage | `TestExpectedExecutionScopePresenceAndFieldNumbers` checks optional presence survives binary serialization and numbers are 5 for response scope and 4 for request identity. Generated serializers are also used by I7. G1–G4 execute generation, compatibility, suites, build and races. | PASS. Generated packages contain no standalone tests. No local lint, full-repository test sweep, external consumer compile or deployed platform exercise is claimed; CI lint status is recorded separately in CO2. |
 
 ### Follow-up test accounting
 
@@ -118,7 +118,7 @@ These validate five distinct representative oracles, not every cross-product cel
 
 ## Uncovered changed-branch disposition
 
-Locations below are at final source `c9a24ac6`. All are **missing instruments / explicit coverage limits**, not dead code and not evidence of execution. The independent source review supplies implementation/security review, not substitute runtime proof. No uncovered new branch was silently treated as verified.
+Locations below are from the initial verified source `c9a24ac6`, not current line numbers after CO2's recovery-wrapper restructuring. All are **missing instruments / explicit coverage limits**, not dead code and not evidence of execution. The independent source review supplies implementation/security review, not substitute runtime proof. No uncovered new branch was silently treated as verified. CO2 records the refreshed profile's disposition.
 
 | Changed source ranges | Uncovered behavior and disposition |
 | --- | --- |
@@ -134,6 +134,26 @@ After cross-binary aggregation, no other uncovered blocks intersect newly change
 
 ## Independent review and remaining boundary
 
-The independent read-only implementation/security audit at `f2f6130f` found the mode conformant and no security defect. Its correction pass **signed off `97123f39`**, confirming the populated I1–I11 record, E1, follow-up test mapping, uncovered-branch dispositions, frozen plan, public-safe PR body and one-line legacy warning restoration. The auditor checked the five mutation logs/results against M1–M5; it ran no tests and did not independently analyze the coverage profile. This final documentation-only update records that sign-off and corrects the removal's commit attribution and local output-path presentation.
+The independent read-only implementation/security audit at `f2f6130f` found the mode conformant and no security defect. Its correction pass **signed off `97123f39`**, confirming the populated I1–I11 record, E1, follow-up test mapping, uncovered-branch dispositions, frozen plan, public-safe PR body and one-line legacy warning restoration. The auditor checked the five mutation logs/results against M1–M5; it ran no tests and did not independently analyze the coverage profile. A documentation-only update recorded that sign-off and corrected the removal's commit attribution and local output-path presentation. The subsequent source delta at `ef5eef7b` received a separate read-only equivalence review, recorded in CO2.
 
-Not exercised: a deployed Lambda execution environment, real platform tenant isolation, live C1 exchange/config/session services together, external consumers, provider permissions, and CI lint. Those are not inferred from local tests or review. No merge, release or deployment is performed by this PR.
+Not exercised: a deployed Lambda execution environment, real platform tenant isolation, live C1 exchange/config/session services together, external consumers and provider permissions. No local lint was run; CI's result is separate from local test/build proof. These boundaries are not inferred from tests or review. No merge, release or deployment is performed by this PR.
+
+## CO2: CI style correction and rerun evidence
+
+**Classification:** correction in this PR, with no intended behavioral or protocol change. Source: [CI lint run 44431320714](https://github.com/ConductorOne/baton-sdk/actions/runs/44431320714), which failed on the pre-correction source with nine diagnostics. This does not weaken the frozen criteria or E1.
+
+**Owning boundary and delta:** `pkg/cli/lambda_invoke_identity.go` and its three fixture files. Four named-return diagnostics are resolved by using local outputs in recovery closures and unnamed factory/builder results; the generation-builder signature is wrapped; the DNS character predicate is expressed with named letter/digit booleans; the smoke-stage assertions use a switch; test logger restoration uses deferred closures instead of deferring a function that itself returns a restoration function. No lint suppression, authentication/config logic, error text, log content or schema is added or changed.
+
+**Affected criteria:** I1 (equivalent character predicate), I4/I5/I9 (recovery and return plumbing), I8/I9 (fixture logger restoration and stage assertions), I11 (CI gate). The read-only auditor compared every source/test hunk in `b0b912b9..ef5eef7b` and confirmed semantic equivalence; its source sign-off carries to `ef5eef7b`.
+
+### Current-source reruns at ef5eef7b
+
+- **G1 PASS:** all six touched-package suites and two generated-package compilations, first without coverage and then with the exact G1 coverage flags/package set above. The first coverage-refresh attempt terminated with exit 143 and no diagnostics; the same command was retried successfully. No result is claimed from the terminated attempt.
+- **G2 PASS:** the exact tagged SDK build command above.
+- **G3 PASS:** all six touched-package race suites with the exact G3 command above; no race report.
+- **G4 carried forward:** no proto or generated file changed; prior deterministic generation and breaking-change results retain the same schema subject. `git diff --check` also passed on this correction.
+- **M1–M5 rerun:** all five overlays were regenerated from `ef5eef7b`, not carried over from the old source, and all five were rejected by test assertions with exit 1. They use the same production violations/instruments recorded above.
+- **M6 added for the changed recovery wrapper:** an isolated overlay returns the recovered panic value instead of the fixed initialization error. `TestInvokeIdentityMissingPlatformScopeAndPanicSanitization` rejects the marker-bearing error by assertion, exit 1. This validates the recovery-redaction oracle after restructuring.
+- **Structural coverage refreshed:** coverage counts were aggregated across the package test binaries. No uncovered executable block intersects the changed production lines of the CI delta. Earlier missing-instrument categories remain coverage limits; this is not a claim of full-package or exhaustive branch closure.
+
+Commands, environments and timeout flags are the same as G1–G3 and the overlay command above; only the source revision and local artifact destinations changed. These are reported local test/build observations. No local lint was run because the CI failure detail was available through the GitHub route. The post-push CI lint rerun is pending at this evidence commit; it must not be inferred from these local checks.
