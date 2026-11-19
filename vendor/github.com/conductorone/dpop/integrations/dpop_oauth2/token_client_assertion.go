@@ -203,10 +203,20 @@ type tokenSource struct {
 // cancel: both surface as context.Canceled or context.DeadlineExceeded.
 var errAttemptTimeout = errors.New("dpop_oauth2: token attempt timed out")
 
+var errTokenBudgetExceeded = fmt.Errorf("dpop_oauth2: token budget exceeded: %w", context.DeadlineExceeded)
+
+func isTokenSourceTimeout(ctx context.Context) bool {
+	if ctx.Err() == nil {
+		return false
+	}
+	cause := context.Cause(ctx)
+	return errors.Is(cause, errAttemptTimeout) || errors.Is(cause, errTokenBudgetExceeded)
+}
+
 func (c *tokenSource) Token() (*oauth2.Token, error) {
 	// ctx is the overall budget for this call. Every attempt runs under it,
 	// so the budget bounds total time across attempts and backoff.
-	ctx, done := context.WithTimeout(c.baseCtx, time.Second*30)
+	ctx, done := context.WithTimeoutCause(c.baseCtx, time.Second*30, errTokenBudgetExceeded)
 	defer done()
 
 	// Transient failures (5xx/429, transport errors, our attempt timeout) are
@@ -224,11 +234,11 @@ func (c *tokenSource) Token() (*oauth2.Token, error) {
 	for attempt := 0; attempt < c.retry.MaxAttempts; attempt++ {
 		if attempt > 0 {
 			if !sleepBeforeRetry(ctx, c.retry, attempt) {
-				// The caller canceled, or the overall budget ran out, during
-				// backoff. Neither leaves time to retry, so return now. The
-				// last error is kept as text only, so this result is not
-				// classified as transient.
-				return nil, fmt.Errorf("%w: %w during retry backoff (last error: %v)", ErrTokenRequestFailed, context.Cause(ctx), lastErr)
+				err := fmt.Errorf("%w: %w during retry backoff (last error: %v)", ErrTokenRequestFailed, context.Cause(ctx), lastErr)
+				if errors.Is(context.Cause(ctx), errTokenBudgetExceeded) {
+					err = markTransient(err)
+				}
+				return nil, err
 			}
 		}
 
@@ -365,7 +375,7 @@ func (c *tokenSource) tryToken(ctx context.Context, firstAttempt bool, retryNonc
 		// the underlying cause (context.Canceled, net errors, ...).
 		reqErr := fmt.Errorf("%w: failed to execute request: %w", ErrTokenRequestFailed, err)
 		if ctx.Err() != nil {
-			if !errors.Is(context.Cause(ctx), errAttemptTimeout) {
+			if !isTokenSourceTimeout(ctx) {
 				return nil, nonce, reqErr
 			}
 		} else if errors.Is(err, context.Canceled) {
@@ -382,7 +392,11 @@ func (c *tokenSource) tryToken(ctx context.Context, firstAttempt bool, retryNonc
 			ErrorDescription string `json:"error_description"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err != nil {
-			return nil, nonce, fmt.Errorf("%w: failed to decode error response: %v", ErrTokenRequestFailed, err)
+			decodeErr := fmt.Errorf("%w: failed to decode error response: %w", ErrTokenRequestFailed, err)
+			if isTokenSourceTimeout(ctx) {
+				decodeErr = markTransient(decodeErr)
+			}
+			return nil, nonce, decodeErr
 		}
 
 		if errorResp.Error == "use_dpop_nonce" {
@@ -420,7 +434,11 @@ func (c *tokenSource) tryToken(ctx context.Context, firstAttempt bool, retryNonc
 	token := &oauth2.Token{}
 	err = json.NewDecoder(resp.Body).Decode(token)
 	if err != nil {
-		return nil, nonce, fmt.Errorf("%w: failed to decode token response: %v", ErrInvalidToken, err)
+		decodeErr := fmt.Errorf("%w: failed to decode token response: %w", ErrInvalidToken, err)
+		if isTokenSourceTimeout(ctx) {
+			decodeErr = markTransient(fmt.Errorf("%w: %w", ErrTokenRequestFailed, decodeErr))
+		}
+		return nil, nonce, decodeErr
 	}
 
 	if token.AccessToken == "" {
