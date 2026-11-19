@@ -152,11 +152,12 @@ func TestRemoteValidatorThrottlesForcedRefresh(t *testing.T) {
 			failRefresh.Store(failFirstRefresh)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				n := requests.Add(1)
-				if n > 1 && failRefresh.Load() {
+				switch {
+				case n > 1 && failRefresh.Load():
 					w.WriteHeader(http.StatusServiceUnavailable)
-				} else if rotated.Load() {
+				case rotated.Load():
 					_, _ = w.Write(rotatedJSON)
-				} else {
+				default:
 					_, _ = w.Write(knownJSON)
 				}
 			}))

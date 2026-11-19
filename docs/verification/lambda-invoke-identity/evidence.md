@@ -597,3 +597,32 @@ CO8 remains untouched. Current-head CI and automated review are observed only
 after the push, not inferred from the green parent run. The authorized reply to
 bot thread 4634078911 is reported with the pushed commit in the handoff; no
 human-thread reply is authorized by this correction.
+
+### CI lint follow-up on `35272386`
+
+[CI run 44604034114](https://github.com/ConductorOne/baton-sdk/actions/runs/44604034114)
+failed only its go-lint job. The completed job log reports exactly one finding:
+`pkg/auth/jwt_remote_test.go:155`, `ifElseChain: rewrite if-else to switch
+statement` (`gocritic`). This is the new throttle fixture, not the unrelated
+uhttp finding recorded in CO8. CI runs the pinned v2.14.0 full-repository
+command with `only-new-issues: false`; no scope-filter explanation is assumed.
+The preceding CO9 local gates did not include lint, so the earlier CO8 scoped
+lint pass did not cover this newly added fixture.
+
+The fixture's HTTP response selection now uses an equivalent condition switch.
+No production behavior changed. This follow-up supersedes the no-local-lint
+statement above for the repaired source:
+
+- PASS: compatible pinned v2.14.0 lint over all affected packages, without issue
+  filtering, reports 0 issues. It was invoked as
+  `GOMAXPROCS=4 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run --timeout=10m`
+  with the seven-package patterns recorded in CO8.
+- PASS: all seven affected-package race suites, tagged and untagged; full builds
+  and affected-package vet in both build modes; explicit nil-panic/HTTP smoke.
+- PASS: all five CO9 planted violations regenerated against the repaired
+  fixture and rejected by assertions. Temporary overlays were removed.
+- PASS: `git diff --check`.
+
+The pre-existing uhttp file remains untouched, and no full-repository local lint
+pass is claimed. The replacement head's CI result is checked after pushing and
+reported in the handoff rather than inferred from these local results.
