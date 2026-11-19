@@ -853,7 +853,7 @@ func (s *syncer) syncOneAction(
 ) workerResult {
 	for {
 		err := s.invokeActionPage(ctx, action, f, true, worker, attempts, transition)
-		if isWarning(ctx, err) {
+		if isActionWarning(ctx, action, err) {
 			l.Warn("skipping sync action", zap.Any("action", action), zap.Error(err))
 			s.finishActionWithWarning(ctx, action)
 			return workerResult{warning: err}

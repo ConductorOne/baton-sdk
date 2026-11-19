@@ -23,3 +23,16 @@ Risk: HIGH if a change is required. Silent incomplete collection can be persiste
 ## Review and delivery
 
 After implementation inspection, append implementation obligations without silently rewriting this baseline. Every applicable changed branch needs an instrument or an explicit gap. Run an independent evidence audit and focused implementation review before PR submission. Run repository-required checks; name failures and unavailable checks. Tests use temporary stores and in-process connectors, not shared services or vendor APIs. Do not claim live-provider or production behavior from fixture results. Refuted or intentionally unsupported filter behavior is recorded as excluded, not turned into speculative production code.
+
+## Implementation-obligation addendum 1
+
+The ledger scheduler classifies handler errors before committing a completed action. The parallel worker classifies the returned error again. Both decisions must apply the same action scope: a root resource collection is not an individual resource whose disappearance establishes completion.
+
+| ID | Owning boundary | Premise and oracle |
+| -- | -- | -- |
+| IM-01 | `invokeActionPage` warning transition | For a failing root resource list, no completion row or pending-work removal is committed. Compare the entire raw ledger snapshot before and after the failed attempt. |
+| IM-02 | `syncOneAction` warning return | A root collection failure remains a fatal result after the worker receives it; it must not be counted as a completed warning. Assert the original error identity and status code, no warnings, and retained action. |
+| IM-03 | Parent-scoped collection | A request identifies an existing parent scope; a NotFound from that collection retains the established deleted-parent warning behavior. Assert one connector call, returned warning, and action completion. |
+| IM-04 | Continuation pages | Root collection scope does not change when the page token is nonempty. Sweep first/continuation page, direct/wrapped errors, and one/four workers. |
+
+No new production resources, locks, store capabilities, checkpoint fields, or formats are intended. The classifier is constant-time. Existing tests that deliberately encode root warn-and-drop behavior must be updated to distinguish root collection failure from deleted-parent behavior, not removed.
