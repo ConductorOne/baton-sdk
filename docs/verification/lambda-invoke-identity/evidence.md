@@ -232,3 +232,23 @@ Four review suggestions on `988597ae` were checked against the source and all fo
 - **Planted violations:** removing the panic log line fails the panic-sanitization test by assertion; disabling the delimiter check fails the suffix test by assertion. Both were reverted.
 
 Not rerun here: the wider G1 to G4 gates and mutants M1 to M10, local lint, and any deployed check. The new push's CI and review are pending at this commit.
+
+## CO6: redacted build and reload failures leave a log record
+
+In identity mode the reloader and the first-build path returned a fixed status to the caller and logged nothing, so a failing reload left no record on the function side. Parent revision: `8fefa243`.
+
+The underlying error stays out of both the response and the log, because it can quote configuration or request content. Each redacted exit now logs a fixed message at error level with only these fields:
+
+- `requested_version` and, on reload, `current_version`. Both are already logged by the rate-cap warning.
+- `cause_code`, the gRPC code of the underlying error. It is an enum, so it carries no payload, and it separates a failing configuration call (for example `PermissionDenied` or `Unavailable`) from a local decode, validation or construction failure (`Unknown`).
+- `execution_scope` and `client_id`, which the bound logger already attaches to every identity-mode record.
+
+Covered exits: reload failure, execution scope mismatch on reload, a recovered panic in the reloader (fixed message, no panic value), identity client creation failure, first-build failure and first-build scope mismatch. Authentication rejections are still not logged. The mode-off path is unchanged: `redactErrors` is false there and no new branch runs.
+
+**Verification at this revision:**
+
+- `TestInvokeIdentityBindReloadContextKeyAndLogs` asserts the exact field set of the reload, scope and panic records, and that no error-level record is written before the first failure. `TestInvokeIdentityFailedBuildCleansUpAndCanRetry` asserts the first-build records for a plain error, a scope mismatch and a status error. Both still assert that the planted secret is absent from all records.
+- `go vet`, `go build ./...` with and without the `baton_lambda_support` tag, `go test -race -count=1 -tags baton_lambda_support ./pkg/cli/`, and `go test -count=1 ./pkg/cli/` without the tag: pass.
+- **Planted violations:** attaching the error to the reload record fails the field-set assertion; deleting the scope and panic log lines fails the record-count assertions. Both were reverted.
+
+Not rerun here: the other packages, the wider G1 to G4 gates and mutants M1 to M10, local lint, and any deployed check.

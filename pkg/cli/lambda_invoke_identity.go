@@ -190,6 +190,9 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 			zap.String("execution_scope", lc.TenantID), zap.String("client_id", identity.GetClientId())))
 		runtime, err := h.factory(boundCtx, identity, lc.TenantID)
 		if err != nil {
+			// As on reload, only the error's gRPC code is logged: the error
+			// text can quote configuration or request content.
+			ctxzap.Extract(boundCtx).Error("lambda-run: failed to create identity client", zap.Stringer("cause_code", status.Code(err)))
 			return ctx, nil, status.Error(codes.Unavailable, "lambda-run: failed to create identity client")
 		}
 		keepRuntime := false
@@ -205,8 +208,10 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 		generation, err := runtime.build(runtime.ctx, requestedVersion)
 		if err != nil {
 			if errors.Is(err, errLambdaExecutionScope) {
+				ctxzap.Extract(boundCtx).Error("lambda-run: execution scope mismatch on first build", zap.String("requested_version", requestedVersion))
 				return ctx, nil, status.Error(codes.FailedPrecondition, "lambda-run: execution scope mismatch")
 			}
+			ctxzap.Extract(boundCtx).Error("lambda-run: failed to build connector", zap.String("requested_version", requestedVersion), zap.Stringer("cause_code", status.Code(err)))
 			return ctx, nil, status.Error(codes.Unavailable, "lambda-run: failed to build connector")
 		}
 		registered := false

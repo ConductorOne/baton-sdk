@@ -217,6 +217,7 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 	builds, factories, validations, calls := 0, 0, 0, 0
 	var constructionCtx context.Context
 	var buildErr error
+	buildPanics := false
 	previousLogger := zap.L()
 	defer func() { zap.ReplaceGlobals(previousLogger) }()
 	h, err := newLambdaInvokeIdentityHandler(processCtx, ".example.com", func(ctx context.Context, _ *pbtransport.InvokeIdentity, _ string) (*lambdaIdentityRuntime, error) {
@@ -224,6 +225,9 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 		ctx = context.WithValue(ctx, crypto.ContextClientSecretKey, clientKey)
 		return &lambdaIdentityRuntime{ctx: ctx, close: func() {}, build: func(ctx context.Context, version string) (*lambdaConnectorGeneration, error) {
 			builds++
+			if buildPanics {
+				panic("marker-secret")
+			}
 			if buildErr != nil {
 				return nil, buildErr
 			}
@@ -259,10 +263,29 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 	require.Equal(t, 2, builds)
 	h.reloader.lastRebuildAt = time.Now().Add(-time.Minute)
 	buildErr = errLambdaExecutionScope
+	require.Zero(t, records.FilterLevelExact(zap.ErrorLevel).Len(), "successful and rejected invokes log no reload failure")
 	require.Equal(t, codes.FailedPrecondition, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v3")))
 	require.Equal(t, "v2", h.reloader.current.version)
+	scopeLogs := records.FilterMessage("lambda-run: execution scope mismatch on reload; serving previous generation").All()
+	require.Len(t, scopeLogs, 1)
+	require.Equal(t, map[string]any{
+		"execution_scope": identityTestScope, "client_id": identityTestClient, "requested_version": "v3", "current_version": "v2",
+	}, scopeLogs[0].ContextMap())
 	buildErr = status.Error(codes.PermissionDenied, "marker-secret")
 	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v3")))
+	reloadLogs := records.FilterMessage("lambda-run: failed to reload connector config; serving previous generation").All()
+	require.Len(t, reloadLogs, 1)
+	require.Equal(t, map[string]any{
+		"execution_scope": identityTestScope, "client_id": identityTestClient, "requested_version": "v3", "current_version": "v2",
+		"cause_code": "PermissionDenied",
+	}, reloadLogs[0].ContextMap(), "only the versions and the cause's gRPC code are logged, never the error")
+	buildErr, buildPanics = nil, true
+	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v3")))
+	panicLogs := records.FilterMessage("lambda-run: connector generation panic").All()
+	require.Len(t, panicLogs, 1)
+	require.Equal(t, map[string]any{"execution_scope": identityTestScope, "client_id": identityTestClient}, panicLogs[0].ContextMap(), "the panic value is not attached")
+	require.Equal(t, 3, records.FilterLevelExact(zap.ErrorLevel).Len())
+	buildPanics = false
 	require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), identityTestRequest(t, identityTestClient, "marker-secret", token, "v2")))
 	require.Equal(t, 1, factories)
 	require.Equal(t, 1, validations)
@@ -276,9 +299,11 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 
 func TestInvokeIdentityFailedBuildCleansUpAndCanRetry(t *testing.T) {
 	for _, buildFailure := range []error{errors.New("marker-secret"), errLambdaExecutionScope, status.Error(codes.Unauthenticated, "marker-secret")} {
+		core, records := observer.New(zap.DebugLevel)
+		processCtx := ctxzap.ToContext(context.Background(), zap.New(core))
 		key := identityTestKey(t)
 		closes, builds, validations := 0, 0, 0
-		h, err := newLambdaInvokeIdentityHandler(context.Background(), ".example.com", func(ctx context.Context, _ *pbtransport.InvokeIdentity, _ string) (*lambdaIdentityRuntime, error) {
+		h, err := newLambdaInvokeIdentityHandler(processCtx, ".example.com", func(ctx context.Context, _ *pbtransport.InvokeIdentity, _ string) (*lambdaIdentityRuntime, error) {
 			ctx = context.WithValue(ctx, crypto.ContextClientSecretKey, key)
 			return &lambdaIdentityRuntime{ctx: ctx, close: func() { closes++ }, build: func(context.Context, string) (*lambdaConnectorGeneration, error) {
 				builds++
@@ -293,13 +318,22 @@ func TestInvokeIdentityFailedBuildCleansUpAndCanRetry(t *testing.T) {
 		token := identityTestToken(t, key, "tenant.example.com", nil)
 		req := identityTestRequest(t, identityTestClient, "marker-secret", token, "v1")
 		want := codes.Unavailable
+		wantLog := "lambda-run: failed to build connector"
+		wantFields := map[string]any{"execution_scope": identityTestScope, "client_id": identityTestClient, "requested_version": "v1", "cause_code": status.Code(buildFailure).String()}
 		if errors.Is(buildFailure, errLambdaExecutionScope) {
 			want = codes.FailedPrecondition
+			wantLog = "lambda-run: execution scope mismatch on first build"
+			delete(wantFields, "cause_code")
 		}
 		require.Equal(t, want, identityTestCode(t, h, identityTestContext(context.Background()), req))
 		require.Nil(t, h.runtime)
 		require.Nil(t, h.reloader)
 		require.Equal(t, 1, closes)
+		failureLogs := records.FilterLevelExact(zap.ErrorLevel).All()
+		require.Len(t, failureLogs, 1)
+		require.Equal(t, wantLog, failureLogs[0].Message)
+		require.Equal(t, wantFields, failureLogs[0].ContextMap())
+		require.NotContains(t, fmt.Sprint(records.All()), "marker-secret")
 		require.Equal(t, codes.OK, identityTestCode(t, h, identityTestContext(context.Background()), req))
 		require.Equal(t, 2, validations)
 		h.Close()

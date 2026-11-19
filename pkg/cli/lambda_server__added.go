@@ -149,6 +149,9 @@ func (r *lambdaConnectorReloader) Handler(ctx context.Context, req *c1_lambda_gr
 				return
 			}
 			if r.redactErrors {
+				// Fixed text only: the panic value can carry configuration or
+				// request content, so it is never logged.
+				ctxzap.Extract(ctx).Error("lambda-run: connector generation panic")
 				resp, err = c1_lambda_grpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: connector generation failed")), nil
 				return
 			}
@@ -176,9 +179,15 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 	if requestedVersion != "" {
 		if err := r.reloadIfNeeded(ctx, requestedVersion); err != nil {
 			if r.redactErrors {
+				// The error is withheld from the caller and from the log because it
+				// can quote configuration or request content. Its gRPC code is safe
+				// and tells a failing configuration call from a local failure.
+				versions := []zap.Field{zap.String("requested_version", requestedVersion), zap.String("current_version", r.currentVersion())}
 				if errors.Is(err, errLambdaExecutionScope) {
+					ctxzap.Extract(ctx).Error("lambda-run: execution scope mismatch on reload; serving previous generation", versions...)
 					return c1_lambda_grpc.ErrorResponse(status.Error(codes.FailedPrecondition, "lambda-run: execution scope mismatch")), nil
 				}
+				ctxzap.Extract(ctx).Error("lambda-run: failed to reload connector config; serving previous generation", append(versions, zap.Stringer("cause_code", status.Code(err)))...)
 				return c1_lambda_grpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: failed to reload connector config")), nil
 			}
 			return c1_lambda_grpc.ErrorResponse(status.Errorf(codes.Unavailable, "lambda-run: failed to reload connector config: %v", err)), nil
@@ -190,6 +199,16 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 	}
 
 	return r.server.Handler(ctx, req)
+}
+
+func (r *lambdaConnectorReloader) currentVersion() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.current == nil {
+		return ""
+	}
+	return r.current.version
 }
 
 func (r *lambdaConnectorReloader) applyCurrentLogLevel(now time.Time) error {
