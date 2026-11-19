@@ -482,6 +482,12 @@ func TestVerificationExternalPrincipalMatchPutCutResumesToGolden(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, annotated, 3,
 		"test premise: the first chunk of 4 committed without a match annotation, and the 3 carriers are still present")
+	stored := 0
+	for _, err := range cutStore.Grants().ListWithAnnotations(ctx) {
+		require.NoError(t, err)
+		stored++
+	}
+	require.Equal(t, 3+4, stored, "3 carriers plus the 4 committed outputs")
 	require.NoError(t, cutStore.Close(ctx))
 
 	resumedStore, err := dotc1z.NewStore(ctx, cutPath,

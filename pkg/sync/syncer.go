@@ -2161,9 +2161,19 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	}
 
 	grantsToDelete := make([]*v2.Grant, 0, len(externalMatchGrants))
+	carrierKeys := mapset.NewSet[grantRefsKey]()
+	for _, ga := range externalMatchGrants {
+		carrierKeys.Add(grantRefsKeyOf(ga.Grant))
+	}
 	newGrantKeys := mapset.NewSet[grantRefsKey]()
 	expandedBuf := make([]*v2.Grant, 0, putChunk)
 	expandedCount := 0
+	type deferredOutput struct {
+		grant  *v2.Grant
+		source grantRefsKey
+		own    bool
+	}
+	deferred := make(map[grantRefsKey]deferredOutput)
 
 	flushExpanded := func() error {
 		if len(expandedBuf) == 0 {
@@ -2179,7 +2189,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return nil
 	}
 	addExpanded := func(g *v2.Grant) error {
-		newGrantKeys.Add(grantRefsKeyOf(g))
 		expandedBuf = append(expandedBuf, g)
 		expandedCount++
 		if expandedCount%externalMatchProgressLogInterval == 0 {
@@ -2193,6 +2202,20 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			return nil
 		}
 		return flushExpanded()
+	}
+	routeOutput := func(carrier, output *v2.Grant) error {
+		key := grantRefsKeyOf(output)
+		newGrantKeys.Add(key)
+		if !carrierKeys.ContainsOne(key) {
+			return addExpanded(output)
+		}
+		source := grantRefsKeyOf(carrier)
+		own := key == source
+		if prev, ok := deferred[key]; ok && prev.own && !own {
+			return nil
+		}
+		deferred[key] = deferredOutput{grant: output, source: source, own: own}
+		return nil
 	}
 
 	for _, ga := range externalMatchGrants {
@@ -2257,7 +2280,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					return err
 				}
 				if newGrant != nil {
-					if err := addExpanded(newGrant); err != nil {
+					if err := routeOutput(grant, newGrant); err != nil {
 						return err
 					}
 				}
@@ -2283,7 +2306,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				if newGrant == nil {
 					continue
 				}
-				if err := addExpanded(newGrant); err != nil {
+				if err := routeOutput(grant, newGrant); err != nil {
 					return err
 				}
 			}
@@ -2330,7 +2353,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						return err
 					}
 					if newGrant != nil {
-						if err := addExpanded(newGrant); err != nil {
+						if err := routeOutput(grant, newGrant); err != nil {
 							return err
 						}
 					}
@@ -2357,7 +2380,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						return err
 					}
 					if newGrant != nil {
-						if err := addExpanded(newGrant); err != nil {
+						if err := routeOutput(grant, newGrant); err != nil {
 							return err
 						}
 					}
@@ -2377,7 +2400,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		zap.Int("grants_to_delete", len(grantsToDelete)),
 	)
 
-	if expandedCount == 0 {
+	if expandedCount == 0 && len(deferred) == 0 {
 		err = s.store.PutGrants(ctx)
 		if err != nil {
 			return err
@@ -2386,46 +2409,92 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return err
 	}
 
-	// DeleteGrantsByRefs addresses a grant by entitlement and principal, not
-	// by its id string. A carrier with those same refs is the row just written.
-	pendingDeletes := make([]*v2.Grant, 0, len(grantsToDelete))
-	for _, grantToDelete := range grantsToDelete {
-		if newGrantKeys.ContainsOne(grantRefsKeyOf(grantToDelete)) {
-			continue
+	// A carrier row is overwritten only after every other output is durable,
+	// and a carrier that lost that key is deleted before the winner is written.
+	deleteCarriers := func(pending []*v2.Grant) error {
+		if len(pending) == 0 {
+			return nil
 		}
-		pendingDeletes = append(pendingDeletes, grantToDelete)
-	}
-
-	if len(pendingDeletes) == 0 {
+		// Prefer the bulk refs-based delete when the store supports it: the
+		// per-grant path commits once per grant with pebble.Sync, so on
+		// network-attached storage this loop cost ~956s for ~90k grants. The
+		// batch form amortizes the fsync without weakening durability.
+		if batchDeleter := s.caps.grantBatchDeleter; batchDeleter != nil {
+			return batchDeleter.DeleteGrantsByRefs(ctx, pending...)
+		}
+		// Prefer the refs-based delete (exact structural identity) when the
+		// store supports it; external ids are a lossy external contract and
+		// stores keyed by structural identity cannot always resolve them.
+		refsDeleter := s.caps.grantRefsDeleter
+		for _, grantToDelete := range pending {
+			var delErr error
+			if refsDeleter != nil {
+				delErr = refsDeleter.DeleteGrantByRefs(ctx, grantToDelete)
+			} else {
+				delErr = s.store.DeleteGrant(ctx, grantToDelete.GetId())
+			}
+			if delErr != nil {
+				return delErr
+			}
+		}
 		return nil
 	}
 
-	// Prefer the bulk refs-based delete when the store supports it: the
-	// per-grant path commits once per grant with pebble.Sync, so on
-	// network-attached storage this loop cost ~956s for ~90k grants. The
-	// batch form amortizes the fsync without weakening durability.
-	// err is the named value the deferred span reports, so assign it.
-	if batchDeleter := s.caps.grantBatchDeleter; batchDeleter != nil {
-		err = batchDeleter.DeleteGrantsByRefs(ctx, pendingDeletes...)
+	heldSources := mapset.NewSet[grantRefsKey]()
+	for _, entry := range deferred {
+		if !entry.own {
+			heldSources.Add(entry.source)
+		}
+	}
+	earlyDeletes := make([]*v2.Grant, 0, len(grantsToDelete))
+	lateDeletes := make([]*v2.Grant, 0, len(grantsToDelete))
+	for _, grantToDelete := range grantsToDelete {
+		key := grantRefsKeyOf(grantToDelete)
+		if newGrantKeys.ContainsOne(key) {
+			continue
+		}
+		if heldSources.ContainsOne(key) {
+			lateDeletes = append(lateDeletes, grantToDelete)
+			continue
+		}
+		earlyDeletes = append(earlyDeletes, grantToDelete)
+	}
+	if err = deleteCarriers(earlyDeletes); err != nil {
 		return err
 	}
 
-	// Prefer the refs-based delete (exact structural identity) when the
-	// store supports it; external ids are a lossy external contract and
-	// stores keyed by structural identity cannot always resolve them.
-	refsDeleter := s.caps.grantRefsDeleter
-	for _, grantToDelete := range pendingDeletes {
-		if refsDeleter != nil {
-			err = refsDeleter.DeleteGrantByRefs(ctx, grantToDelete)
-		} else {
-			err = s.store.DeleteGrant(ctx, grantToDelete.GetId())
+	deferredBuf := make([]*v2.Grant, 0, putChunk)
+	flushDeferred := func() error {
+		if len(deferredBuf) == 0 {
+			return nil
 		}
-		if err != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := s.store.PutGrants(ctx, deferredBuf...); err != nil {
+			return err
+		}
+		deferredBuf = deferredBuf[:0]
+		return nil
+	}
+	for _, ga := range externalMatchGrants {
+		entry, ok := deferred[grantRefsKeyOf(ga.Grant)]
+		if !ok {
+			continue
+		}
+		deferredBuf = append(deferredBuf, entry.grant)
+		if len(deferredBuf) < putChunk {
+			continue
+		}
+		if err = flushDeferred(); err != nil {
 			return err
 		}
 	}
-
-	return nil
+	if err = flushDeferred(); err != nil {
+		return err
+	}
+	err = deleteCarriers(lateDeletes)
+	return err
 }
 
 // grantByRefsDeleter is the optional store fast path for deleting a grant
