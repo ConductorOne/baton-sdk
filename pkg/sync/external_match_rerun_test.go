@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -630,61 +631,6 @@ func externalMatchLineIDs(lines []string) []string {
 	return ids
 }
 
-func externalMatchGrantLabel(t *testing.T, store c1zstore.Store, principal string) string {
-	t.Helper()
-	for ga, err := range store.Grants().ListWithAnnotations(t.Context()) {
-		require.NoError(t, err)
-		if ga.Grant.GetPrincipal().GetId().GetResource() != principal {
-			continue
-		}
-		md := &v2.GrantMetadata{}
-		annos := annotations.Annotations(ga.Grant.GetAnnotations())
-		ok, err := annos.Pick(md)
-		require.NoError(t, err)
-		require.True(t, ok)
-		return md.GetMetadata().GetFields()["label"].GetStringValue()
-	}
-	t.Fatalf("no grant for principal %s", principal)
-	return ""
-}
-
-func externalMatchCutEveryPutAndDelete(t *testing.T, f externalMatchRerunFixture, want []string) {
-	t.Helper()
-	ctx := t.Context()
-	for failAt := 1; ; failAt++ {
-		s, dst := newExternalMatchRerunSyncer(t, f)
-		cut := &externalMatchPutCutStore{Store: dst, failAt: failAt}
-		s.setStore(cut)
-		err := s.SyncExternalResourcesUsersAndGroups(ctx)
-		if err == nil {
-			break
-		}
-		require.ErrorIs(t, err, errExternalMatchPutCut)
-		s.setStore(dst)
-		for attempt := 1; attempt <= 2; attempt++ {
-			require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
-			_, lines := externalMatchAnnotatedLines(t, dst)
-			require.Equal(t, want, lines, "put cut %d rerun %d", failAt, attempt)
-		}
-	}
-	for cutAfter := 0; ; cutAfter++ {
-		s, dst := newExternalMatchRerunSyncer(t, f)
-		cut := &cuttingGrantStore{Store: dst, putLimit: -1, deleteLimit: cutAfter}
-		s.setStore(cut)
-		err := s.SyncExternalResourcesUsersAndGroups(ctx)
-		if err == nil {
-			break
-		}
-		require.ErrorIs(t, err, errExpansionReplayCut)
-		s.setStore(dst)
-		for attempt := 1; attempt <= 2; attempt++ {
-			require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
-			_, lines := externalMatchAnnotatedLines(t, dst)
-			require.Equal(t, want, lines, "delete cut %d rerun %d", cutAfter, attempt)
-		}
-	}
-}
-
 // TestExternalMatchSelfCarrierFanoutCutBetweenPutChunks: a carrier whose
 // principal is one of the external principals it matches, and which matches
 // more than one. The carrier's own output is written last. The cut is the
@@ -740,45 +686,6 @@ func TestExternalMatchSelfCarrierFanoutCutBetweenPutChunks(t *testing.T) {
 			},
 		}, []string{"group:g1:member:user:u1", "group:g1:member:user:u2", "group:g1:member:user:u3"})
 	})
-}
-
-// TestExternalMatchTwoCarriersOneOnMatchedPrincipalCut: two carriers name the
-// same external user by id and differ in GrantMetadata. One carrier's
-// principal is that user. The uninterrupted grant keeps that carrier's metadata.
-func TestExternalMatchTwoCarriersOneOnMatchedPrincipalCut(t *testing.T) {
-	for _, standIn := range []string{"a0", "zz"} {
-		t.Run("stand-in "+standIn, func(t *testing.T) {
-			ctx := t.Context()
-			carrier := func(principalID, label string) *v2.Grant {
-				g := externalMatchGrant(t, "g", "user", principalID, nil, v2.ExternalResourceMatchID_builder{Id: "fresh"}.Build())
-				require.NoError(t, gt.WithGrantMetadata(map[string]any{"label": label})(g))
-				return g
-			}
-			f := externalMatchRerunFixture{
-				resourceTypes: []*v2.ResourceType{expandableUserResourceType},
-				principals:    []*v2.Resource{externalMatchRerunUser(t, "fresh", nil)},
-				grants:        []*v2.Grant{carrier(standIn, "stand-in"), carrier("fresh", "on-principal")},
-			}
-			s, dst := newExternalMatchRerunSyncer(t, f)
-			var order []string
-			for ga, err := range dst.Grants().ListWithAnnotations(ctx) {
-				require.NoError(t, err)
-				order = append(order, ga.Grant.GetPrincipal().GetId().GetResource())
-			}
-			if standIn == "a0" {
-				require.Equal(t, []string{"a0", "fresh"}, order, "premise: stand-in sorts before the real principal")
-			} else {
-				require.Equal(t, []string{"fresh", "zz"}, order, "premise: stand-in sorts after the real principal")
-			}
-
-			require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
-			_, want := externalMatchAnnotatedLines(t, dst)
-			require.Len(t, want, 1, "premise: one grant for the matched user")
-			require.Equal(t, "on-principal", externalMatchGrantLabel(t, dst, "fresh"))
-
-			externalMatchCutEveryPutAndDelete(t, f, want)
-		})
-	}
 }
 
 func externalMatchResumeOverOldRows(
@@ -949,32 +856,407 @@ func TestExternalMatchResumeOverPreviousSDKRows(t *testing.T) {
 	}
 }
 
-// TestExternalMatchStandInAndOnPrincipalNameDifferentUsers: carrier A on a
-// stand-in names fresh; carrier B is already on fresh and names other.
-// fresh keeps A's content and other keeps B's.
-func TestExternalMatchStandInAndOnPrincipalNameDifferentUsers(t *testing.T) {
+type externalMatchCutRow struct {
+	principal string
+	match     proto.Message
+	label     string
+	expansion []string
+}
+
+type externalMatchCutScenario struct {
+	name   string
+	groups map[string]string
+	// profile holds fields merged onto the dept value from groups.
+	profile map[string]map[string]any
+	slugs   map[string][]string
+	rows    []externalMatchCutRow
+	// want is the uninterrupted store when the scenario pins which content wins.
+	want []string
+	// wholeCallsOnly drops the one-grant-per-call mode.
+	wholeCallsOnly bool
+}
+
+type externalMatchCutMode struct {
+	name            string
+	putChunk        int
+	perGrantDeletes bool
+}
+
+var externalMatchCutWholeCalls = externalMatchCutMode{name: "whole calls"}
+var externalMatchCutOneGrant = externalMatchCutMode{name: "one grant per call", putChunk: 1, perGrantDeletes: true}
+
+var errExternalMatchCut = errors.New("external match: injected cut")
+
+type externalMatchCutStore struct {
+	c1zstore.Store
+	failAt          int
+	perGrantDeletes bool
+	ops             []string
+}
+
+func externalMatchCutPrincipals(grants []*v2.Grant) string {
+	ids := make([]string, 0, len(grants))
+	for _, g := range grants {
+		ids = append(ids, g.GetPrincipal().GetId().GetResource())
+	}
+	return strings.Join(ids, ",")
+}
+
+func (s *externalMatchCutStore) step(desc string) error {
+	s.ops = append(s.ops, desc)
+	if s.failAt > 0 && len(s.ops) == s.failAt {
+		return errExternalMatchCut
+	}
+	return nil
+}
+
+func (s *externalMatchCutStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if len(grants) > 0 {
+		if err := s.step("put[" + externalMatchCutPrincipals(grants) + "]"); err != nil {
+			return err
+		}
+	}
+	return s.Store.PutGrants(ctx, grants...)
+}
+
+func (s *externalMatchCutStore) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
+	deleter := s.Store.(grantsByRefsBatchDeleter)
+	if !s.perGrantDeletes {
+		if err := s.step("delete[" + externalMatchCutPrincipals(grants) + "]"); err != nil {
+			return err
+		}
+		return deleter.DeleteGrantsByRefs(ctx, grants...)
+	}
+	for _, g := range grants {
+		if err := s.step("delete[" + externalMatchCutPrincipals([]*v2.Grant{g}) + "]"); err != nil {
+			return err
+		}
+		if err := deleter.DeleteGrantsByRefs(ctx, g); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *externalMatchCutStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	return s.Store.(grantByRefsDeleter).DeleteGrantByRefs(ctx, grant)
+}
+
+func (s *externalMatchCutStore) DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error {
+	return s.Store.(resourceRecordDeleter).DeleteResourceRecord(ctx, resourceTypeID, resourceID)
+}
+
+func (s *externalMatchCutStore) DeleteEntitlementByRefs(ctx context.Context, ent *v2.Entitlement) error {
+	return s.Store.(entitlementRecordDeleter).DeleteEntitlementByRefs(ctx, ent)
+}
+
+func externalMatchCutSnapshot(t *testing.T, store c1zstore.Store) []string {
+	t.Helper()
+	var lines []string
+	for ga, err := range store.Grants().ListWithAnnotations(t.Context()) {
+		require.NoError(t, err)
+		annos := annotations.Annotations(ga.Grant.GetAnnotations())
+		label := ""
+		md := &v2.GrantMetadata{}
+		if ok, err := annos.Pick(md); err == nil && ok {
+			label = md.GetMetadata().GetFields()["label"].GetStringValue()
+		}
+		carrier := annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{})
+		line := fmt.Sprintf("%s label=%q", ga.Grant.GetPrincipal().GetId().GetResource(), label)
+		if carrier {
+			line += " CARRIER"
+		}
+		if ga.Annotation != nil {
+			line += fmt.Sprintf(" expansion=%v", ga.Annotation.GetEntitlementIds())
+		}
+		lines = append(lines, line)
+	}
+	slices.Sort(lines)
+	return lines
+}
+
+func newExternalMatchCutExternal(t *testing.T, sc externalMatchCutScenario) c1zstore.Store {
+	t.Helper()
 	ctx := t.Context()
-	carrier := func(principalID, matchID, label string) *v2.Grant {
-		g := externalMatchGrant(t, "g", "user", principalID, nil, v2.ExternalResourceMatchID_builder{Id: matchID}.Build())
-		require.NoError(t, gt.WithGrantMetadata(map[string]any{"label": label})(g))
-		return g
+	tmp := t.TempDir()
+	ext, err := dotc1z.NewStore(ctx, filepath.Join(tmp, "external.c1z"),
+		dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(tmp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ext.Close(ctx) })
+	_, err = ext.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, ext.PutResourceTypes(ctx, groupResourceType))
+	ids := make([]string, 0, len(sc.groups))
+	for id := range sc.groups {
+		ids = append(ids, id)
 	}
-	f := externalMatchRerunFixture{
-		resourceTypes: []*v2.ResourceType{expandableUserResourceType},
-		principals: []*v2.Resource{
-			externalMatchRerunUser(t, "fresh", nil),
-			externalMatchRerunUser(t, "other", nil),
+	slices.Sort(ids)
+	for _, id := range ids {
+		profile := map[string]any{}
+		if dept, ok := sc.groups[id]; ok {
+			profile["dept"] = dept
+		}
+		for k, v := range sc.profile[id] {
+			profile[k] = v
+		}
+		group, err := rs.NewGroupResource(id, groupResourceType, id,
+			[]rs.GroupTraitOption{rs.WithGroupProfile(profile)})
+		require.NoError(t, err)
+		require.NoError(t, ext.PutResources(ctx, group))
+		for _, slug := range sc.slugs[id] {
+			require.NoError(t, ext.PutEntitlements(ctx, et.NewAssignmentEntitlement(group, slug)))
+		}
+	}
+	require.NoError(t, ext.EndSync(ctx))
+	return ext
+}
+
+func newExternalMatchCutRun(t *testing.T, sc externalMatchCutScenario, ext c1zstore.Store) (*syncer, c1zstore.Store) {
+	t.Helper()
+	ctx := t.Context()
+	tmp := t.TempDir()
+	dst, err := dotc1z.NewStore(ctx, filepath.Join(tmp, "internal.c1z"),
+		dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(tmp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dst.Close(ctx) })
+	_, err = dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	entitlementResource, err := rs.NewGroupResource("g", groupResourceType, "g", nil)
+	require.NoError(t, err)
+	grants := make([]*v2.Grant, 0, len(sc.rows))
+	for _, row := range sc.rows {
+		opts := []gt.GrantOption{gt.WithAnnotation(row.match)}
+		if len(row.expansion) > 0 {
+			opts = append(opts, gt.WithAnnotation(v2.GrantExpandable_builder{EntitlementIds: row.expansion}.Build()))
+		}
+		if row.label != "" {
+			opts = append(opts, gt.WithGrantMetadata(map[string]any{"label": row.label}))
+		}
+		grants = append(grants, gt.NewGrant(entitlementResource, "member",
+			v2.ResourceId_builder{ResourceType: "group", Resource: row.principal}.Build(), opts...))
+	}
+	require.NoError(t, dst.PutGrants(ctx, grants...))
+
+	run := newRunState()
+	run.setFact(factHasExternalResourceGrants)
+	s := &syncer{run: run, stats: newRunStats(), graph: newExpansionGraph(), externalResourceReader: ext}
+	s.setStore(dst)
+	return s, dst
+}
+
+func externalMatchCutSweep(t *testing.T, sc externalMatchCutScenario, mode externalMatchCutMode) {
+	t.Helper()
+	ctx := t.Context()
+	ext := newExternalMatchCutExternal(t, sc)
+
+	arm := func(s *syncer, dst c1zstore.Store, failAt int) *externalMatchCutStore {
+		cut := &externalMatchCutStore{Store: dst, failAt: failAt, perGrantDeletes: mode.perGrantDeletes}
+		if mode.putChunk > 0 {
+			putChunk := mode.putChunk
+			s.testHooks.externalMatchGrantPutChunk = &putChunk
+		}
+		s.setStore(cut)
+		return cut
+	}
+
+	golden, goldenDst := newExternalMatchCutRun(t, sc, ext)
+	require.NoError(t, golden.SyncExternalResourcesUsersAndGroups(ctx))
+	want := externalMatchCutSnapshot(t, goldenDst)
+	if sc.want != nil {
+		require.Equal(t, sc.want, want)
+	}
+
+	counted, countedDst := newExternalMatchCutRun(t, sc, ext)
+	counter := arm(counted, countedDst, 0)
+	require.NoError(t, counted.SyncExternalResourcesUsersAndGroups(ctx))
+	require.Equal(t, want, externalMatchCutSnapshot(t, countedDst), "premise: chunking does not change the uninterrupted store")
+
+	for failAt := 1; failAt <= len(counter.ops); failAt++ {
+		t.Run(fmt.Sprintf("cut at %d %s", failAt, counter.ops[failAt-1]), func(t *testing.T) {
+			s, dst := newExternalMatchCutRun(t, sc, ext)
+			cut := arm(s, dst, failAt)
+			require.ErrorIs(t, s.SyncExternalResourcesUsersAndGroups(ctx), errExternalMatchCut)
+			require.Equal(t, counter.ops[:failAt], cut.ops, "premise: the cut run issued the same mutations up to the cut")
+			afterCut := externalMatchCutSnapshot(t, dst)
+
+			s.testHooks.externalMatchGrantPutChunk = nil
+			s.setStore(dst)
+			for attempt := 1; attempt <= 2; attempt++ {
+				require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
+				require.Equal(t, want, externalMatchCutSnapshot(t, dst), "rerun %d; store after the cut: %v", attempt, afterCut)
+			}
+		})
+	}
+}
+
+func externalMatchCutID(id string) proto.Message {
+	return v2.ExternalResourceMatchID_builder{Id: id}.Build()
+}
+
+func externalMatchCutDept(value string) proto.Message {
+	return v2.ExternalResourceMatch_builder{Key: "dept", Value: value, ResourceType: v2.ResourceType_TRAIT_GROUP}.Build()
+}
+
+func externalMatchCutScenarios(t *testing.T) []externalMatchCutScenario {
+	t.Helper()
+	eng2 := map[string]string{"p1": "eng", "p2": "eng"}
+	eng3 := map[string]string{"p1": "eng", "p2": "eng", "p3": "eng"}
+	return []externalMatchCutScenario{
+		{
+			name:   "one carrier on a matched group, two matches",
+			groups: eng2,
+			rows:   []externalMatchCutRow{{principal: "p1", match: externalMatchCutDept("eng"), label: "L"}},
 		},
-		grants: []*v2.Grant{carrier("ph", "fresh", "from-a"), carrier("fresh", "other", "from-b")},
+		{
+			name:   "two carriers for one grant, stand-in scanned first",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "a0", match: externalMatchCutID("p1"), label: "stand-in"},
+				{principal: "p1", match: externalMatchCutID("p1"), label: "own"},
+			},
+			want: []string{`p1 label="own"`},
+		},
+		{
+			name:   "two carriers for one grant, stand-in scanned last",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "p1", match: externalMatchCutID("p1"), label: "own"},
+				{principal: "zz", match: externalMatchCutID("p1"), label: "stand-in"},
+			},
+			want: []string{`p1 label="own"`},
+		},
+		{
+			name:   "stand-in lands on a carrier that names another group",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "a0", match: externalMatchCutID("p1"), label: "A"},
+				{principal: "p1", match: externalMatchCutID("p2"), label: "B"},
+			},
+			want: []string{`p1 label="A"`, `p2 label="B"`},
+		},
+		{
+			name:   "stand-in lands on a carrier that matches nothing",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "a0", match: externalMatchCutID("p1"), label: "A"},
+				{principal: "p1", match: externalMatchCutID("absent"), label: "B"},
+			},
+		},
+		{
+			name:   "two stand-ins for one grant",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "a1", match: externalMatchCutID("p1"), label: "first"},
+				{principal: "a2", match: externalMatchCutID("p1"), label: "second"},
+			},
+		},
+		{
+			name:   "chain: p1 row names p2, p2 row names p3, p3 row names itself",
+			groups: eng3,
+			rows: []externalMatchCutRow{
+				{principal: "p1", match: externalMatchCutID("p2"), label: "A"},
+				{principal: "p2", match: externalMatchCutID("p3"), label: "B"},
+				{principal: "p3", match: externalMatchCutID("p3"), label: "C"},
+			},
+		},
+		{
+			name:           "chain: p1 row names p2, p2 row names p3, p3 row matches nothing",
+			wholeCallsOnly: true,
+			groups:         eng3,
+			rows: []externalMatchCutRow{
+				{principal: "p1", match: externalMatchCutID("p2"), label: "A"},
+				{principal: "p2", match: externalMatchCutID("p3"), label: "B"},
+				{principal: "p3", match: externalMatchCutID("absent"), label: "C"},
+			},
+		},
+		{
+			name:           "two carriers on matched groups, each matching both",
+			wholeCallsOnly: true,
+			groups:         eng2,
+			rows: []externalMatchCutRow{
+				{principal: "p1", match: externalMatchCutDept("eng"), label: "r1"},
+				{principal: "p2", match: externalMatchCutDept("eng"), label: "r2"},
+			},
+		},
+		{
+			name:           "previous-SDK profile rows, p1 holds more slugs than p2",
+			wholeCallsOnly: true,
+			groups:         eng2,
+			slugs:          map[string][]string{"p1": {"member", "admin"}, "p2": {"member"}},
+			rows: []externalMatchCutRow{
+				{principal: "p1", match: externalMatchCutDept("eng"), expansion: []string{"group:p1:member", "group:p1:admin"}},
+				{principal: "p2", match: externalMatchCutDept("eng"), expansion: []string{"group:p2:member"}},
+			},
+		},
+		{
+			name:           "previous-SDK profile rows beside their carrier, carrier scanned first",
+			wholeCallsOnly: true,
+			groups:         eng2,
+			slugs:          map[string][]string{"p1": {"member", "admin"}, "p2": {"member"}},
+			rows: []externalMatchCutRow{
+				{principal: "a0", match: externalMatchCutDept("eng"), expansion: externalMatchEntitlementBIDs(t, "group", "a0", "member", "admin")},
+				{principal: "p1", match: externalMatchCutDept("eng"), expansion: []string{"group:p1:member", "group:p1:admin"}},
+				{principal: "p2", match: externalMatchCutDept("eng"), expansion: []string{"group:p2:member"}},
+			},
+		},
+		{
+			name:           "previous-SDK profile rows beside their carrier, carrier scanned last",
+			wholeCallsOnly: true,
+			groups:         eng2,
+			slugs:          map[string][]string{"p1": {"member", "admin"}, "p2": {"member"}},
+			rows: []externalMatchCutRow{
+				{principal: "p1", match: externalMatchCutDept("eng"), expansion: []string{"group:p1:member", "group:p1:admin"}},
+				{principal: "p2", match: externalMatchCutDept("eng"), expansion: []string{"group:p2:member"}},
+				{principal: "zz", match: externalMatchCutDept("eng"), expansion: externalMatchEntitlementBIDs(t, "group", "zz", "member", "admin")},
+			},
+		},
+		{
+			name:   "carrier on p1 matching p1 and p2, then a stand-in for p2",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "p1", match: externalMatchCutDept("eng"), label: "L"},
+				{principal: "zz", match: externalMatchCutID("p2"), label: "stand-in"},
+			},
+		},
+		{
+			name:   "a stand-in for p2, then a carrier on p1 matching p1 and p2",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "a0", match: externalMatchCutID("p2"), label: "stand-in"},
+				{principal: "p1", match: externalMatchCutDept("eng"), label: "L"},
+			},
+		},
+		{
+			name:   "stand-in matching p1 and p2 with p2 row matching nothing, then a stand-in for p1",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "a0", match: externalMatchCutDept("eng"), label: "wide"},
+				{principal: "p2", match: externalMatchCutID("absent"), label: "x"},
+				{principal: "zz", match: externalMatchCutID("p1"), label: "narrow"},
+			},
+		},
+		{
+			name:   "carriers that match nothing",
+			groups: eng2,
+			rows: []externalMatchCutRow{
+				{principal: "a0", match: externalMatchCutID("absent"), label: "A"},
+				{principal: "p1", match: externalMatchCutDept("ops"), label: "B"},
+			},
+		},
 	}
-	s, dst := newExternalMatchRerunSyncer(t, f)
-	require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
-	_, want := externalMatchAnnotatedLines(t, dst)
-	require.Equal(t, []string{"group:g:member:user:fresh", "group:g:member:user:other"}, externalMatchLineIDs(want))
-	require.Equal(t, "from-a", externalMatchGrantLabel(t, dst, "fresh"))
-	require.Equal(t, "from-b", externalMatchGrantLabel(t, dst, "other"))
-	for _, line := range want {
-		require.NotContains(t, line, "ExternalResourceMatch")
+}
+
+func TestExternalMatchCutSweep(t *testing.T) {
+	for _, sc := range externalMatchCutScenarios(t) {
+		modes := []externalMatchCutMode{externalMatchCutWholeCalls, externalMatchCutOneGrant}
+		if sc.wholeCallsOnly {
+			modes = []externalMatchCutMode{externalMatchCutWholeCalls}
+		}
+		for _, mode := range modes {
+			t.Run(sc.name+"/"+mode.name, func(t *testing.T) {
+				externalMatchCutSweep(t, sc, mode)
+			})
+		}
 	}
-	externalMatchCutEveryPutAndDelete(t, f, want)
 }

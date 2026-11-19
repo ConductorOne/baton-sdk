@@ -2162,16 +2162,23 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	grantsToDelete := make([]*v2.Grant, 0, len(externalMatchGrants))
 	carrierKeys := mapset.NewSet[grantRefsKey]()
-	for _, ga := range externalMatchGrants {
+	// A slice length is an int and can exceed a 32-bit index.
+	carrierIndexOf := make(map[*v2.Grant]int, len(externalMatchGrants))
+	for i, ga := range externalMatchGrants {
 		carrierKeys.Add(grantRefsKeyOf(ga.Grant))
+		carrierIndexOf[ga.Grant] = i
 	}
-	newGrantKeys := mapset.NewSet[grantRefsKey]()
+	// outputWriter maps an output key to the carrier index that last wrote it
+	// through the buffer. deferredWriter marks a key whose winner is in deferred.
+	const deferredWriter = -1
+	outputWriter := make(map[grantRefsKey]int)
+	produced := make([]bool, len(externalMatchGrants))
 	expandedBuf := make([]*v2.Grant, 0, putChunk)
 	expandedCount := 0
 	type deferredOutput struct {
-		grant  *v2.Grant
-		source grantRefsKey
-		own    bool
+		grant       *v2.Grant
+		sourceIndex int
+		own         bool
 	}
 	deferred := make(map[grantRefsKey]deferredOutput)
 
@@ -2203,22 +2210,25 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		}
 		return flushExpanded()
 	}
-	routeOutput := func(carrier, output *v2.Grant) error {
+	routeOutput := func(carrierIndex int, output *v2.Grant) error {
+		carrier := externalMatchGrants[carrierIndex].Grant
 		key := grantRefsKeyOf(output)
-		newGrantKeys.Add(key)
+		produced[carrierIndex] = true
+		source := grantRefsKeyOf(carrier)
 		if !carrierKeys.ContainsOne(key) {
+			outputWriter[key] = carrierIndex
 			return addExpanded(output)
 		}
-		source := grantRefsKeyOf(carrier)
+		outputWriter[key] = deferredWriter
 		own := key == source
 		if prev, ok := deferred[key]; ok && prev.own && !own {
 			return nil
 		}
-		deferred[key] = deferredOutput{grant: output, source: source, own: own}
+		deferred[key] = deferredOutput{grant: output, sourceIndex: carrierIndex, own: own}
 		return nil
 	}
 
-	for _, ga := range externalMatchGrants {
+	for carrierIndex, ga := range externalMatchGrants {
 		grant := ga.Grant
 		annos := annotations.Annotations(grant.GetAnnotations())
 		filteredAnnos := withoutExternalMatchAnnotations(grant.GetAnnotations())
@@ -2280,7 +2290,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					return err
 				}
 				if newGrant != nil {
-					if err := routeOutput(grant, newGrant); err != nil {
+					if err := routeOutput(carrierIndex, newGrant); err != nil {
 						return err
 					}
 				}
@@ -2306,7 +2316,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				if newGrant == nil {
 					continue
 				}
-				if err := routeOutput(grant, newGrant); err != nil {
+				if err := routeOutput(carrierIndex, newGrant); err != nil {
 					return err
 				}
 			}
@@ -2353,7 +2363,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						return err
 					}
 					if newGrant != nil {
-						if err := routeOutput(grant, newGrant); err != nil {
+						if err := routeOutput(carrierIndex, newGrant); err != nil {
 							return err
 						}
 					}
@@ -2380,7 +2390,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						return err
 					}
 					if newGrant != nil {
-						if err := routeOutput(grant, newGrant); err != nil {
+						if err := routeOutput(carrierIndex, newGrant); err != nil {
 							return err
 						}
 					}
@@ -2409,8 +2419,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return err
 	}
 
-	// A carrier row is overwritten only after every other output is durable,
-	// and a carrier that lost that key is deleted before the winner is written.
+	// A carrier that produced output but won no key is deleted before the
+	// deferred writes. Every other carrier whose row is not itself an output
+	// is deleted after those writes.
 	deleteCarriers := func(pending []*v2.Grant) error {
 		if len(pending) == 0 {
 			return nil
@@ -2440,24 +2451,28 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return nil
 	}
 
-	heldSources := mapset.NewSet[grantRefsKey]()
-	for _, entry := range deferred {
-		if !entry.own {
-			heldSources.Add(entry.source)
+	contributes := make([]bool, len(externalMatchGrants))
+	for _, writer := range outputWriter {
+		if writer >= 0 {
+			contributes[writer] = true
 		}
+	}
+	for _, entry := range deferred {
+		contributes[entry.sourceIndex] = true
 	}
 	earlyDeletes := make([]*v2.Grant, 0, len(grantsToDelete))
 	lateDeletes := make([]*v2.Grant, 0, len(grantsToDelete))
 	for _, grantToDelete := range grantsToDelete {
 		key := grantRefsKeyOf(grantToDelete)
-		if newGrantKeys.ContainsOne(key) {
+		if _, isOutput := outputWriter[key]; isOutput {
 			continue
 		}
-		if heldSources.ContainsOne(key) {
-			lateDeletes = append(lateDeletes, grantToDelete)
+		idx := carrierIndexOf[grantToDelete]
+		if produced[idx] && !contributes[idx] {
+			earlyDeletes = append(earlyDeletes, grantToDelete)
 			continue
 		}
-		earlyDeletes = append(earlyDeletes, grantToDelete)
+		lateDeletes = append(lateDeletes, grantToDelete)
 	}
 	if err = deleteCarriers(earlyDeletes); err != nil {
 		return err
