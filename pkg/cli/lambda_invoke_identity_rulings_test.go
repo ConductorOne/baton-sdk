@@ -24,6 +24,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestIdentityBindingKeyLifetimeAndRedaction(t *testing.T) {
@@ -83,6 +84,7 @@ func TestIdentityBindingKeyLifetimeAndRedaction(t *testing.T) {
 	require.Equal(t, codes.FailedPrecondition, invoke("another@tenant.example.com/use", secret))
 	require.NotEqual(t, changedMessage, messages[len(messages)-1])
 	require.Equal(t, codes.FailedPrecondition, invoke(identityTestClient, "marker-secret"))
+	require.Equal(t, changedMessage, messages[len(messages)-1], "unparseable keys on bound environments direct callers to a new scope")
 	require.Equal(t, 2, calls, "refusals happen before dispatch")
 	require.Same(t, generation, h.reloader.current)
 	require.Equal(t, codes.OK, invoke(identityTestClient, secret), "original identity keeps serving")
@@ -243,4 +245,29 @@ func TestInvokeIdentityDiscardsValidatorReturnedWithLoadError(t *testing.T) {
 	require.Nil(t, h.validator)
 	require.Nil(t, h.binding)
 	require.Nil(t, h.runtime)
+}
+
+func TestInvokeIdentityClientFailureStage(t *testing.T) {
+	core, records := observer.New(zap.DebugLevel)
+	ctx := ctxzap.ToContext(context.Background(), zap.New(core))
+	key := identityTestKey(t)
+	validations, factories := 0, 0
+	h, err := newLambdaInvokeIdentityHandler(ctx, ".example.com", func(context.Context, *pbtransport.InvokeIdentity, string) (*lambdaIdentityRuntime, error) {
+		factories++
+		return nil, status.Error(codes.PermissionDenied, "marker-secret")
+	})
+	require.NoError(t, err)
+	identityTestValidator(t, h, key, &validations)
+	req := identityTestRequest(t, identityTestClient, testSecret(t), identityTestToken(t, key, "tenant.example.com", nil), "v1")
+	require.Equal(t, codes.Unavailable, identityTestCode(t, h, identityTestContext(context.Background()), req))
+	require.Equal(t, 1, factories)
+	require.Nil(t, h.runtime)
+	require.Nil(t, h.binding)
+	logs := records.FilterMessage("lambda-run: failed to create identity client").All()
+	require.Len(t, logs, 1)
+	require.Equal(t, map[string]any{
+		"execution_scope": identityTestScope, "client_id": identityTestClient,
+		"cause_code": "PermissionDenied", "stage": "identity-client",
+	}, logs[0].ContextMap())
+	require.NotContains(t, fmt.Sprint(records.All()), "marker-secret")
 }

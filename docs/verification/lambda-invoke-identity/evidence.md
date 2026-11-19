@@ -523,3 +523,77 @@ protobuf generation/breaking checks, a refreshed coverage profile, timing or
 allocation benchmarks, external-consumer builds, and the complete earlier
 mutation batches were not rerun. Existing suites did rerun their compatibility
 and redaction tests. Independent review remains a separate gate.
+
+## CO9: final judge suggestion and closing-review notes
+
+Parent revision: `04d01bd9d47f9af7d1dd77268730b6ca867af002`.
+Source: adjudicated judge thread
+[4634078911](https://github.com/ConductorOne/baton-sdk/pull/1233#discussion_r4634078911)
+and closing notes K1/K2. The plan's CO9 records the correction contract.
+
+### J1: bounded forced JWKS refresh
+
+The validator records the last forced refresh under its existing exclusive
+lock. Across all unknown token key ids, it permits at most one forced load per
+30-second interval. The attempt is stamped before loading, including failures.
+An unknown key inside the interval returns ErrTokenKeyNotFound without fetching;
+cached matching keys continue through normal signature/claim validation.
+Initial loading is separate from forced refresh. The timestamp belongs to one
+validator instance, not a global cache across newly created/discarded validators.
+
+The interval is deliberately 30 seconds, not the keyset's five-minute background
+floor, so a newly published issuer key id can be discovered after a short delay.
+The config-field comment documents the conditional refresh behavior. Legacy
+validation remains opted out.
+
+`TestRemoteValidatorThrottlesForcedRefresh` uses a controlled clock and HTTP
+counter. After one initial load, two consecutive different unknown kids cause
+exactly one forced fetch. It covers a loaded-but-missing key and a failed forced
+load, cached-key success within the interval, no fetch just before expiry, and
+successful discovery of a newly published key id exactly at expiry. Assertions
+also constrain the interval to tens of seconds rather than five minutes.
+
+### K1/K2
+
+- A nonempty unparseable secret on an already-bound environment now uses the
+  same fixed, distinct new-execution-scope message as a changed key. The
+  unbound invalid-secret response is unchanged. The existing real-key
+  lifetime/redaction test now asserts the two bound refusal messages are equal,
+  while the different-client-id message remains distinct and no refused request
+  dispatches.
+- Identity-client creation failure records add `stage: identity-client`.
+  `TestInvokeIdentityClientFailureStage` asserts the exact field set, the
+  Unavailable caller status, no binding, and absence of the error's secret marker.
+
+### Final-source gates and instrument validation
+
+- PASS: the same seven affected-package `-race` commands as CO7, tagged and
+  untagged, with no race report.
+- PASS: full builds and affected-package vet in both build modes.
+- PASS: explicit `GODEBUG=panicnil=1` recovery and real client/HTTP rejection
+  smoke using the CO8 command.
+- PASS: `git diff --check`.
+- PASS: five isolated overlays regenerated from the final production/test
+  source. Each exited 1 through a test assertion, not a build error:
+
+| Planted violation | Rejecting instrument |
+| --- | --- |
+| Disable the minimum-interval guard | `TestRemoteValidatorThrottlesForcedRefresh` |
+| Stamp only successful forced loads | `TestRemoteValidatorThrottlesForcedRefresh` |
+| Substitute the keyset's five-minute delay | `TestRemoteValidatorThrottlesForcedRefresh` |
+| Restore the generic bound invalid-secret message | `TestIdentityBindingKeyLifetimeAndRedaction` |
+| Remove the identity-client stage | `TestInvokeIdentityClientFailureStage` |
+
+The overlay command remains the CO7 command: `GOMAXPROCS=2 CGO_ENABLED=0`,
+tagged `go test -p 2 -mod=vendor -buildvcs=false -count=1 -timeout=2m`,
+with an isolated `-overlay` and exact test-name filter. Original source files
+were never mutated; temporary overlays were removed.
+
+This supplies deterministic SDK/unit and local HTTP fixture evidence. No live
+issuer, deployed Lambda/provider test, timing benchmark or refreshed coverage
+profile is claimed. Local lint and earlier complete mutation batches were not
+rerun in this round; the unrelated full-repository lint finding documented in
+CO8 remains untouched. Current-head CI and automated review are observed only
+after the push, not inferred from the green parent run. The authorized reply to
+bot thread 4634078911 is reported with the pushed commit in the handoff; no
+human-thread reply is authorized by this correction.

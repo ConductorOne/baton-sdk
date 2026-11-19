@@ -33,10 +33,7 @@ func (b *lambdaIdentityBinding) check(secret string) error {
 		return nil
 	}
 	presented, err := newLambdaIdentityBinding(secret)
-	if err != nil {
-		return err
-	}
-	if subtle.ConstantTimeCompare([]byte(b.thumbprint), []byte(presented.thumbprint)) != 1 {
+	if err != nil || subtle.ConstantTimeCompare([]byte(b.thumbprint), []byte(presented.thumbprint)) != 1 {
 		return status.Error(codes.FailedPrecondition, "lambda-run: execution environment is bound to a different client key; use a new execution scope")
 	}
 	return nil

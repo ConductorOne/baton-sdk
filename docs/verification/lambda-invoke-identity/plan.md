@@ -98,3 +98,28 @@ refusal, refresh success and provisional cleanup; and the review's diagnostic
 contracts. Validate representative oracles with planted violations, rerun
 affected race suites in both build modes, builds, nil-panic smoke and compatible
 lint. Record CI lint separately from local proof in CO8 evidence.
+
+## CO9: final judge and closing-review corrections
+
+Source: adjudicated bot suggestion 4634078911 and closing review of
+`04d01bd9d47f9af7d1dd77268730b6ca867af002`. These are corrections in this SDK
+stage, not new credential-binding or wire behavior. Authentication and refresh
+timing keep this change in the existing HIGH-risk verification scope.
+
+- J1 / I2/I5/I9: a validator may force a JWKS refresh for an unknown token key
+  at most once every 30 seconds, across key ids. Record the attempt before the
+  load, including failed attempts. Inside the interval, return
+  ErrTokenKeyNotFound without fetching; cached matching keys remain usable.
+  Thirty seconds bounds delay for a newly published issuer key id without
+  inheriting the keyset's five-minute background-refresh floor.
+- K1 / I4/I9: an unparseable secret presented to an already-bound environment
+  uses the same distinct, new-execution-scope refusal as a different key.
+- K2 / I5/I9: identity-client initialization failure logs include the fixed
+  `identity-client` stage, without the underlying error text.
+
+Use the validator's test clock to cover consecutive different unknown kids,
+successful and failed refresh attempts, cached-key success, the interval
+boundary and newly published key discovery. Assert the bound invalid-key
+message and client-failure log fields. Validate those oracles with isolated
+planted violations and rerun affected race suites in both build modes. Record
+the exact scope, results and authorized judge-thread reply in the handoff.

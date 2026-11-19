@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -130,4 +131,79 @@ func TestFailedRemoteKeyLoadReleasesRefreshContext(t *testing.T) {
 	require.ErrorIs(t, err, ErrKeySetUnavailable)
 	require.Nil(t, validator)
 	require.Zero(t, ctx.active.Load(), "failed initial loads release their refresh-context registration")
+}
+
+func TestRemoteValidatorThrottlesForcedRefresh(t *testing.T) {
+	require.GreaterOrEqual(t, forcedKeyRefreshMinInterval, 10*time.Second)
+	require.LessOrEqual(t, forcedKeyRefreshMinInterval, time.Minute)
+	for _, failFirstRefresh := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failed-load=%t", failFirstRefresh), func(t *testing.T) {
+			var privateKey jose.JSONWebKey
+			require.NoError(t, json.Unmarshal([]byte(testPrivateKeyJWK), &privateKey))
+			publicKey := privateKey.Public()
+			publicKey.KeyID = "known"
+			knownJSON, err := json.Marshal(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{publicKey}})
+			require.NoError(t, err)
+			publicKey.KeyID = "unknown-2"
+			rotatedJSON, err := json.Marshal(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{publicKey}})
+			require.NoError(t, err)
+			var requests atomic.Int32
+			var failRefresh, rotated atomic.Bool
+			failRefresh.Store(failFirstRefresh)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				n := requests.Add(1)
+				if n > 1 && failRefresh.Load() {
+					w.WriteHeader(http.StatusServiceUnavailable)
+				} else if rotated.Load() {
+					_, _ = w.Write(rotatedJSON)
+				} else {
+					_, _ = w.Write(knownJSON)
+				}
+			}))
+			defer server.Close()
+			validator, err := NewValidator(context.Background(), Config{
+				JWKSUrl: server.URL, JWKSClient: server.Client(), RefreshOnUnknownKey: true, Issuer: "test-issuer",
+			})
+			require.NoError(t, err)
+			defer validator.Close()
+			require.EqualValues(t, 1, requests.Load(), "initial load is not the forced refresh")
+			now := time.Now()
+			validator.now = func() time.Time { return now }
+			sign := func(kid string) string {
+				signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: privateKey.Key},
+					(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", kid))
+				require.NoError(t, err)
+				payload, err := json.Marshal(map[string]any{"iss": "test-issuer", "iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix()})
+				require.NoError(t, err)
+				signed, err := signer.Sign(payload)
+				require.NoError(t, err)
+				token, err := signed.CompactSerialize()
+				require.NoError(t, err)
+				return token
+			}
+			first, second, known := sign("unknown-1"), sign("unknown-2"), sign("known")
+			_, err = validator.ValidateToken(context.Background(), first)
+			if failFirstRefresh {
+				require.ErrorIs(t, err, ErrKeySetUnavailable)
+			} else {
+				require.ErrorIs(t, err, ErrTokenKeyNotFound)
+			}
+			require.EqualValues(t, 2, requests.Load())
+			_, err = validator.ValidateToken(context.Background(), second)
+			require.ErrorIs(t, err, ErrTokenKeyNotFound)
+			require.EqualValues(t, 2, requests.Load(), "two consecutive unknown kids cause only one forced fetch")
+			_, err = validator.ValidateToken(context.Background(), known)
+			require.NoError(t, err, "cached matching keys still validate inside the interval")
+			now = now.Add(forcedKeyRefreshMinInterval - time.Nanosecond)
+			_, err = validator.ValidateToken(context.Background(), second)
+			require.ErrorIs(t, err, ErrTokenKeyNotFound)
+			require.EqualValues(t, 2, requests.Load())
+			now = now.Add(time.Nanosecond)
+			failRefresh.Store(false)
+			rotated.Store(true)
+			_, err = validator.ValidateToken(context.Background(), second)
+			require.NoError(t, err, "issuer rotation is discovered at the short interval boundary")
+			require.EqualValues(t, 3, requests.Load())
+		})
+	}
 }

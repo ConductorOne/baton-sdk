@@ -24,7 +24,8 @@ type Config struct {
 	Nonce                string        // Expected nonce (optional)
 	MaxExpirationFromNow time.Duration // Maximum expiration time from now (optional, defaults to 24 hours)
 	JWKSClient           *http.Client
-	// RefreshOnUnknownKey retries a missing token key once against a fresh JWKS.
+	// RefreshOnUnknownKey retries a missing token key against a fresh JWKS,
+	// subject to a short minimum interval between forced refresh attempts.
 	RefreshOnUnknownKey bool
 }
 
@@ -37,6 +38,9 @@ var (
 	ErrTokenKeyNotFound  = errors.New("token verification key not found")
 )
 
+// Keep issuer rotation delays short without fetching on every unknown token key.
+const forcedKeyRefreshMinInterval = 30 * time.Second
+
 type keySetLoadError struct{ err error }
 
 func (e *keySetLoadError) Error() string      { return e.err.Error() }
@@ -45,11 +49,12 @@ func (*keySetLoadError) Is(target error) bool { return target == ErrKeySetUnavai
 
 // Validator handles JWT validation with a specific configuration.
 type Validator struct {
-	mu             sync.RWMutex
-	config         Config
-	keySet         KeySet
-	refreshContext context.Context
-	cancelKeys     context.CancelFunc
+	mu                sync.RWMutex
+	config            Config
+	keySet            KeySet
+	refreshContext    context.Context
+	cancelKeys        context.CancelFunc
+	lastForcedRefresh time.Time
 
 	now func() time.Time
 }
@@ -151,6 +156,11 @@ func (v *Validator) ValidateToken(ctx context.Context, token string) (map[string
 	}
 	if v.config.RefreshOnUnknownKey && tokenKeyMissing(token, keyset) {
 		if v.config.JWKSUrl != "" {
+			now := v.now()
+			if !v.lastForcedRefresh.IsZero() && now.Sub(v.lastForcedRefresh) < forcedKeyRefreshMinInterval {
+				return nil, ErrTokenKeyNotFound
+			}
+			v.lastForcedRefresh = now
 			replacement, cancel, err := loadRemoteKeySet(ctx, v.refreshContext, v.config)
 			if err != nil {
 				return nil, err

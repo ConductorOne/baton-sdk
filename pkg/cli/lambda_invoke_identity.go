@@ -283,9 +283,9 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 			zap.String("execution_scope", lc.TenantID), zap.String("client_id", identity.GetClientId())))
 		runtime, err := h.factory(boundCtx, identity, lc.TenantID)
 		if err != nil {
-			// As on reload, only the error's gRPC code is logged: the error
-			// text can quote configuration or request content.
-			ctxzap.Extract(boundCtx).Error("lambda-run: failed to create identity client", zap.Stringer("cause_code", status.Code(err)))
+			// The cause can contain credentials, so only its code and stage are logged.
+			ctxzap.Extract(boundCtx).Error("lambda-run: failed to create identity client",
+				zap.Stringer("cause_code", status.Code(err)), zap.String("stage", "identity-client"))
 			return ctx, nil, status.Error(codes.Unavailable, "lambda-run: failed to create identity client")
 		}
 		keepRuntime := false
