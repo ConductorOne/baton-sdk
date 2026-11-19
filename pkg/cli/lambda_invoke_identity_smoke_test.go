@@ -95,17 +95,18 @@ func TestInvokeIdentityHTTPRejectionSmoke(t *testing.T) {
 			require.NotContains(t, err.Error(), "marker-secret")
 			require.NotContains(t, logTail, "marker-secret")
 			require.NotContains(t, fmt.Sprint(records.All()), "marker-secret")
-			if stage == "decode" {
+			switch stage {
+			case "decode":
 				var failure *lambdaGrpc.LambdaInvokeFailure
 				require.ErrorAs(t, err, &failure)
 				require.NotEmpty(t, failure.LogSummary)
 				require.NotContains(t, failure.LogSummary, "marker-secret")
 				require.Zero(t, validations)
-			} else if stage == "build" {
+			case "build":
 				require.Equal(t, codes.Unavailable, status.Code(err))
 				require.Equal(t, 1, factories)
 				require.Equal(t, 1, closes)
-			} else {
+			default:
 				require.Equal(t, codes.FailedPrecondition, status.Code(err))
 				require.Zero(t, factories)
 				if stage != "token" {

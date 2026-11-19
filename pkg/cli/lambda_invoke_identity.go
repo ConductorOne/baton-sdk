@@ -99,7 +99,9 @@ func invokeIdentityHost(clientID, suffix string) (string, error) {
 			return "", fmt.Errorf("invalid invoke host")
 		}
 		for _, c := range label {
-			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			isLowercaseLetter := c >= 'a' && c <= 'z'
+			isDigit := c >= '0' && c <= '9'
+			if !isLowercaseLetter && !isDigit && c != '-' {
 				return "", fmt.Errorf("invalid invoke host")
 			}
 		}
@@ -111,21 +113,26 @@ func invokeIdentityHost(clientID, suffix string) (string, error) {
 	return host, nil
 }
 
-func (h *lambdaInvokeIdentityHandler) Handler(ctx context.Context, req *lambdaGrpc.Request) (resp *lambdaGrpc.Response, err error) {
-	completed := false
-	defer func() {
-		_ = recover()
-		if !completed {
-			resp, err = lambdaGrpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: identity initialization failed")), nil
+func (h *lambdaInvokeIdentityHandler) Handler(ctx context.Context, req *lambdaGrpc.Request) (*lambdaGrpc.Response, error) {
+	var resp *lambdaGrpc.Response
+	var err error
+	func() {
+		completed := false
+		defer func() {
+			_ = recover()
+			if !completed {
+				resp, err = lambdaGrpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: identity initialization failed")), nil
+			}
+		}()
+		callCtx, reloader, prepareErr := h.prepare(ctx, req)
+		if prepareErr != nil {
+			resp, err = lambdaGrpc.ErrorResponse(prepareErr), nil
+			completed = true
+			return
 		}
-	}()
-	ctx, reloader, prepareErr := h.prepare(ctx, req)
-	if prepareErr != nil {
+		resp, err = reloader.Handler(callCtx, req)
 		completed = true
-		return lambdaGrpc.ErrorResponse(prepareErr), nil
-	}
-	resp, err = reloader.Handler(ctx, req)
-	completed = true
+	}()
 	return resp, err
 }
 
@@ -217,17 +224,21 @@ func (h *lambdaInvokeIdentityHandler) prepare(ctx context.Context, req *lambdaGr
 }
 
 func lambdaIdentityRecoveryInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-		completed := false
-		defer func() {
-			_ = recover()
-			if !completed {
-				ctxzap.Extract(ctx).Error("lambda-run: connector handler panic")
-				resp, err = nil, status.Error(codes.Internal, "Internal Server Error")
-			}
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		var resp any
+		var err error
+		func() {
+			completed := false
+			defer func() {
+				_ = recover()
+				if !completed {
+					ctxzap.Extract(ctx).Error("lambda-run: connector handler panic")
+					resp, err = nil, status.Error(codes.Internal, "Internal Server Error")
+				}
+			}()
+			resp, err = handler(ctx, req)
+			completed = true
 		}()
-		resp, err = handler(ctx, req)
-		completed = true
 		return resp, err
 	}
 }
@@ -262,7 +273,7 @@ func closeIdentityGeneration(parent context.Context, generation *lambdaConnector
 }
 
 func lambdaIdentityRuntimeFactory[T field.Configurable](v *viper.Viper, schema field.Configuration, getconnector GetConnectorFunc2[T], sessionStoreEnabled bool) lambdaIdentityFactory {
-	return func(ctx context.Context, identity *pbtransport.InvokeIdentity, scope string) (_ *lambdaIdentityRuntime, err error) {
+	return func(ctx context.Context, identity *pbtransport.InvokeIdentity, scope string) (*lambdaIdentityRuntime, error) {
 		ctx, cancel := context.WithCancel(ctx)
 		timer := time.AfterFunc(lambdaIdentityBuildTimeout, cancel)
 		defer timer.Stop()
@@ -295,7 +306,7 @@ func lambdaIdentityRuntimeFactory[T field.Configurable](v *viper.Viper, schema f
 		ctx = context.WithValue(ctx, crypto.ContextClientSecretKey, key)
 		build := newLambdaGenerationBuilder(ctx, v, schema, getconnector, sessionStoreEnabled, client, webKey, scope)
 		runtime := &lambdaIdentityRuntime{ctx: ctx, close: closeClient}
-		runtime.build = func(_ context.Context, requestedVersion string) (_ *lambdaConnectorGeneration, err error) {
+		runtime.build = func(_ context.Context, requestedVersion string) (*lambdaConnectorGeneration, error) {
 			return buildIdentityGeneration(ctx, lambdaIdentityBuildTimeout, build, requestedVersion)
 		}
 		if !timer.Stop() || ctx.Err() != nil {
@@ -306,7 +317,12 @@ func lambdaIdentityRuntimeFactory[T field.Configurable](v *viper.Viper, schema f
 	}
 }
 
-func buildIdentityGeneration(ctx context.Context, timeout time.Duration, build func(context.Context, string) (*lambdaConnectorGeneration, error), requestedVersion string) (_ *lambdaConnectorGeneration, err error) {
+func buildIdentityGeneration(
+	ctx context.Context,
+	timeout time.Duration,
+	build func(context.Context, string) (*lambdaConnectorGeneration, error),
+	requestedVersion string,
+) (*lambdaConnectorGeneration, error) {
 	generationCtx, cancel := context.WithCancel(ctx)
 	// Stop the construction budget on success without canceling the generation's lifetime.
 	timer := time.AfterFunc(timeout, cancel)

@@ -55,7 +55,7 @@ func TestInvokeIdentityExportedLogFields(t *testing.T) {
 	defer func() { require.NoError(t, provider.Shutdown(context.Background())) }()
 	logger := zap.New(otelzap.NewCore("identity-test", otelzap.WithLoggerProvider(provider)))
 	previous := zap.L()
-	defer zap.ReplaceGlobals(previous)
+	defer func() { zap.ReplaceGlobals(previous) }()
 	processCtx := ctxzap.ToContext(context.Background(), logger)
 	key := identityTestKey(t)
 	validations := 0

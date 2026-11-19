@@ -218,7 +218,7 @@ func TestInvokeIdentityBindReloadContextKeyAndLogs(t *testing.T) {
 	var constructionCtx context.Context
 	var buildErr error
 	previousLogger := zap.L()
-	defer zap.ReplaceGlobals(previousLogger)
+	defer func() { zap.ReplaceGlobals(previousLogger) }()
 	h, err := newLambdaInvokeIdentityHandler(processCtx, ".example.com", func(ctx context.Context, _ *pbtransport.InvokeIdentity, _ string) (*lambdaIdentityRuntime, error) {
 		factories++
 		ctx = context.WithValue(ctx, crypto.ContextClientSecretKey, clientKey)
