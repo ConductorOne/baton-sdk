@@ -20,7 +20,7 @@ The frozen plan remains unchanged. Criterion states below mean **verified to the
 
 ## Executed gates
 
-All final-source test/build commands below ran at `c9a24ac6`, with Go `1.27.4` on Linux arm64. The later evidence-only commit does not alter their executable subject.
+All final-source test/build commands below ran at `c9a24ac6`, with Go `1.27.4` on Linux arm64. Later evidence-only commits do not alter their executable subject. The G1 command normalizes the temporary coverage destination to `coverage.out`; its other flags and package arguments are unchanged.
 
 ### G1: touched-package suites and structural coverage — PASS
 
@@ -28,7 +28,7 @@ All final-source test/build commands below ran at `c9a24ac6`, with Go `1.27.4` o
 env GOMAXPROCS=4 CGO_ENABLED=0 go test -p 4 -mod=vendor -buildvcs=false \
   -tags=baton_lambda_support -count=1 \
   -coverpkg=./pkg/auth,./pkg/cli,./pkg/field,./pkg/lambda/grpc/... \
-  -coverprofile=/tmp/cxf63-sdk-coverage.out -timeout=10m \
+  -coverprofile=coverage.out -timeout=10m \
   ./pkg/auth ./pkg/cli ./pkg/field ./pkg/lambda/grpc/... \
   ./pb/c1/transport/v1 ./pb/c1/connectorapi/baton/v1
 ```
@@ -95,7 +95,7 @@ This is a correction required by I9's secret-safety contract, owned by transport
 1. **Request and response decode diagnostics change in every mode.** `Request.UnmarshalJSON` returns `invalid transport request`; `Response.UnmarshalJSON` returns `invalid transport response`. Decoding precedes handler mode inspection, and a client can attach an identity even to a mode-off function. Returning underlying protojson/frame diagnostics can expose payload tokens or type URLs through a runtime log tail and caller error. Wire acceptance, frame preference and error/no-error classification are unchanged.
 2. **The frame-only warning is redacted in every mode.** `legacy_encoding_error` remains present but carries fixed text, not the underlying encoding error, for the same reason: arbitrary payload values must not enter logs. This reduces diagnostic detail without changing encoding selection.
 3. **An existing test assertion changes.** `TestDecodeWireFrame_UnsupportedVersion` still rejects an unsupported version through the Request wrapper, but now expects the fixed safe error instead of `unsupported wire frame version 3`. It no longer independently asserts the decoder's version-specific diagnostic. Passing through payload-free wire errors and directly testing that diagnostic are deferred optional improvements, not claimed coverage.
-4. **No legacy close-field exception remains.** The `config_version` field was inadvertently removed from the legacy stale-generation close warning in `f2f6130f`; `c9a24ac6` restores the original field. Identity-mode warnings continue to avoid arbitrary error/panic values.
+4. **No legacy close-field exception remains.** The `config_version` field was inadvertently removed from the legacy stale-generation close warning in `2dfdb34a` and remained absent at `f2f6130f`; `c9a24ac6` restores the original field. Identity-mode warnings continue to avoid arbitrary error/panic values.
 
 ## Instrument validation: planted violations
 
@@ -134,6 +134,6 @@ After cross-binary aggregation, no other uncovered blocks intersect newly change
 
 ## Independent review and remaining boundary
 
-The independent read-only implementation/security audit at `f2f6130f` found the mode conformant and no security defect. It requested this populated evidence record and the explicit I10 exception; it also identified the accidental legacy warning-field removal, now restored. The documentation/fix sign-off pass is pending on this evidence commit.
+The independent read-only implementation/security audit at `f2f6130f` found the mode conformant and no security defect. Its correction pass **signed off `97123f39`**, confirming the populated I1–I11 record, E1, follow-up test mapping, uncovered-branch dispositions, frozen plan, public-safe PR body and one-line legacy warning restoration. The auditor checked the five mutation logs/results against M1–M5; it ran no tests and did not independently analyze the coverage profile. This final documentation-only update records that sign-off and corrects the removal's commit attribution and local output-path presentation.
 
 Not exercised: a deployed Lambda execution environment, real platform tenant isolation, live C1 exchange/config/session services together, external consumers, provider permissions, and CI lint. Those are not inferred from local tests or review. No merge, release or deployment is performed by this PR.
