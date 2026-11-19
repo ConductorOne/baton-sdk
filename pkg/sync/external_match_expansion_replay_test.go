@@ -17,6 +17,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -208,12 +209,13 @@ func TestExternalMatchExpansionRemapsCarrierOnMatchedPrincipal(t *testing.T) {
 	require.Equal(t, map[string][]string{"group:g:member:user:fresh": {"user:fresh:member", "user:fresh:admin"}}, pending)
 }
 
-// TestExternalMatchExpansionConnectorLookalike covers connector grants shaped
-// like a previously processed row: match-annotated, already addressed to
-// the matched principal, with plain entitlement ids. One whose every entry is
-// an entitlement on that principal is left as emitted; any other is rewritten
-// exactly as main rewrites it, so no entry reaches the expander that
-// loadEntitlementGraph would reject.
+// TestExternalMatchExpansionConnectorLookalike covers a match-by-id carrier
+// already addressed to the matched principal, whose GrantExpandable entries
+// are plain entitlement ids. An id of the form resourceType:resource:slug on
+// that principal is rewritten onto the matched principal. An id that is not
+// that form, or whose rewritten entitlement is missing or belongs to another
+// resource, is skipped. An id that names more than one stored entitlement
+// returns ErrAmbiguousExternalID.
 func TestExternalMatchExpansionConnectorLookalike(t *testing.T) {
 	fresh := expansionReplayUser(t, "fresh")
 	other := expansionReplayUser(t, "other")
@@ -227,6 +229,7 @@ func TestExternalMatchExpansionConnectorLookalike(t *testing.T) {
 		entries     []string
 		extra       []*v2.Entitlement
 		wantPending map[string][]string
+		wantErr     error
 	}{
 		{
 			name:        "entries on the principal",
@@ -236,12 +239,12 @@ func TestExternalMatchExpansionConnectorLookalike(t *testing.T) {
 		{
 			name:        "an entry on another resource",
 			entries:     []string{"user:fresh:member", "user:other:member"},
-			wantPending: map[string][]string{},
+			wantPending: map[string][]string{"group:g:member:user:fresh": {"user:fresh:member"}},
 		},
 		{
 			name:        "an entry that does not exist",
 			entries:     []string{"user:fresh:member", "user:fresh:owner"},
-			wantPending: map[string][]string{},
+			wantPending: map[string][]string{"group:g:member:user:fresh": {"user:fresh:member"}},
 		},
 		{
 			name:    "an entry on the principal with a custom id",
@@ -254,10 +257,10 @@ func TestExternalMatchExpansionConnectorLookalike(t *testing.T) {
 			wantPending: map[string][]string{},
 		},
 		{
-			name:        "an ambiguous entry",
-			entries:     []string{"user:fresh:member"},
-			extra:       []*v2.Entitlement{onOther("user:fresh:member")},
-			wantPending: map[string][]string{},
+			name:    "an ambiguous entry",
+			entries: []string{"user:fresh:member"},
+			extra:   []*v2.Entitlement{onOther("user:fresh:member")},
+			wantErr: enginepkg.ErrAmbiguousExternalID,
 		},
 		{
 			name:        "an entry whose id belongs to another resource",
@@ -281,7 +284,12 @@ func TestExternalMatchExpansionConnectorLookalike(t *testing.T) {
 			}
 			s, dst := newExpansionReplaySyncer(t, rc, []*v2.Grant{lookalike})
 			for attempt := 1; attempt <= 2; attempt++ {
-				require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
+				err := s.SyncExternalResourcesUsersAndGroups(ctx)
+				if tc.wantErr != nil {
+					require.ErrorIs(t, err, tc.wantErr, "attempt %d", attempt)
+					continue
+				}
+				require.NoError(t, err)
 				pending, _ := expansionReplaySnapshot(t, dst)
 				require.Equal(t, tc.wantPending, pending, "attempt %d", attempt)
 			}
