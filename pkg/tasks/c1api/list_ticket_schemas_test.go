@@ -325,3 +325,22 @@ func TestListTicketSchemasPaged(t *testing.T) {
 		require.Nil(t, h.response)
 	})
 }
+
+func TestTicketSchemaCursorFormat(t *testing.T) {
+	const golden = "eyJ0IjoicDMwIiwibyI6NX0" // base64url of {"t":"p30","o":5}
+	want := ticketSchemaCursor{ConnectorPageToken: "p30", Offset: 5}
+
+	got, err := decodeTicketSchemaCursor(golden)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+
+	token, err := encodeTicketSchemaCursor(want)
+	require.NoError(t, err)
+	require.Equal(t, golden, token)
+
+	first, err := encodeTicketSchemaCursor(ticketSchemaCursor{})
+	require.NoError(t, err)
+	got, err = decodeTicketSchemaCursor(first)
+	require.NoError(t, err)
+	require.Equal(t, ticketSchemaCursor{}, got)
+}

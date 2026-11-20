@@ -4255,6 +4255,8 @@ type Task_ListTicketSchemasTask struct {
 	// When false, the handler unrolls up to 100 schemas into one response,
 	// drops the rest, and ignores page_token and page_size.
 	// When true, the handler returns one bounded batch and a next_page_token.
+	// SDKs older than this field ignore it and return the unpaged response with an empty
+	// next_page_token, so check BuildInfo.sdk_version from Hello before relying on it.
 	Paginate bool `protobuf:"varint,2,opt,name=paginate,proto3" json:"paginate,omitempty"`
 	// Opaque token from the previous paged response. Empty requests the first batch.
 	PageToken string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
@@ -4340,6 +4342,8 @@ type Task_ListTicketSchemasTask_builder struct {
 	// When false, the handler unrolls up to 100 schemas into one response,
 	// drops the rest, and ignores page_token and page_size.
 	// When true, the handler returns one bounded batch and a next_page_token.
+	// SDKs older than this field ignore it and return the unpaged response with an empty
+	// next_page_token, so check BuildInfo.sdk_version from Hello before relying on it.
 	Paginate bool
 	// Opaque token from the previous paged response. Empty requests the first batch.
 	PageToken string

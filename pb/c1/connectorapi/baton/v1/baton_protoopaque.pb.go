@@ -4325,6 +4325,8 @@ type Task_ListTicketSchemasTask_builder struct {
 	// When false, the handler unrolls up to 100 schemas into one response,
 	// drops the rest, and ignores page_token and page_size.
 	// When true, the handler returns one bounded batch and a next_page_token.
+	// SDKs older than this field ignore it and return the unpaged response with an empty
+	// next_page_token, so check BuildInfo.sdk_version from Hello before relying on it.
 	Paginate bool
 	// Opaque token from the previous paged response. Empty requests the first batch.
 	PageToken string

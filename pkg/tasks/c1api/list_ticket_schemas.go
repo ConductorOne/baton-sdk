@@ -112,6 +112,8 @@ func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 // Offset counts schemas already returned from the connector page fetched with ConnectorPageToken.
 // The handler never sends a page size to the connector, so connector page boundaries do not
 // depend on the caller's page_size and a cursor stays valid when page_size changes between calls.
+// Resume assumes the connector returns the same page for the same page token.
+// The JSON keys are part of the token format that callers hold across SDK versions.
 type ticketSchemaCursor struct {
 	ConnectorPageToken string `json:"t,omitempty"`
 	Offset             int    `json:"o,omitempty"`
