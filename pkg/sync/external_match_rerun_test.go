@@ -1294,14 +1294,14 @@ func TestExternalMatchIgnoresMarkerFromAnotherSync(t *testing.T) {
 	require.Equal(t, []string{`p1 label="A"`, `p2 label="B"`}, want)
 
 	for _, value := range []string{
-		externalMatchProgressWritesDone("other-sync"),
-		externalMatchProgressWritesDone(""),
+		"writes_done:other-sync",
+		"writes_done:",
 		externalMatchProgressIdle,
+		"writes_done:" + externalMatchTestSyncID + ":wrong-digest",
 	} {
 		t.Run(value, func(t *testing.T) {
 			s, dst := newExternalMatchCutRun(t, sc, ext)
 			require.NotEmpty(t, s.syncID)
-			require.NotEqual(t, value, externalMatchProgressWritesDone(s.syncID))
 			require.NoError(t, dst.(c1zstore.PageLedgerStore).PutLedgerFacts(ctx, map[string]string{
 				externalMatchProgressFact: value,
 			}))
@@ -1309,6 +1309,170 @@ func TestExternalMatchIgnoresMarkerFromAnotherSync(t *testing.T) {
 			require.Equal(t, want, externalMatchCutSnapshot(t, dst))
 		})
 	}
+}
+
+func TestExternalMatchResumeWithDifferentTraitsRunsNormally(t *testing.T) {
+	ctx := t.Context()
+	sc := externalMatchCutScenario{
+		groups: map[string]string{"p1": "eng"},
+		rows: []externalMatchCutRow{
+			{principal: "a0", match: externalMatchCutDept("eng"), label: "carrier"},
+		},
+	}
+	ext := newExternalMatchCutExternal(t, sc)
+	golden, goldenDst := newExternalMatchCutRun(t, sc, ext)
+	require.NoError(t, golden.SyncExternalResourcesUsersAndGroups(ctx))
+	want := externalMatchCutSnapshot(t, goldenDst)
+	require.Equal(t, []string{`p1 label="carrier"`}, want)
+
+	s, dst := cutExternalMatchAfterMarker(t, sc, ext, func(s *syncer) {
+		s.cfg.externalResourceTraits = []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}
+	}, func(s *syncer) error {
+		return s.SyncExternalResourcesUsersAndGroups(ctx)
+	})
+	require.Equal(t, []string{`a0 label="carrier" CARRIER`}, externalMatchCutSnapshot(t, dst))
+
+	s.cfg.externalResourceTraits = nil
+	s.setStore(dst)
+	require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
+	require.Equal(t, want, externalMatchCutSnapshot(t, dst))
+}
+
+func TestExternalMatchResumeWithChangedPrincipalsRunsNormally(t *testing.T) {
+	sc := externalMatchCutScenario{
+		groups: map[string]string{"p1": "other"},
+		rows: []externalMatchCutRow{
+			{principal: "a0", match: externalMatchCutDept("eng"), label: "carrier"},
+		},
+	}
+	t.Run("new principal", func(t *testing.T) {
+		ctx := t.Context()
+		ext := newExternalMatchCutExternal(t, sc)
+		s, dst := cutExternalMatchAfterMarker(t, sc, ext, nil, func(s *syncer) error {
+			return s.SyncExternalResourcesUsersAndGroups(ctx)
+		})
+		require.Equal(t, []string{`a0 label="carrier" CARRIER`}, externalMatchCutSnapshot(t, dst))
+		rewriteExternalMatchGroups(t, ext, map[string]string{"p1": "other", "p2": "eng"})
+		s.setStore(dst)
+		require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
+		require.Equal(t, []string{`p2 label="carrier"`}, externalMatchCutSnapshot(t, dst))
+	})
+	t.Run("changed profile", func(t *testing.T) {
+		ctx := t.Context()
+		ext := newExternalMatchCutExternal(t, sc)
+		s, dst := cutExternalMatchAfterMarker(t, sc, ext, nil, func(s *syncer) error {
+			return s.SyncExternalResourcesUsersAndGroups(ctx)
+		})
+		rewriteExternalMatchGroups(t, ext, map[string]string{"p1": "eng"})
+		s.setStore(dst)
+		require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
+		require.Equal(t, []string{`p1 label="carrier"`}, externalMatchCutSnapshot(t, dst))
+	})
+}
+
+func TestExternalMatchResumeWithChangedEntitlementFilterRunsNormally(t *testing.T) {
+	ctx := t.Context()
+	ext, skipID, keepID := newExternalMatchFilterSource(t)
+	sc := externalMatchCutScenario{
+		rows: []externalMatchCutRow{
+			{principal: "a0", match: externalMatchCutDept("eng"), label: "carrier"},
+		},
+	}
+	s, dst := cutExternalMatchAfterMarker(t, sc, ext, func(s *syncer) {
+		s.cfg.externalResourceEntitlementIdFilter = skipID
+	}, func(s *syncer) error {
+		return s.SyncExternalResourcesWithGrantToEntitlement(ctx, skipID)
+	})
+	require.Contains(t, externalMatchCutSnapshot(t, dst), `a0 label="carrier" CARRIER`)
+
+	s.cfg.externalResourceEntitlementIdFilter = keepID
+	s.setStore(dst)
+	require.NoError(t, s.SyncExternalResourcesWithGrantToEntitlement(ctx, keepID))
+	got := externalMatchCutSnapshot(t, dst)
+	require.Contains(t, got, `pKeep label="carrier"`)
+	for _, line := range got {
+		require.NotContains(t, line, "CARRIER")
+	}
+}
+
+func cutExternalMatchAfterMarker(
+	t *testing.T,
+	sc externalMatchCutScenario,
+	ext c1zstore.Store,
+	prepare func(*syncer),
+	run func(*syncer) error,
+) (*syncer, c1zstore.Store) {
+	t.Helper()
+	var last []string
+	for failAt := 1; failAt <= 40; failAt++ {
+		s, dst := newExternalMatchCutRun(t, sc, ext)
+		if prepare != nil {
+			prepare(s)
+		}
+		cut := &externalMatchCutStore{
+			Store:           dst,
+			PageLedgerStore: dst.(c1zstore.PageLedgerStore),
+			failAt:          failAt,
+		}
+		s.setStore(cut)
+		require.ErrorIs(t, run(s), errExternalMatchCut)
+		last = cut.ops
+		if strings.HasPrefix(cut.ops[len(cut.ops)-1], "delete[") {
+			t.Logf("cut at %v", cut.ops)
+			return s, dst
+		}
+	}
+	t.Fatalf("carrier delete was not reached; last ops %v", last)
+	return nil, nil
+}
+
+func rewriteExternalMatchGroups(t *testing.T, ext c1zstore.Store, groups map[string]string) {
+	t.Helper()
+	ctx := t.Context()
+	_, err := ext.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, ext.PutResourceTypes(ctx, groupResourceType))
+	ids := make([]string, 0, len(groups))
+	for id := range groups {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		group, err := rs.NewGroupResource(id, groupResourceType, id,
+			[]rs.GroupTraitOption{rs.WithGroupProfile(map[string]any{"dept": groups[id]})})
+		require.NoError(t, err)
+		require.NoError(t, ext.PutResources(ctx, group))
+	}
+	require.NoError(t, ext.EndSync(ctx))
+}
+
+func newExternalMatchFilterSource(t *testing.T) (c1zstore.Store, string, string) {
+	t.Helper()
+	ctx := t.Context()
+	tmp := t.TempDir()
+	ext, err := dotc1z.NewStore(ctx, filepath.Join(tmp, "external.c1z"),
+		dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(tmp))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ext.Close(ctx) })
+	_, err = ext.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, ext.PutResourceTypes(ctx, groupResourceType))
+	skip, err := rs.NewGroupResource("pSkip", groupResourceType, "pSkip",
+		[]rs.GroupTraitOption{rs.WithGroupProfile(map[string]any{"dept": "other"})})
+	require.NoError(t, err)
+	keep, err := rs.NewGroupResource("pKeep", groupResourceType, "pKeep",
+		[]rs.GroupTraitOption{rs.WithGroupProfile(map[string]any{"dept": "eng"})})
+	require.NoError(t, err)
+	require.NoError(t, ext.PutResources(ctx, skip, keep))
+	skipEnt := et.NewAssignmentEntitlement(skip, "skip")
+	keepEnt := et.NewAssignmentEntitlement(keep, "keep")
+	require.NoError(t, ext.PutEntitlements(ctx, skipEnt, keepEnt))
+	require.NoError(t, ext.PutGrants(ctx,
+		gt.NewGrant(skip, "skip", skip.GetId()),
+		gt.NewGrant(keep, "keep", keep.GetId()),
+	))
+	require.NoError(t, ext.EndSync(ctx))
+	return ext, skipEnt.GetId(), keepEnt.GetId()
 }
 
 func TestExternalMatchCutSweep(t *testing.T) {

@@ -434,7 +434,7 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	// Replay the same unfinished action again before advancing its token. This
 	// is the same-checkpoint-twice cell from the guide.
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
-	require.Equal(t, []int{0}, resumedWrapper.putBatchSizes,
+	require.Empty(t, resumedWrapper.putBatchSizes,
 		"the second replay finds no carriers and writes no grants")
 	finishExternalMatchVerificationSync(t, resumedStore, resumedState)
 
@@ -509,7 +509,7 @@ func TestVerificationExternalPrincipalMatchPutCutResumesToGolden(t *testing.T) {
 		"resume scans the three carriers, each matching three principals")
 
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
-	require.Equal(t, []int{9, 0}, resumedWrapper.putBatchSizes,
+	require.Equal(t, []int{9}, resumedWrapper.putBatchSizes,
 		"the second replay finds no carriers and writes no grants")
 	finishExternalMatchVerificationSync(t, resumedStore, resumedState)
 

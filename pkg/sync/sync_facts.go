@@ -18,8 +18,6 @@ const (
 	factShouldSkipGrants                = "should_skip_grants"
 )
 
-const externalMatchProgressFact = "sync.external_match.progress"
-
 // syncFacts is the set of sync-level facts a run has established. A fact is
 // set by whatever observed it — a grant carrying an expandable annotation
 // sets needs_expansion — and is not cleared: a resume that re-observes it

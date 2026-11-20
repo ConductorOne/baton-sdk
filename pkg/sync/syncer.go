@@ -1,12 +1,16 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"iter"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	native_sync "sync"
 	"sync/atomic"
@@ -2074,10 +2078,56 @@ const externalMatchProgressLogInterval = 100_000
 
 const externalMatchGrantPutChunk = 100_000
 
-const externalMatchProgressIdle = "idle"
+const (
+	externalMatchProgressFact = "sync.external_match.progress"
+	externalMatchProgressIdle = "idle"
+)
 
-func externalMatchProgressWritesDone(syncID string) string {
-	return "writes_done:" + syncID
+func externalMatchProgressWritesDone(syncID, digest string) string {
+	return "writes_done:" + syncID + ":" + digest
+}
+
+func externalMatchProgressForThisSync(value, syncID string) bool {
+	if syncID == "" {
+		return false
+	}
+	prefix := "writes_done:" + syncID
+	return value == prefix || strings.HasPrefix(value, prefix+":")
+}
+
+func externalMatchInputsDigest(principals []*v2.Resource, traits map[v2.ResourceType_Trait]bool, entitlementFilter string) (string, error) {
+	opts := proto.MarshalOptions{Deterministic: true}
+	parts := make([][]byte, 0, len(principals))
+	for _, principal := range principals {
+		raw, err := opts.Marshal(principal)
+		if err != nil {
+			return "", err
+		}
+		sum := sha256.Sum256(raw)
+		parts = append(parts, append([]byte(nil), sum[:]...))
+	}
+	slices.SortFunc(parts, bytes.Compare)
+	h := sha256.New()
+	for _, part := range parts {
+		_, _ = h.Write(part)
+	}
+	traitVals := make([]int32, 0, len(traits))
+	for trait := range traits {
+		traitVals = append(traitVals, int32(trait))
+	}
+	slices.Sort(traitVals)
+	var num []byte
+	num = strconv.AppendInt(num, int64(len(traitVals)), 10)
+	_, _ = h.Write(num)
+	_, _ = h.Write([]byte{0})
+	for _, trait := range traitVals {
+		num = strconv.AppendInt(num[:0], int64(trait), 10)
+		_, _ = h.Write(num)
+		_, _ = h.Write([]byte{0})
+	}
+	filterSum := sha256.Sum256([]byte(entitlementFilter))
+	_, _ = h.Write(filterSum[:])
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
@@ -2180,7 +2230,21 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		err = factErr
 		return err
 	}
-	resume := s.syncID != "" && facts[externalMatchProgressFact] == externalMatchProgressWritesDone(s.syncID)
+	if len(externalMatchGrants) == 0 {
+		if externalMatchProgressForThisSync(facts[externalMatchProgressFact], s.syncID) {
+			err = s.caps.pageLedger.PutLedgerFacts(ctx, map[string]string{
+				externalMatchProgressFact: externalMatchProgressIdle,
+			})
+		}
+		return err
+	}
+	inputsDigest, digestErr := externalMatchInputsDigest(principals, matchTraits, s.cfg.externalResourceEntitlementIdFilter)
+	if digestErr != nil {
+		err = digestErr
+		return err
+	}
+	doneValue := externalMatchProgressWritesDone(s.syncID, inputsDigest)
+	resume := s.syncID != "" && facts[externalMatchProgressFact] == doneValue
 	expandedBuf := make([]*v2.Grant, 0, putChunk)
 	expandedCount := 0
 	type deferredOutput struct {
@@ -2429,7 +2493,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		// before the first write that replaces a placeholder row. A resume
 		// that finds it writes no buffered output.
 		if err = s.caps.pageLedger.PutLedgerFacts(ctx, map[string]string{
-			externalMatchProgressFact: externalMatchProgressWritesDone(s.syncID),
+			externalMatchProgressFact: doneValue,
 		}); err != nil {
 			return err
 		}
