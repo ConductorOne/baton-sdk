@@ -1,12 +1,16 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"iter"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	native_sync "sync"
 	"sync/atomic"
@@ -2013,25 +2017,18 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 	return resourceTypes, nil
 }
 
-// matchProfileAndExpand implements the generic external-resource key/val
-// expansion originally written for TRAIT_GROUP, now shared by GROUP and any
-// additional trait configured via WithExternalResourceTraits (e.g.
-// TRAIT_APP). The caller must have already confirmed principal matches the
-// grant's key/value pair via externalPrincipalIndex.matchProfile -- this
-// helper does not re-check the profile, so calling it with an unconfirmed
-// principal will unconditionally produce a grant for it. GrantExpandable
-// remapping is optional: a matching non-expandable grant must still be
-// rewritten to the external principal, just without a remapped
-// GrantExpandable annotation.
-func (s *syncer) matchProfileAndExpand(
+// rewriteGrantForExternalPrincipal does not check that principal matched the
+// carrier. Failing to bid the carrier principal returns a nil grant and no error.
+func (s *syncer) rewriteGrantForExternalPrincipal(
 	ctx context.Context,
 	l *zap.Logger,
 	grant *v2.Grant,
 	principal *v2.Resource,
+	filteredAnnos []*anypb.Any,
 	expandableAnno *v2.GrantExpandable,
 	expandableEntitlementsResourceMap map[string][]string,
 ) (*v2.Grant, error) {
-	newGrant := newGrantForExternalPrincipal(grant, principal)
+	newGrant := newGrantForExternalPrincipal(grant, principal, filteredAnnos)
 	if expandableAnno == nil {
 		return newGrant, nil
 	}
@@ -2043,15 +2040,21 @@ func (s *syncer) matchProfileAndExpand(
 	}
 
 	newExpandableEntitlementIDs := make([]string, 0)
+	principalID := principal.GetId()
 	for _, slug := range expandableEntitlementsResourceMap[groupPrincipalBID] {
 		newExpandableEntId := entitlement.NewEntitlementID(principal, slug)
-		_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
+		got, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
 				continue
 			}
 			return nil, err
+		}
+		gotResourceID := got.GetEntitlement().GetResource().GetId()
+		if gotResourceID.GetResourceType() != principalID.GetResourceType() || gotResourceID.GetResource() != principalID.GetResource() {
+			l.Error("entitlement id generated from external source sync belongs to another resource", zap.Any("entitlementId", newExpandableEntId))
+			continue
 		}
 		newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
 	}
@@ -2074,6 +2077,58 @@ func (s *syncer) matchProfileAndExpand(
 const externalMatchProgressLogInterval = 100_000
 
 const externalMatchGrantPutChunk = 100_000
+
+const (
+	externalMatchProgressFact = "sync.external_match.progress"
+	externalMatchProgressIdle = "idle"
+)
+
+func externalMatchProgressWritesDone(syncID, digest string) string {
+	return "writes_done:" + syncID + ":" + digest
+}
+
+func externalMatchProgressForThisSync(value, syncID string) bool {
+	if syncID == "" {
+		return false
+	}
+	prefix := "writes_done:" + syncID
+	return value == prefix || strings.HasPrefix(value, prefix+":")
+}
+
+func externalMatchInputsDigest(principals []*v2.Resource, traits map[v2.ResourceType_Trait]bool, entitlementFilter string) (string, error) {
+	opts := proto.MarshalOptions{Deterministic: true}
+	parts := make([][]byte, 0, len(principals))
+	for _, principal := range principals {
+		raw, err := opts.Marshal(principal)
+		if err != nil {
+			return "", err
+		}
+		sum := sha256.Sum256(raw)
+		parts = append(parts, append([]byte(nil), sum[:]...))
+	}
+	slices.SortFunc(parts, bytes.Compare)
+	h := sha256.New()
+	for _, part := range parts {
+		_, _ = h.Write(part)
+	}
+	traitVals := make([]int32, 0, len(traits))
+	for trait := range traits {
+		traitVals = append(traitVals, int32(trait))
+	}
+	slices.Sort(traitVals)
+	var num []byte
+	num = strconv.AppendInt(num, int64(len(traitVals)), 10)
+	_, _ = h.Write(num)
+	_, _ = h.Write([]byte{0})
+	for _, trait := range traitVals {
+		num = strconv.AppendInt(num[:0], int64(trait), 10)
+		_, _ = h.Write(num)
+		_, _ = h.Write([]byte{0})
+	}
+	filterSum := sha256.Sum256([]byte(entitlementFilter))
+	_, _ = h.Write(filterSum[:])
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
 
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
@@ -2162,9 +2217,41 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	}
 
 	grantsToDelete := make([]*v2.Grant, 0, len(externalMatchGrants))
-	newGrantIDs := mapset.NewSet[string]()
+	carrierKeys := mapset.NewSet[grantRefsKey]()
+	for _, ga := range externalMatchGrants {
+		carrierKeys.Add(grantRefsKeyOf(ga.Grant))
+	}
+	if s.caps.pageLedger == nil {
+		err = errors.New("external principal matching requires a page ledger")
+		return err
+	}
+	facts, factErr := s.caps.pageLedger.LedgerFacts(ctx)
+	if factErr != nil {
+		err = factErr
+		return err
+	}
+	if len(externalMatchGrants) == 0 {
+		if externalMatchProgressForThisSync(facts[externalMatchProgressFact], s.syncID) {
+			err = s.caps.pageLedger.PutLedgerFacts(ctx, map[string]string{
+				externalMatchProgressFact: externalMatchProgressIdle,
+			})
+		}
+		return err
+	}
+	inputsDigest, digestErr := externalMatchInputsDigest(principals, matchTraits, s.cfg.externalResourceEntitlementIdFilter)
+	if digestErr != nil {
+		err = digestErr
+		return err
+	}
+	doneValue := externalMatchProgressWritesDone(s.syncID, inputsDigest)
+	resume := s.syncID != "" && facts[externalMatchProgressFact] == doneValue
 	expandedBuf := make([]*v2.Grant, 0, putChunk)
 	expandedCount := 0
+	type deferredOutput struct {
+		grant *v2.Grant
+		own   bool
+	}
+	deferred := make(map[grantRefsKey]deferredOutput)
 
 	flushExpanded := func() error {
 		if len(expandedBuf) == 0 {
@@ -2180,7 +2267,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return nil
 	}
 	addExpanded := func(g *v2.Grant) error {
-		newGrantIDs.Add(g.GetId())
 		expandedBuf = append(expandedBuf, g)
 		expandedCount++
 		if expandedCount%externalMatchProgressLogInterval == 0 {
@@ -2195,10 +2281,65 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		}
 		return flushExpanded()
 	}
+	routeOutput := func(carrierIndex int, output *v2.Grant) error {
+		carrier := externalMatchGrants[carrierIndex].Grant
+		key := grantRefsKeyOf(output)
+		if !carrierKeys.ContainsOne(key) {
+			if resume {
+				return nil
+			}
+			return addExpanded(output)
+		}
+		own := key == grantRefsKeyOf(carrier)
+		if prev, ok := deferred[key]; ok && prev.own && !own {
+			return nil
+		}
+		deferred[key] = deferredOutput{grant: output, own: own}
+		return nil
+	}
 
-	for _, ga := range externalMatchGrants {
+	for carrierIndex, ga := range externalMatchGrants {
 		grant := ga.Grant
 		annos := annotations.Annotations(grant.GetAnnotations())
+		filteredAnnos := withoutExternalMatchAnnotations(grant.GetAnnotations())
+
+		// Expansion annotation (may be nil for non-expandable grants).
+		expandableAnno := ga.Annotation
+		expandableEntitlementsResourceMap := make(map[string][]string)
+		if expandableAnno != nil {
+			plainIDPrefix := entitlement.NewEntitlementID(grant.GetPrincipal(), "")
+			for _, entId := range expandableAnno.GetEntitlementIds() {
+				parsedEnt, err := bid.ParseEntitlementBid(entId)
+				var resourceBID, slug string
+				if err != nil {
+					var ok bool
+					slug, ok = strings.CutPrefix(entId, plainIDPrefix)
+					if !ok || slug == "" {
+						l.Error("error parsing expandable entitlement bid", zap.Any("entitlementId", entId))
+						continue
+					}
+					resourceBID, err = bid.MakeBid(grant.GetPrincipal())
+					if err != nil {
+						l.Error("error making resource bid", zap.Any("grant.Principal", grant.GetPrincipal()))
+						continue
+					}
+				} else {
+					resourceBID, err = bid.MakeBid(parsedEnt.GetResource())
+					if err != nil {
+						l.Error("error making resource bid", zap.Any("parsedEnt.Resource", parsedEnt.GetResource()))
+						continue
+					}
+					slug = parsedEnt.GetSlug()
+				}
+
+				slugs, ok := expandableEntitlementsResourceMap[resourceBID]
+				if !ok {
+					slugs = make([]string, 0)
+				}
+				slugs = append(slugs, slug)
+				expandableEntitlementsResourceMap[resourceBID] = slugs
+			}
+		}
 
 		// Match all
 		matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
@@ -2211,38 +2352,21 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				l.Error("unexpected external resource type trait", zap.Any("trait", trait))
 			}
 			for _, principal := range principalsByTrait[trait] {
-				newGrant := newGrantForExternalPrincipal(grant, principal)
-				if err := addExpanded(newGrant); err != nil {
+				newGrant, err := s.rewriteGrantForExternalPrincipal(
+					ctx, l, grant, principal, filteredAnnos,
+					expandableAnno, expandableEntitlementsResourceMap,
+				)
+				if err != nil {
 					return err
+				}
+				if newGrant != nil {
+					if err := routeOutput(carrierIndex, newGrant); err != nil {
+						return err
+					}
 				}
 			}
 			grantsToDelete = append(grantsToDelete, grant)
 			continue
-		}
-
-		// Expansion annotation (may be nil for non-expandable grants).
-		expandableAnno := ga.Annotation
-		expandableEntitlementsResourceMap := make(map[string][]string)
-		if expandableAnno != nil {
-			for _, entId := range expandableAnno.GetEntitlementIds() {
-				parsedEnt, err := bid.ParseEntitlementBid(entId)
-				if err != nil {
-					l.Error("error parsing expandable entitlement bid", zap.Any("entitlementId", entId))
-					continue
-				}
-				resourceBID, err := bid.MakeBid(parsedEnt.GetResource())
-				if err != nil {
-					l.Error("error making resource bid", zap.Any("parsedEnt.Resource", parsedEnt.GetResource()))
-					continue
-				}
-
-				slugs, ok := expandableEntitlementsResourceMap[resourceBID]
-				if !ok {
-					slugs = make([]string, 0)
-				}
-				slugs = append(slugs, parsedEnt.GetSlug())
-				expandableEntitlementsResourceMap[resourceBID] = slugs
-			}
 		}
 
 		// Match by ID
@@ -2252,41 +2376,17 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		}
 		if matchResourceMatchIDAnno != nil {
 			if principal, ok := principalMap[matchResourceMatchIDAnno.GetId()]; ok {
-				newGrant := newGrantForExternalPrincipal(grant, principal)
-
-				newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
-
-				newExpandableEntitlementIDs := make([]string, 0)
-				if expandableAnno != nil {
-					groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
-					if err != nil {
-						l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.GetPrincipal()))
-						continue
-					}
-
-					principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
-					for _, slug := range principalEntitlementSlugs {
-						newExpandableEntId := entitlement.NewEntitlementID(principal, slug)
-						_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
-						if err != nil {
-							if status.Code(err) == codes.NotFound {
-								l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
-								continue
-							}
-							return err
-						}
-						newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
-					}
-
-					newExpandableAnno := v2.GrantExpandable_builder{
-						EntitlementIds:  newExpandableEntitlementIDs,
-						Shallow:         expandableAnno.GetShallow(),
-						ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
-					}.Build()
-					newGrantAnnos.Update(newExpandableAnno)
-					newGrant.SetAnnotations(newGrantAnnos)
+				newGrant, err := s.rewriteGrantForExternalPrincipal(
+					ctx, l, grant, principal, filteredAnnos,
+					expandableAnno, expandableEntitlementsResourceMap,
+				)
+				if err != nil {
+					return err
 				}
-				if err := addExpanded(newGrant); err != nil {
+				if newGrant == nil {
+					continue
+				}
+				if err := routeOutput(carrierIndex, newGrant); err != nil {
 					return err
 				}
 			}
@@ -2325,9 +2425,17 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					positions = mergePositions(idx.matchUserTraitEmail(matchValue), positions)
 				}
 				for _, i := range positions {
-					newGrant := newGrantForExternalPrincipal(grant, idx.principalAt(i))
-					if err := addExpanded(newGrant); err != nil {
+					newGrant, err := s.rewriteGrantForExternalPrincipal(
+						ctx, l, grant, idx.principalAt(i), filteredAnnos,
+						expandableAnno, expandableEntitlementsResourceMap,
+					)
+					if err != nil {
 						return err
+					}
+					if newGrant != nil {
+						if err := routeOutput(carrierIndex, newGrant); err != nil {
+							return err
+						}
 					}
 				}
 			case matchTraits[trait]:
@@ -2336,7 +2444,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				// (e.g. TRAIT_APP). A key/val match yields a grant whether or
 				// not the source grant is expandable: expandableAnno only
 				// controls whether the new grant also gets a remapped
-				// GrantExpandable annotation (see matchProfileAndExpand).
+				// GrantExpandable annotation (see rewriteGrantForExternalPrincipal).
 				// No nil check: this case only fires when matchTraits[trait]
 				// is true, and indexByTrait is populated for every key of
 				// matchTraits. The guard in the TRAIT_USER case above is not
@@ -2344,15 +2452,15 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				// the grant, which need not be a configured match trait.
 				idx := indexByTrait[trait]
 				for _, i := range idx.matchProfile(matchKey, matchValue) {
-					newGrant, err := s.matchProfileAndExpand(
-						ctx, l, grant, idx.principalAt(i),
+					newGrant, err := s.rewriteGrantForExternalPrincipal(
+						ctx, l, grant, idx.principalAt(i), filteredAnnos,
 						expandableAnno, expandableEntitlementsResourceMap,
 					)
 					if err != nil {
 						return err
 					}
 					if newGrant != nil {
-						if err := addExpanded(newGrant); err != nil {
+						if err := routeOutput(carrierIndex, newGrant); err != nil {
 							return err
 						}
 					}
@@ -2372,55 +2480,101 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		zap.Int("grants_to_delete", len(grantsToDelete)),
 	)
 
-	if expandedCount == 0 {
-		err = s.store.PutGrants(ctx)
-		if err != nil {
+	if !resume {
+		if expandedCount == 0 && len(deferred) == 0 {
+			err = s.store.PutGrants(ctx)
+			if err != nil {
+				return err
+			}
+		} else if err = flushExpanded(); err != nil {
 			return err
 		}
-	} else if err = flushExpanded(); err != nil {
-		return err
-	}
-
-	// A grant that was re-issued against a matched principal keeps its row;
-	// only the unmatched originals are deleted.
-	pendingDeletes := make([]*v2.Grant, 0, len(grantsToDelete))
-	for _, grantToDelete := range grantsToDelete {
-		if newGrantIDs.ContainsOne(grantToDelete.GetId()) {
-			continue
+		// The marker is written after every buffered output is flushed and
+		// before the first write that replaces a placeholder row. A resume
+		// that finds it writes no buffered output.
+		if err = s.caps.pageLedger.PutLedgerFacts(ctx, map[string]string{
+			externalMatchProgressFact: doneValue,
+		}); err != nil {
+			return err
 		}
-		pendingDeletes = append(pendingDeletes, grantToDelete)
 	}
 
-	if len(pendingDeletes) == 0 {
+	deleteCarriers := func(pending []*v2.Grant) error {
+		if len(pending) == 0 {
+			return nil
+		}
+		// Prefer the bulk refs-based delete when the store supports it: the
+		// per-grant path commits once per grant with pebble.Sync, so on
+		// network-attached storage this loop cost ~956s for ~90k grants. The
+		// batch form amortizes the fsync without weakening durability.
+		if batchDeleter := s.caps.grantBatchDeleter; batchDeleter != nil {
+			return batchDeleter.DeleteGrantsByRefs(ctx, pending...)
+		}
+		// Prefer the refs-based delete (exact structural identity) when the
+		// store supports it; external ids are a lossy external contract and
+		// stores keyed by structural identity cannot always resolve them.
+		refsDeleter := s.caps.grantRefsDeleter
+		for _, grantToDelete := range pending {
+			var delErr error
+			if refsDeleter != nil {
+				delErr = refsDeleter.DeleteGrantByRefs(ctx, grantToDelete)
+			} else {
+				delErr = s.store.DeleteGrant(ctx, grantToDelete.GetId())
+			}
+			if delErr != nil {
+				return delErr
+			}
+		}
 		return nil
 	}
 
-	// Prefer the bulk refs-based delete when the store supports it: the
-	// per-grant path commits once per grant with pebble.Sync, so on
-	// network-attached storage this loop cost ~956s for ~90k grants. The
-	// batch form amortizes the fsync without weakening durability.
-	// err is the named value the deferred span reports, so assign it.
-	if batchDeleter := s.caps.grantBatchDeleter; batchDeleter != nil {
-		err = batchDeleter.DeleteGrantsByRefs(ctx, pendingDeletes...)
-		return err
-	}
-
-	// Prefer the refs-based delete (exact structural identity) when the
-	// store supports it; external ids are a lossy external contract and
-	// stores keyed by structural identity cannot always resolve them.
-	refsDeleter := s.caps.grantRefsDeleter
-	for _, grantToDelete := range pendingDeletes {
-		if refsDeleter != nil {
-			err = refsDeleter.DeleteGrantByRefs(ctx, grantToDelete)
-		} else {
-			err = s.store.DeleteGrant(ctx, grantToDelete.GetId())
+	deferredBuf := make([]*v2.Grant, 0, putChunk)
+	flushDeferred := func() error {
+		if len(deferredBuf) == 0 {
+			return nil
 		}
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if err := s.store.PutGrants(ctx, deferredBuf...); err != nil {
+			return err
+		}
+		deferredBuf = deferredBuf[:0]
+		return nil
 	}
-
-	return nil
+	writeDeferred := func() error {
+		for _, ga := range externalMatchGrants {
+			entry, ok := deferred[grantRefsKeyOf(ga.Grant)]
+			if !ok {
+				continue
+			}
+			deferredBuf = append(deferredBuf, entry.grant)
+			if len(deferredBuf) < putChunk {
+				continue
+			}
+			if err := flushDeferred(); err != nil {
+				return err
+			}
+		}
+		return flushDeferred()
+	}
+	if err = writeDeferred(); err != nil {
+		return err
+	}
+	carriersToDelete := make([]*v2.Grant, 0, len(grantsToDelete))
+	for _, grantToDelete := range grantsToDelete {
+		if _, replaced := deferred[grantRefsKeyOf(grantToDelete)]; replaced {
+			continue
+		}
+		carriersToDelete = append(carriersToDelete, grantToDelete)
+	}
+	if err = deleteCarriers(carriersToDelete); err != nil {
+		return err
+	}
+	err = s.caps.pageLedger.PutLedgerFacts(ctx, map[string]string{
+		externalMatchProgressFact: externalMatchProgressIdle,
+	})
+	return err
 }
 
 // grantByRefsDeleter is the optional store fast path for deleting a grant
@@ -2438,15 +2592,48 @@ type grantsByRefsBatchDeleter interface {
 	DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error
 }
 
-func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {
+func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource, filteredAnnos []*anypb.Any) *v2.Grant {
 	newGrant := v2.Grant_builder{
 		Entitlement: grant.GetEntitlement(),
 		Principal:   principal,
 		Id:          batonGrant.NewGrantID(principal, grant.GetEntitlement()),
 		Sources:     grant.GetSources(),
-		Annotations: grant.GetAnnotations(),
+		Annotations: filteredAnnos,
 	}.Build()
 	return newGrant
+}
+
+func withoutExternalMatchAnnotations(src []*anypb.Any) []*anypb.Any {
+	annos := make([]*anypb.Any, 0, len(src))
+	for _, anno := range src {
+		if anno.MessageIs(&v2.ExternalResourceMatch{}) ||
+			anno.MessageIs(&v2.ExternalResourceMatchAll{}) ||
+			anno.MessageIs(&v2.ExternalResourceMatchID{}) {
+			continue
+		}
+		annos = append(annos, anno)
+	}
+	return annos
+}
+
+type grantRefsKey struct {
+	entitlementResourceType string
+	entitlementResource     string
+	entitlementID           string
+	principalResourceType   string
+	principalResource       string
+}
+
+func grantRefsKeyOf(grant *v2.Grant) grantRefsKey {
+	entitlementResourceID := grant.GetEntitlement().GetResource().GetId()
+	principalID := grant.GetPrincipal().GetId()
+	return grantRefsKey{
+		entitlementResourceType: entitlementResourceID.GetResourceType(),
+		entitlementResource:     entitlementResourceID.GetResource(),
+		entitlementID:           grant.GetEntitlement().GetId(),
+		principalResourceType:   principalID.GetResourceType(),
+		principalResource:       principalID.GetResource(),
+	}
 }
 
 func GetExternalResourceMatchAllAnnotation(annos annotations.Annotations) (*v2.ExternalResourceMatchAll, error) {

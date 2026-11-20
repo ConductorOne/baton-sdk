@@ -391,7 +391,7 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	goldenState := newRunState()
 	goldenState.setFact(factHasExternalResourceGrants)
 	goldenState.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
-	goldenSyncer := &syncer{run: goldenState, stats: newRunStats(), graph: newExpansionGraph()}
+	goldenSyncer := &syncer{syncID: goldenSyncID, run: goldenState, stats: newRunStats(), graph: newExpansionGraph()}
 	goldenSyncer.setStore(goldenStore)
 	require.NoError(t, goldenSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	finishExternalMatchVerificationSync(t, goldenStore, goldenState)
@@ -406,7 +406,7 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	currentToken, err := cutStore.CurrentSyncStep(ctx)
 	require.NoError(t, err)
 	cutState, _, _ := decodeTestRun(t, currentToken)
-	cutSyncer := &syncer{run: cutState, stats: newRunStats(), graph: newExpansionGraph()}
+	cutSyncer := &syncer{syncID: cutSyncID, run: cutState, stats: newRunStats(), graph: newExpansionGraph()}
 	cutSyncer.setStore(withLedgerCaps(t, cutWrapper, cutStore))
 	err = cutSyncer.processGrantsWithExternalPrincipals(ctx, principals)
 	require.ErrorIs(t, err, errVerificationDeleteCut)
@@ -425,17 +425,17 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	require.NotNil(t, resumedState.current(), "unfinished action must survive the cut")
 
 	resumedWrapper := &interruptingExternalMatchStore{Store: resumedStore}
-	resumedSyncer := &syncer{run: resumedState, stats: newRunStats(), graph: newExpansionGraph()}
+	resumedSyncer := &syncer{syncID: cutSyncID, run: resumedState, stats: newRunStats(), graph: newExpansionGraph()}
 	resumedSyncer.setStore(withLedgerCaps(t, resumedWrapper, resumedStore))
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
-	require.Equal(t, []int{33}, resumedWrapper.putBatchSizes,
-		"resume scans two remaining carriers plus nine expanded grants, each matching three principals")
+	require.Empty(t, resumedWrapper.putBatchSizes,
+		"the buffered outputs committed before the delete cut, so resume does not write them again")
 
 	// Replay the same unfinished action again before advancing its token. This
 	// is the same-checkpoint-twice cell from the guide.
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
-	require.Equal(t, []int{33, 27}, resumedWrapper.putBatchSizes,
-		"the second replay processes nine stable expanded rows, each matching three principals")
+	require.Empty(t, resumedWrapper.putBatchSizes,
+		"the second replay finds no carriers and writes no grants")
 	finishExternalMatchVerificationSync(t, resumedStore, resumedState)
 
 	require.Equal(t, goldenDigest, grantDigest(t, cutPath, cutSyncID))
@@ -455,7 +455,7 @@ func TestVerificationExternalPrincipalMatchPutCutResumesToGolden(t *testing.T) {
 	goldenState := newRunState()
 	goldenState.setFact(factHasExternalResourceGrants)
 	goldenState.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
-	goldenSyncer := &syncer{run: goldenState, stats: newRunStats(), graph: newExpansionGraph()}
+	goldenSyncer := &syncer{syncID: goldenSyncID, run: goldenState, stats: newRunStats(), graph: newExpansionGraph()}
 	goldenSyncer.setStore(goldenStore)
 	require.NoError(t, goldenSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	finishExternalMatchVerificationSync(t, goldenStore, goldenState)
@@ -471,7 +471,7 @@ func TestVerificationExternalPrincipalMatchPutCutResumesToGolden(t *testing.T) {
 	currentToken, err := cutStore.CurrentSyncStep(ctx)
 	require.NoError(t, err)
 	cutState, _, _ := decodeTestRun(t, currentToken)
-	cutSyncer := &syncer{run: cutState, stats: newRunStats(), graph: newExpansionGraph()}
+	cutSyncer := &syncer{syncID: cutSyncID, run: cutState, stats: newRunStats(), graph: newExpansionGraph()}
 	cutSyncer.testHooks.externalMatchGrantPutChunk = &putChunk
 	cutSyncer.setStore(withLedgerCaps(t, cutWrapper, cutStore))
 	err = cutSyncer.processGrantsWithExternalPrincipals(ctx, principals)
@@ -480,8 +480,14 @@ func TestVerificationExternalPrincipalMatchPutCutResumesToGolden(t *testing.T) {
 		"test premise: the cut is the second chunk commit")
 	annotated, err := externalMatchGrantIDs(ctx, cutStore)
 	require.NoError(t, err)
-	require.Len(t, annotated, 7,
-		"test premise: the first chunk of 4 committed and the 3 carriers are still present")
+	require.Len(t, annotated, 3,
+		"test premise: the first chunk of 4 committed without a match annotation, and the 3 carriers are still present")
+	stored := 0
+	for _, err := range cutStore.Grants().ListWithAnnotations(ctx) {
+		require.NoError(t, err)
+		stored++
+	}
+	require.Equal(t, 3+4, stored, "3 carriers plus the 4 committed outputs")
 	require.NoError(t, cutStore.Close(ctx))
 
 	resumedStore, err := dotc1z.NewStore(ctx, cutPath,
@@ -496,15 +502,15 @@ func TestVerificationExternalPrincipalMatchPutCutResumesToGolden(t *testing.T) {
 	require.NotNil(t, resumedState.current(), "unfinished action must survive the cut")
 
 	resumedWrapper := &interruptingExternalMatchStore{Store: resumedStore}
-	resumedSyncer := &syncer{run: resumedState, stats: newRunStats(), graph: newExpansionGraph()}
+	resumedSyncer := &syncer{syncID: cutSyncID, run: resumedState, stats: newRunStats(), graph: newExpansionGraph()}
 	resumedSyncer.setStore(withLedgerCaps(t, resumedWrapper, resumedStore))
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
-	require.Equal(t, []int{21}, resumedWrapper.putBatchSizes,
-		"resume scans three carriers plus four expanded grants, each matching three principals")
+	require.Equal(t, []int{9}, resumedWrapper.putBatchSizes,
+		"resume scans the three carriers, each matching three principals")
 
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
-	require.Equal(t, []int{21, 27}, resumedWrapper.putBatchSizes,
-		"the second replay processes nine stable expanded rows, each matching three principals")
+	require.Equal(t, []int{9}, resumedWrapper.putBatchSizes,
+		"the second replay finds no carriers and writes no grants")
 	finishExternalMatchVerificationSync(t, resumedStore, resumedState)
 
 	require.Equal(t, goldenDigest, grantDigest(t, cutPath, cutSyncID))

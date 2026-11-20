@@ -47,13 +47,7 @@
           "resource": "fresh"
         }
       },
-      "id": "group:application:member:user:fresh",
-      "annotations": [
-        {
-          "@type": "type.googleapis.com/c1.connector.v2.ExternalResourceMatchAll",
-          "resourceType": "TRAIT_USER"
-        }
-      ]
+      "id": "group:application:member:user:fresh"
     }
   ],
   "resource_types": [
