@@ -6382,10 +6382,10 @@ func (m *Task_ListTicketSchemasTask) validate(all bool) error {
 
 	if m.GetPageToken() != "" {
 
-		if l := len(m.GetPageToken()); l < 1 || l > 16384 {
+		if len(m.GetPageToken()) > 4096 {
 			err := Task_ListTicketSchemasTaskValidationError{
 				field:  "PageToken",
-				reason: "value length must be between 1 and 16384 bytes, inclusive",
+				reason: "value length must be at most 4096 bytes",
 			}
 			if !all {
 				return err

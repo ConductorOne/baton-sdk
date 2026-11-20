@@ -3,9 +3,11 @@ package c1api
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
+	"unicode/utf8"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -28,8 +30,10 @@ const (
 	maxTicketSchemaBatchBytes = 2 << 20
 	// maxTicketSchemaConnectorCalls bounds the work in one task when the connector returns empty pages.
 	maxTicketSchemaConnectorCalls = 100
-	// maxTicketSchemaPageTokenBytes matches the max_bytes rule on ListTicketSchemasTask.page_token.
-	maxTicketSchemaPageTokenBytes = 16384
+	// maxTicketSchemaPageTokenBytes matches the max_bytes rule on TicketsServiceListTicketSchemasResponse.next_page_token
+	// and ListTicketSchemasTask.page_token, so an emitted cursor always passes both.
+	maxTicketSchemaPageTokenBytes = 4096
+	ticketSchemaCursorVersion     = 1
 )
 
 type listTicketSchemasTaskHelpers interface {
@@ -113,20 +117,24 @@ func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 // The handler never sends a page size to the connector, so connector page boundaries do not
 // depend on the caller's page_size and a cursor stays valid when page_size changes between calls.
 // Resume assumes the connector returns the same page for the same page token.
-// The JSON keys are part of the token format that callers hold across SDK versions.
 type ticketSchemaCursor struct {
-	ConnectorPageToken string `json:"t,omitempty"`
-	Offset             int    `json:"o,omitempty"`
+	ConnectorPageToken string
+	Offset             int
 }
 
+// encodeTicketSchemaCursor returns base64url(version byte, uvarint offset, connector token bytes).
+// Callers hold this format across SDK versions; change ticketSchemaCursorVersion when it changes.
 func encodeTicketSchemaCursor(c ticketSchemaCursor) (string, error) {
-	b, err := json.Marshal(c)
-	if err != nil {
-		return "", err
-	}
+	b := make([]byte, 0, 1+binary.MaxVarintLen64+len(c.ConnectorPageToken))
+	b = append(b, ticketSchemaCursorVersion)
+	b = binary.AppendUvarint(b, uint64(c.Offset)) //nolint:gosec // Offset is never negative.
+	b = append(b, c.ConnectorPageToken...)
 	token := base64.RawURLEncoding.EncodeToString(b)
 	if len(token) > maxTicketSchemaPageTokenBytes {
-		return "", fmt.Errorf("ticket schema page token is %d bytes, over the %d byte limit", len(token), maxTicketSchemaPageTokenBytes)
+		return "", errors.Join(
+			fmt.Errorf("ticket schema page token is %d bytes, over the %d byte limit", len(token), maxTicketSchemaPageTokenBytes),
+			ErrTaskNonRetryable,
+		)
 	}
 	return token, nil
 }
@@ -140,12 +148,19 @@ func decodeTicketSchemaCursor(token string) (ticketSchemaCursor, error) {
 	if err != nil {
 		return c, fmt.Errorf("invalid ticket schema page token: %w", err)
 	}
-	if err := json.Unmarshal(b, &c); err != nil {
-		return c, fmt.Errorf("invalid ticket schema page token: %w", err)
+	if len(b) == 0 || b[0] != ticketSchemaCursorVersion {
+		return c, errors.New("invalid ticket schema page token: unknown version")
 	}
-	if c.Offset < 0 {
-		return c, fmt.Errorf("invalid ticket schema page token: negative offset")
+	offset, n := binary.Uvarint(b[1:])
+	if n <= 0 || offset > math.MaxInt32 {
+		return c, errors.New("invalid ticket schema page token: bad offset")
 	}
+	pageToken := b[1+n:]
+	if !utf8.Valid(pageToken) {
+		return c, errors.New("invalid ticket schema page token: connector token is not UTF-8")
+	}
+	c.ConnectorPageToken = string(pageToken)
+	c.Offset = int(offset)
 	return c, nil
 }
 
@@ -162,7 +177,9 @@ func ticketSchemaPageSize(requested uint32) int {
 
 // handlePaged returns one batch of at most page_size schemas and maxTicketSchemaBatchBytes,
 // always including at least one schema when one is available. A batch may end inside a
-// connector page; the returned token then resumes at the next schema of that page.
+// connector page; the returned token then resumes at the next schema of that page, so a
+// connector that returns everything in one page is re-fetched for each batch.
+// Every response carries the ListTicketSchemasPaged annotation.
 func (c *listTicketSchemasTaskHandler) handlePaged(ctx context.Context, t *v1.Task_ListTicketSchemasTask) error {
 	l := ctxzap.Extract(ctx)
 
@@ -182,6 +199,7 @@ func (c *listTicketSchemasTaskHandler) handlePaged(ctx context.Context, t *v1.Ta
 		if calls >= maxTicketSchemaConnectorCalls {
 			nextToken, err = encodeTicketSchemaCursor(cursor)
 			if err != nil {
+				l.Error("failed encoding ticket schema page token", zap.Error(err))
 				return c.helpers.FinishTask(ctx, nil, nil, err)
 			}
 			break
@@ -215,6 +233,7 @@ func (c *listTicketSchemasTaskHandler) handlePaged(ctx context.Context, t *v1.Ta
 		if full {
 			nextToken, err = encodeTicketSchemaCursor(cursor)
 			if err != nil {
+				l.Error("failed encoding ticket schema page token", zap.Error(err))
 				return c.helpers.FinishTask(ctx, nil, nil, err)
 			}
 			break
@@ -227,12 +246,13 @@ func (c *listTicketSchemasTaskHandler) handlePaged(ctx context.Context, t *v1.Ta
 		if next == cursor.ConnectorPageToken {
 			err = fmt.Errorf("connector returned the same ticket schema page token it was given")
 			l.Error("failed listing ticket schemas", zap.Error(err))
-			return c.helpers.FinishTask(ctx, nil, nil, err)
+			return c.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
 		}
 		cursor = ticketSchemaCursor{ConnectorPageToken: next}
 		if len(batch) >= pageSize {
 			nextToken, err = encodeTicketSchemaCursor(cursor)
 			if err != nil {
+				l.Error("failed encoding ticket schema page token", zap.Error(err))
 				return c.helpers.FinishTask(ctx, nil, nil, err)
 			}
 			break
@@ -245,12 +265,15 @@ func (c *listTicketSchemasTaskHandler) handlePaged(ctx context.Context, t *v1.Ta
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
+	annos := annotations.Annotations{}
+	annos.Update(&v2.ListTicketSchemasPaged{})
 	resp := v2.TicketsServiceListTicketSchemasResponse_builder{
 		List:          batch,
 		NextPageToken: nextToken,
+		Annotations:   annos,
 	}.Build()
 
-	return c.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
+	return c.helpers.FinishTask(ctx, resp, annos, nil)
 }
 
 func newListSchemasTaskHandler(task *v1.Task, helpers listTicketSchemasTaskHelpers) *listTicketSchemasTaskHandler {

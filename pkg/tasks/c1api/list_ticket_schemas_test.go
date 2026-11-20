@@ -52,13 +52,15 @@ type ticketSchemaHelpers struct {
 	client   types.ConnectorClient
 	finished bool
 	response proto.Message
+	annos    annotations.Annotations
 	err      error
 }
 
 func (h *ticketSchemaHelpers) ConnectorClient() types.ConnectorClient { return h.client }
-func (h *ticketSchemaHelpers) FinishTask(_ context.Context, response proto.Message, _ annotations.Annotations, err error) error {
+func (h *ticketSchemaHelpers) FinishTask(_ context.Context, response proto.Message, annos annotations.Annotations, err error) error {
 	h.finished = true
 	h.response = response
+	h.annos = annos
 	h.err = err
 	return err
 }
@@ -106,6 +108,22 @@ func runTicketSchemasTask(client *ticketSchemaClient, t *v1.Task_ListTicketSchem
 	return h, err
 }
 
+// requirePagedMarker asserts the ListTicketSchemasPaged marker is on the response and on the
+// annotations passed to FinishTask, and that the response passes its own validation.
+func requirePagedMarker(t *testing.T, h *ticketSchemaHelpers) *v2.TicketsServiceListTicketSchemasResponse {
+	t.Helper()
+	resp, ok := h.response.(*v2.TicketsServiceListTicketSchemasResponse)
+	require.True(t, ok)
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	require.True(t, respAnnos.Contains(&v2.ListTicketSchemasPaged{}))
+	require.True(t, h.annos.Contains(&v2.ListTicketSchemasPaged{}))
+	require.NoError(t, resp.Validate())
+	require.LessOrEqual(t, len(resp.GetNextPageToken()), maxTicketSchemaPageTokenBytes)
+	next := v1.Task_ListTicketSchemasTask_builder{Paginate: true, PageToken: resp.GetNextPageToken()}.Build()
+	require.NoError(t, next.Validate())
+	return resp
+}
+
 func schemaIDs(list []*v2.TicketSchema) []string {
 	ids := make([]string, 0, len(list))
 	for _, s := range list {
@@ -130,8 +148,7 @@ func collectPaged(t *testing.T, client *ticketSchemaClient, pageSizes ...uint32)
 		}.Build())
 		require.NoError(t, err)
 		require.NoError(t, h.err)
-		resp, ok := h.response.(*v2.TicketsServiceListTicketSchemasResponse)
-		require.True(t, ok)
+		resp := requirePagedMarker(t, h)
 		require.LessOrEqual(t, len(resp.GetList()), ticketSchemaPageSize(size))
 		ids = append(ids, schemaIDs(resp.GetList())...)
 		batchLens = append(batchLens, len(resp.GetList()))
@@ -165,6 +182,7 @@ func TestListTicketSchemasLegacy(t *testing.T) {
 				gotBytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(h.response)
 				require.NoError(t, err)
 				require.Equal(t, wantBytes, gotBytes)
+				require.Empty(t, h.annos)
 			})
 		}
 	}
@@ -288,7 +306,14 @@ func TestListTicketSchemasPaged(t *testing.T) {
 	})
 
 	t.Run("invalid token is non-retryable", func(t *testing.T) {
-		for _, token := range []string{"!!!", "bm90LWpzb24", "eyJvIjotMX0"} {
+		for _, token := range []string{
+			"!!!",
+			"eyJ0IjoicDMwIiwibyI6NX0", // JSON cursor format from before ticketSchemaCursorVersion
+			"AgVwMzA",                 // version 2
+			"AYA",                     // truncated offset
+			"Af____8P",                // offset over MaxInt32
+			"AQD_",                    // connector token is not UTF-8
+		} {
 			h, err := runTicketSchemasTask(pagedClient(all, 30), v1.Task_ListTicketSchemasTask_builder{Paginate: true, PageToken: token}.Build())
 			require.ErrorIs(t, err, ErrTaskNonRetryable, token)
 			require.True(t, h.finished)
@@ -302,14 +327,14 @@ func TestListTicketSchemasPaged(t *testing.T) {
 		require.ErrorIs(t, err, ErrTaskNonRetryable)
 	})
 
-	t.Run("connector repeating its page token is an error", func(t *testing.T) {
+	t.Run("connector repeating its page token is non-retryable", func(t *testing.T) {
 		s := makeTicketSchemas(2, 0)
 		client := &ticketSchemaClient{pages: map[string]ticketSchemaPage{
 			"":   {list: s[:1], next: "p1"},
 			"p1": {list: s[1:], next: "p1"},
 		}}
 		h, err := runTicketSchemasTask(client, v1.Task_ListTicketSchemasTask_builder{Paginate: true}.Build())
-		require.Error(t, err)
+		require.ErrorIs(t, err, ErrTaskNonRetryable)
 		require.True(t, h.finished)
 	})
 
@@ -321,13 +346,75 @@ func TestListTicketSchemasPaged(t *testing.T) {
 		}}
 		h, err := runTicketSchemasTask(client, v1.Task_ListTicketSchemasTask_builder{Paginate: true, PageSize: 2}.Build())
 		require.ErrorContains(t, err, "byte limit")
+		require.ErrorIs(t, err, ErrTaskNonRetryable)
 		require.True(t, h.finished)
 		require.Nil(t, h.response)
+	})
+
+	t.Run("connector token of HTML characters fits up to the cap", func(t *testing.T) {
+		// Offset 0 adds a version byte and a one-byte offset before base64url.
+		const maxConnectorToken = maxTicketSchemaPageTokenBytes*3/4 - 2
+		for _, tc := range []struct {
+			tokenLen int
+			fits     bool
+		}{
+			{tokenLen: 1000, fits: true},
+			{tokenLen: maxConnectorToken, fits: true},
+			{tokenLen: maxConnectorToken + 1, fits: false},
+		} {
+			s := makeTicketSchemas(2, 0)
+			token := strings.Repeat("<>&", tc.tokenLen/3+1)[:tc.tokenLen]
+			client := &ticketSchemaClient{pages: map[string]ticketSchemaPage{
+				"":    {list: s[:1], next: token},
+				token: {list: s[1:]},
+			}}
+			if !tc.fits {
+				_, err := runTicketSchemasTask(client, v1.Task_ListTicketSchemasTask_builder{Paginate: true, PageSize: 1}.Build())
+				require.ErrorIs(t, err, ErrTaskNonRetryable, tc.tokenLen)
+				continue
+			}
+			ids, lens := collectPaged(t, client, 1)
+			require.Equal(t, schemaIDs(s), ids, tc.tokenLen)
+			require.Equal(t, []int{1, 1}, lens)
+		}
+	})
+
+	t.Run("marks an empty final batch", func(t *testing.T) {
+		s := makeTicketSchemas(2, 0)
+		client := &ticketSchemaClient{pages: map[string]ticketSchemaPage{
+			"":   {list: s, next: "p1"},
+			"p1": {},
+		}}
+		ids, lens := collectPaged(t, client, 2)
+		require.Equal(t, schemaIDs(s), ids)
+		require.Equal(t, []int{2, 0}, lens)
+	})
+
+	t.Run("an empty batch with a token continues", func(t *testing.T) {
+		pages := map[string]ticketSchemaPage{"": {next: "e0"}}
+		for i := range maxTicketSchemaConnectorCalls {
+			pages["e"+strconv.Itoa(i)] = ticketSchemaPage{next: "e" + strconv.Itoa(i+1)}
+		}
+		s := makeTicketSchemas(3, 0)
+		pages["e"+strconv.Itoa(maxTicketSchemaConnectorCalls)] = ticketSchemaPage{list: s}
+		client := &ticketSchemaClient{pages: pages}
+
+		h, err := runTicketSchemasTask(client, v1.Task_ListTicketSchemasTask_builder{Paginate: true}.Build())
+		require.NoError(t, err)
+		resp := requirePagedMarker(t, h)
+		require.Empty(t, resp.GetList())
+		require.NotEmpty(t, resp.GetNextPageToken())
+
+		h, err = runTicketSchemasTask(client, v1.Task_ListTicketSchemasTask_builder{Paginate: true, PageToken: resp.GetNextPageToken()}.Build())
+		require.NoError(t, err)
+		resp = requirePagedMarker(t, h)
+		require.Equal(t, schemaIDs(s), schemaIDs(resp.GetList()))
+		require.Empty(t, resp.GetNextPageToken())
 	})
 }
 
 func TestTicketSchemaCursorFormat(t *testing.T) {
-	const golden = "eyJ0IjoicDMwIiwibyI6NX0" // base64url of {"t":"p30","o":5}
+	const golden = "AQVwMzA" // base64url of version 0x01, uvarint offset 5, "p30"
 	want := ticketSchemaCursor{ConnectorPageToken: "p30", Offset: 5}
 
 	got, err := decodeTicketSchemaCursor(golden)
