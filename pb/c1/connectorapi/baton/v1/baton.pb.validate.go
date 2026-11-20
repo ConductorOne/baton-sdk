@@ -6378,6 +6378,25 @@ func (m *Task_ListTicketSchemasTask) validate(all bool) error {
 
 	}
 
+	// no validation rules for Paginate
+
+	if m.GetPageToken() != "" {
+
+		if len(m.GetPageToken()) > 4096 {
+			err := Task_ListTicketSchemasTaskValidationError{
+				field:  "PageToken",
+				reason: "value length must be at most 4096 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	// no validation rules for PageSize
+
 	if len(errors) > 0 {
 		return Task_ListTicketSchemasTaskMultiError(errors)
 	}

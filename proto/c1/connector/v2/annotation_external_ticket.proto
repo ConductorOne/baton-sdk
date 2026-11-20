@@ -12,3 +12,7 @@ message ExternalTicketRef {
   string id = 1;
   string external_ticket_provisioner_config_id = 2;
 }
+
+// ListTicketSchemasPaged is attached to every response of a ListTicketSchemas task that
+// requested paginate and was served in paged mode.
+message ListTicketSchemasPaged {}
