@@ -82,13 +82,11 @@ func (s *ledgerGuardedStore) PutLedgerFacts(ctx context.Context, facts map[strin
 }
 
 type ledgerGuardedGrants struct {
-	caps storeCaps
 	c1zstore.GrantStore
 	audit *ledgerWriteAudit
 }
 
 type ledgerGuardedMeta struct {
-	caps storeCaps
 	c1zstore.SyncMeta
 	audit *ledgerWriteAudit
 }
@@ -167,10 +165,10 @@ func (s ledgerGuardedFiles) CopyIsolateSync(ctx context.Context, path, id string
 }
 
 func (s *ledgerGuardedStore) Grants() c1zstore.GrantStore {
-	return ledgerGuardedGrants{caps: s.caps, GrantStore: s.Store.Grants(), audit: s.audit}
+	return ledgerGuardedGrants{GrantStore: s.Store.Grants(), audit: s.audit}
 }
 func (s *ledgerGuardedStore) SyncMeta() c1zstore.SyncMeta {
-	return ledgerGuardedMeta{caps: s.caps, SyncMeta: s.Store.SyncMeta(), audit: s.audit}
+	return ledgerGuardedMeta{SyncMeta: s.Store.SyncMeta(), audit: s.audit}
 }
 func (s *ledgerGuardedStore) SessionStore() sessions.SessionStore {
 	return ledgerGuardedSessions{SessionStore: s.Store.SessionStore(), audit: s.audit}
@@ -183,98 +181,154 @@ func (s *ledgerGuardedStore) DeleteResourceRecord(ctx context.Context, resourceT
 	if err := s.audit.record(ctx, "DeleteResourceRecord"); err != nil {
 		return err
 	}
-	return s.caps.resourceDeleter.DeleteResourceRecord(ctx, resourceTypeID, resourceID)
+	return s.Store.(resourceRecordDeleter).DeleteResourceRecord(ctx, resourceTypeID, resourceID)
 }
 
 func (s *ledgerGuardedStore) DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error {
 	if err := s.audit.record(ctx, "DeleteEntitlementByRefs"); err != nil {
 		return err
 	}
-	return s.caps.entitlementDeleter.DeleteEntitlementByRefs(ctx, entitlement)
+	return s.Store.(entitlementRecordDeleter).DeleteEntitlementByRefs(ctx, entitlement)
 }
 
 func (s *ledgerGuardedStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
 	if err := s.audit.record(ctx, "DeleteGrantByRefs"); err != nil {
 		return err
 	}
-	return s.caps.grantRefsDeleter.DeleteGrantByRefs(ctx, grant)
+	return s.Store.(grantByRefsDeleter).DeleteGrantByRefs(ctx, grant)
 }
 
 func (s *ledgerGuardedStore) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
 	if err := s.audit.record(ctx, "DeleteGrantsByRefs"); err != nil {
 		return err
 	}
-	return s.caps.grantBatchDeleter.DeleteGrantsByRefs(ctx, grants...)
+	return s.Store.(grantsByRefsBatchDeleter).DeleteGrantsByRefs(ctx, grants...)
+}
+
+func (s *ledgerGuardedStore) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if err := s.audit.record(ctx, "StoreNewExpandedGrants"); err != nil {
+		return err
+	}
+	return s.Store.(newExpandedGrantStorer).StoreNewExpandedGrants(ctx, grants...)
+}
+
+func (s *ledgerGuardedStore) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if err := s.audit.record(ctx, "StoreNewExpandedGrantContributions"); err != nil {
+		return err
+	}
+	return s.Store.(newExpandedGrantContributionStorer).StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
+}
+
+func (s *ledgerGuardedStore) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	if err := s.audit.record(ctx, "BeginExpandedGrantLayer"); err != nil {
+		return false, err
+	}
+	return s.Store.(expandedGrantLayerStorer).BeginExpandedGrantLayer(ctx)
+}
+
+func (s *ledgerGuardedStore) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if err := s.audit.record(ctx, "AddExpandedGrantLayerContributions"); err != nil {
+		return err
+	}
+	return s.Store.(expandedGrantLayerStorer).AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+
+func (s *ledgerGuardedStore) FinishExpandedGrantLayer(ctx context.Context) error {
+	if err := s.audit.record(ctx, "FinishExpandedGrantLayer"); err != nil {
+		return err
+	}
+	return s.Store.(expandedGrantLayerStorer).FinishExpandedGrantLayer(ctx)
+}
+
+func (s *ledgerGuardedStore) AbortExpandedGrantLayer(ctx context.Context) error {
+	if err := s.audit.record(ctx, "AbortExpandedGrantLayer"); err != nil {
+		return err
+	}
+	return s.Store.(expandedGrantLayerStorer).AbortExpandedGrantLayer(ctx)
+}
+
+func (s *ledgerGuardedStore) MarkIngestInvariantsVerified(ctx context.Context, id string, verification c1zstore.IngestInvariantVerification) error {
+	if err := s.audit.record(ctx, "MarkIngestInvariantsVerified"); err != nil {
+		return err
+	}
+	return s.Store.(c1zstore.IngestInvariantVerificationWriter).MarkIngestInvariantsVerified(ctx, id, verification)
+}
+
+func (s *ledgerGuardedStore) ClearIngestInvariantVerification(ctx context.Context, id string) error {
+	if err := s.audit.record(ctx, "ClearIngestInvariantVerification"); err != nil {
+		return err
+	}
+	return s.Store.(c1zstore.IngestInvariantVerificationWriter).ClearIngestInvariantVerification(ctx, id)
 }
 
 func (s *ledgerGuardedStore) PutEntitlementGraphBlob(ctx context.Context, data []byte) error {
 	if err := s.audit.record(ctx, "PutEntitlementGraphBlob"); err != nil {
 		return err
 	}
-	return s.caps.entitlementGraph.PutEntitlementGraphBlob(ctx, data)
+	return s.EntitlementGraphStore.PutEntitlementGraphBlob(ctx, data)
 }
 
 func (s *ledgerGuardedStore) DeleteEntitlementGraphBlob(ctx context.Context) error {
 	if err := s.audit.record(ctx, "DeleteEntitlementGraphBlob"); err != nil {
 		return err
 	}
-	return s.caps.entitlementGraph.DeleteEntitlementGraphBlob(ctx)
+	return s.EntitlementGraphStore.DeleteEntitlementGraphBlob(ctx)
 }
 
 func (s ledgerGuardedMeta) MarkIngestInvariantsVerified(ctx context.Context, id string, verification c1zstore.IngestInvariantVerification) error {
 	if err := s.audit.record(ctx, "MarkIngestInvariantsVerified"); err != nil {
 		return err
 	}
-	return s.caps.ingestVerification.MarkIngestInvariantsVerified(ctx, id, verification)
+	return s.SyncMeta.(c1zstore.IngestInvariantVerificationWriter).MarkIngestInvariantsVerified(ctx, id, verification)
 }
 
 func (s ledgerGuardedMeta) ClearIngestInvariantVerification(ctx context.Context, id string) error {
 	if err := s.audit.record(ctx, "ClearIngestInvariantVerification"); err != nil {
 		return err
 	}
-	return s.caps.ingestVerification.ClearIngestInvariantVerification(ctx, id)
+	return s.SyncMeta.(c1zstore.IngestInvariantVerificationWriter).ClearIngestInvariantVerification(ctx, id)
 }
 
 func (s ledgerGuardedGrants) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	if err := s.audit.record(ctx, "StoreNewExpandedGrants"); err != nil {
 		return err
 	}
-	return s.caps.newExpandedGrants.StoreNewExpandedGrants(ctx, grants...)
+	return s.GrantStore.(newExpandedGrantStorer).StoreNewExpandedGrants(ctx, grants...)
 }
 
 func (s ledgerGuardedGrants) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 	if err := s.audit.record(ctx, "StoreNewExpandedGrantContributions"); err != nil {
 		return err
 	}
-	return s.caps.newExpandedContributions.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
+	return s.GrantStore.(newExpandedGrantContributionStorer).StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
 }
 
 func (s ledgerGuardedGrants) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
 	if err := s.audit.record(ctx, "BeginExpandedGrantLayer"); err != nil {
 		return false, err
 	}
-	return s.caps.expandedGrantLayer.BeginExpandedGrantLayer(ctx)
+	return s.GrantStore.(expandedGrantLayerStorer).BeginExpandedGrantLayer(ctx)
 }
 
 func (s ledgerGuardedGrants) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 	if err := s.audit.record(ctx, "AddExpandedGrantLayerContributions"); err != nil {
 		return err
 	}
-	return s.caps.expandedGrantLayer.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+	return s.GrantStore.(expandedGrantLayerStorer).AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
 }
 
 func (s ledgerGuardedGrants) FinishExpandedGrantLayer(ctx context.Context) error {
 	if err := s.audit.record(ctx, "FinishExpandedGrantLayer"); err != nil {
 		return err
 	}
-	return s.caps.expandedGrantLayer.FinishExpandedGrantLayer(ctx)
+	return s.GrantStore.(expandedGrantLayerStorer).FinishExpandedGrantLayer(ctx)
 }
 
 func (s ledgerGuardedGrants) AbortExpandedGrantLayer(ctx context.Context) error {
 	if err := s.audit.record(ctx, "AbortExpandedGrantLayer"); err != nil {
 		return err
 	}
-	return s.caps.expandedGrantLayer.AbortExpandedGrantLayer(ctx)
+	return s.GrantStore.(expandedGrantLayerStorer).AbortExpandedGrantLayer(ctx)
 }
 
 type ledgerTrackedWriter struct {
@@ -360,4 +414,110 @@ func (s *ledgerGuardedStore) CompletePendingWork(ctx context.Context, work c1zst
 		return err
 	}
 	return s.PageLedgerStore.CompletePendingWork(ctx, work, runID, counters)
+}
+
+type syncBackendLedger struct {
+	syncBackend
+	c1zstore.PageLedgerStore
+}
+
+func withPageLedger(store syncBackend, ledger c1zstore.PageLedgerStore) syncBackend {
+	return syncBackendLedger{syncBackend: store, PageLedgerStore: ledger}
+}
+
+func (s syncBackendLedger) State(ctx context.Context) (c1zstore.LedgerState, error) {
+	return s.PageLedgerStore.State(ctx)
+}
+func (s syncBackendLedger) BeginCollecting(ctx context.Context, seeds []c1zstore.LedgerWork, facts map[string]string) error {
+	return s.PageLedgerStore.BeginCollecting(ctx, seeds, facts)
+}
+func (s syncBackendLedger) BeginFromToken(
+	ctx context.Context,
+	runID, expectedToken string,
+	facts map[string]string,
+	counters c1zstore.LedgerCounters,
+	seeds []c1zstore.LedgerWork,
+	phase c1zstore.LedgerQueuePhase,
+) (string, error) {
+	return s.PageLedgerStore.BeginFromToken(ctx, runID, expectedToken, facts, counters, seeds, phase)
+}
+func (s syncBackendLedger) BeginExpanding(ctx context.Context) error {
+	return s.PageLedgerStore.BeginExpanding(ctx)
+}
+func (s syncBackendLedger) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
+	return s.PageLedgerStore.Seal(ctx, stats)
+}
+func (s syncBackendLedger) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, clearFacts []string) error {
+	return s.PageLedgerStore.BeginPass(ctx, seeds, clearFacts)
+}
+func (s syncBackendLedger) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
+	return s.PageLedgerStore.PendingWork(ctx, beforeID, limit)
+}
+func (s syncBackendLedger) PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
+	return s.PageLedgerStore.PendingWorkAfter(ctx, afterID, limit)
+}
+func (s syncBackendLedger) HasScheduledWork(ctx context.Context, key string) (bool, error) {
+	return s.PageLedgerStore.HasScheduledWork(ctx, key)
+}
+func (s syncBackendLedger) BeginPage() c1zstore.PageWriter { return s.PageLedgerStore.BeginPage() }
+func (s syncBackendLedger) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, runID string, counters c1zstore.LedgerCounters) error {
+	return s.PageLedgerStore.CompletePendingWork(ctx, work, runID, counters)
+}
+func (s syncBackendLedger) GetLedgerRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (*c1zstore.LedgerRow, bool, error) {
+	return s.PageLedgerStore.GetLedgerRow(ctx, id)
+}
+func (s syncBackendLedger) LedgerFacts(ctx context.Context) (map[string]string, error) {
+	return s.PageLedgerStore.LedgerFacts(ctx)
+}
+func (s syncBackendLedger) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
+	return s.PageLedgerStore.LedgerCounters(ctx)
+}
+func (s syncBackendLedger) FoldLedgerCounters(ctx context.Context, currentRunID string) error {
+	return s.PageLedgerStore.FoldLedgerCounters(ctx, currentRunID)
+}
+func (s syncBackendLedger) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
+	return s.PageLedgerStore.PutCounterBucket(ctx, runID, worker, counters)
+}
+func (s syncBackendLedger) PutLedgerFacts(ctx context.Context, facts map[string]string) error {
+	return s.PageLedgerStore.PutLedgerFacts(ctx, facts)
+}
+func (s syncBackendLedger) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
+	return s.PageLedgerStore.ArchiveLedgerReport(ctx)
+}
+func (s syncBackendLedger) GetArchivedLedgerReport(ctx context.Context) ([]byte, error) {
+	return s.PageLedgerStore.GetArchivedLedgerReport(ctx)
+}
+func (s syncBackendLedger) SetRetainLedgerTokens(retain bool) {
+	s.PageLedgerStore.SetRetainLedgerTokens(retain)
+}
+func (s syncBackendLedger) DropLedger(ctx context.Context) error {
+	return s.PageLedgerStore.DropLedger(ctx)
+}
+func (s syncBackendLedger) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {
+	return s.PageLedgerStore.LedgerFrontier(ctx)
+}
+func (s syncBackendLedger) BoundSyncUnstarted(ctx context.Context) (bool, error) {
+	return s.PageLedgerStore.BoundSyncUnstarted(ctx)
+}
+
+type syncBackendLayer struct {
+	syncBackend
+	expandedGrantLayerStorer
+}
+
+func withGrantLayer(store syncBackend, layer expandedGrantLayerStorer) syncBackend {
+	return syncBackendLayer{syncBackend: store, expandedGrantLayerStorer: layer}
+}
+
+func (s syncBackendLayer) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
+	return s.expandedGrantLayerStorer.BeginExpandedGrantLayer(ctx)
+}
+func (s syncBackendLayer) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	return s.expandedGrantLayerStorer.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+}
+func (s syncBackendLayer) FinishExpandedGrantLayer(ctx context.Context) error {
+	return s.expandedGrantLayerStorer.FinishExpandedGrantLayer(ctx)
+}
+func (s syncBackendLayer) AbortExpandedGrantLayer(ctx context.Context) error {
+	return s.expandedGrantLayerStorer.AbortExpandedGrantLayer(ctx)
 }

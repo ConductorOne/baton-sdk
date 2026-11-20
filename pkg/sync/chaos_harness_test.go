@@ -111,8 +111,9 @@ func newChaosHarness(
 		if !entering {
 			return
 		}
-		require.NotNil(t, concrete.caps.writeHook)
-		concrete.caps.writeHook.SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
+		hook, ok := concrete.store.(writeHookSetter)
+		require.True(t, ok)
+		hook.SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
 			if event.Bypass == "" {
 				return fmt.Errorf("unregistered page write: %s", event.Method)
 			}

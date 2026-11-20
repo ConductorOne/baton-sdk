@@ -200,7 +200,7 @@ func TestLedgerResourceReplay(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
-	s.store, s.caps = f.store, resolveStoreCaps(f.store)
+	s.store = f.store
 	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "reopened-resources")
 	require.NoError(t, err)
 	s.run = newRunState()
@@ -323,14 +323,14 @@ func TestLedgerTargetedTypeScoped(t *testing.T) {
 	require.Empty(t, row.Children)
 }
 
-type ledgerResourceReadFailure struct{ c1zstore.Store }
+type ledgerResourceReadFailure struct{ syncBackend }
 
 func (s ledgerResourceReadFailure) GetResource(context.Context, *reader_v2.ResourcesReaderServiceGetResourceRequest) (*reader_v2.ResourcesReaderServiceGetResourceResponse, error) {
 	return nil, errLedgerInjectedPage
 }
 func TestLedgerResourceReadFailure(t *testing.T) {
 	s, f, _ := resourcePageFixture(t, 1)
-	s.store = ledgerResourceReadFailure{Store: f.store}
+	s.store = ledgerResourceReadFailure{syncBackend: f.store}
 	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerHandler)
@@ -351,7 +351,7 @@ func TestLedgerResourcePendingChildRestore(t *testing.T) {
 			require.Len(t, c.requests, 1)
 			require.NoError(t, f.store.Close(t.Context()))
 			f = openLedgerFixtureAt(t, f.path, false)
-			s.store, s.caps = f.store, resolveStoreCaps(f.store)
+			s.store = f.store
 			var err error
 			s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "pending-child-resume")
 			require.NoError(t, err)
@@ -419,7 +419,7 @@ func TestLedgerFailFastUsesDurableChildScheduling(t *testing.T) {
 			require.NoError(t, err)
 			s := created.(*syncer)
 			lookup := &ledgerSchedulingLookup{PageLedgerStore: f.ledger, mode: mode}
-			s.caps.pageLedger = lookup
+			s.store = withPageLedger(s.store, lookup)
 			err = s.Sync(t.Context())
 			require.Positive(t, lookup.calls, "sync error: %v; resource phase: %t; fail-fast: %t", err, s.resourcesPhaseRanHere, s.cfg.failFastInvariants)
 			switch mode {

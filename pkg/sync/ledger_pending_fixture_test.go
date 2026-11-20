@@ -9,9 +9,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func guardedFrom(store syncBackend) (*ledgerGuardedStore, bool) {
+	for store != nil {
+		switch s := store.(type) {
+		case *ledgerGuardedStore:
+			return s, true
+		case syncBackendLedger:
+			store = s.syncBackend
+		case syncBackendLayer:
+			store = s.syncBackend
+		case ledgerEntitlementPlannerStore:
+			store = s.syncBackend
+		case ledgerResourceReadFailure:
+			store = s.syncBackend
+		case ledgerTypeReadFailure:
+			store = s.syncBackend
+		case *ledgerTypeReadAudit:
+			store = s.syncBackend
+		case staticResourcePageStore:
+			store = s.syncBackend
+		case staticInvalidResourcePageStore:
+			store = s.syncBackend
+		case ledgerExpansionReadFailure:
+			store = s.syncBackend
+		case *ledgerExpansionHandoffFailure:
+			store = s.syncBackend
+		default:
+			return nil, false
+		}
+	}
+	return nil, false
+}
+
 func seedLedgerTestRun(t *testing.T, s *syncer, selected *Action) {
 	t.Helper()
-	pending, phase, err := s.caps.pageLedger.PendingWork(t.Context(), 0, 100)
+	pending, phase, err := s.store.PendingWork(t.Context(), 0, 100)
 	require.NoError(t, err)
 	if phase != c1zstore.LedgerQueueAbsent {
 		if selected != nil && selected.WorkID == 0 {
@@ -27,7 +59,7 @@ func seedLedgerTestRun(t *testing.T, s *syncer, selected *Action) {
 		}
 		return
 	}
-	if guarded, ok := s.caps.pageLedger.(*ledgerGuardedStore); ok {
+	if guarded, ok := guardedFrom(s.store); ok {
 		guarded.audit.mu.Lock()
 		phase := guarded.audit.phase
 		writers := guarded.audit.writers
@@ -52,10 +84,10 @@ func seedLedgerTestRun(t *testing.T, s *syncer, selected *Action) {
 			facts[fact] = ""
 		}
 	}
-	require.NoError(t, s.caps.pageLedger.BeginCollecting(t.Context(), pendingSeeds(roots), facts))
+	require.NoError(t, s.store.BeginCollecting(t.Context(), pendingSeeds(roots), facts))
 	require.NoError(t, s.refreshPendingWindow(t.Context()))
 	if selected != nil {
-		work, _, err := s.caps.pageLedger.PendingWork(t.Context(), selectedID+1, 1)
+		work, _, err := s.store.PendingWork(t.Context(), selectedID+1, 1)
 		require.NoError(t, err)
 		require.Len(t, work, 1)
 		require.Equal(t, selectedID, work[0].ID)
@@ -83,25 +115,25 @@ func runLedgerTestSync(t *testing.T, s *syncer, ctx, runCtx context.Context, tar
 
 func hasLedgerScheduledChild(t *testing.T, s *syncer, child, parentType, parent string) bool {
 	t.Helper()
-	found, err := s.caps.pageLedger.HasScheduledWork(t.Context(), "resource:"+childScheduleKey(child, parentType, parent))
+	found, err := s.store.HasScheduledWork(t.Context(), "resource:"+childScheduleKey(child, parentType, parent))
 	require.NoError(t, err)
 	return found
 }
 
 func restoreLedgerTestState(t *testing.T, s *syncer, ctx context.Context, resume ledgerResume, knownEmpty bool) error {
 	t.Helper()
-	if s.caps.pageLedger == nil {
-		s.caps.pageLedger = s.ledger.store
+	if s.store == nil {
+		s.store = s.ledger.store.(syncBackend)
 	}
-	pending, initialized, err := s.caps.pageLedger.PendingWork(ctx, 0, 100)
+	pending, initialized, err := s.store.PendingWork(ctx, 0, 100)
 	if err != nil {
 		return err
 	}
 	if initialized == c1zstore.LedgerQueueAbsent {
-		if err := s.caps.pageLedger.BeginCollecting(ctx, pendingSeeds(resume.actions), nil); err != nil {
+		if err := s.store.BeginCollecting(ctx, pendingSeeds(resume.actions), nil); err != nil {
 			return err
 		}
-		pending, _, err = s.caps.pageLedger.PendingWork(ctx, 0, 100)
+		pending, _, err = s.store.PendingWork(ctx, 0, 100)
 		if err != nil {
 			return err
 		}

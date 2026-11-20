@@ -366,7 +366,7 @@ func (s *syncer) parallelSync(
 
 		case SyncGrantExpansionOp:
 			// The ledger phase says whether this pass has entered expansion.
-			_, phase, err := s.caps.pageLedger.PendingWork(ctx, 0, 1)
+			_, phase, err := s.store.PendingWork(ctx, 0, 1)
 			if err != nil {
 				return warnings, err
 			}
@@ -380,7 +380,7 @@ func (s *syncer) parallelSync(
 				// skipped expansion never enters the phase. The phase is this
 				// event's record.
 				if !skipExpansion {
-					if err := s.caps.pageLedger.BeginExpanding(ctx); err != nil {
+					if err := s.store.BeginExpanding(ctx); err != nil {
 						return warnings, err
 					}
 				}

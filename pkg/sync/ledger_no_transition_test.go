@@ -49,10 +49,10 @@ func ledgerInterruptedImage(t *testing.T, image string) (string, string) {
 	s := created.(*syncer)
 	switch image {
 	case "collecting":
-		s.caps.pageLedger = ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncGrantsOp}
+		s.store = withPageLedger(s.store, ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncGrantsOp})
 	case "expanding":
 		t.Setenv("BATON_PEBBLE_SYNTH_LAYER_SEGMENT_ROWS", "1")
-		s.caps.expandedGrantLayer = &ledgerExpansionLayerObserver{expandedGrantLayerStorer: s.caps.expandedGrantLayer, failFinish: true}
+		s.store = withGrantLayer(s.store, &ledgerExpansionLayerObserver{expandedGrantLayerStorer: s.store, failFinish: true})
 	case "drained":
 		s.testHooks.ingestHaltHook = func(stage string) error {
 			if stage == haltStageInvariantsComplete {
@@ -61,7 +61,7 @@ func ledgerInterruptedImage(t *testing.T, image string) (string, string) {
 			return nil
 		}
 	case "sealing":
-		s.caps.pageLedger = ledgerExpansionSealFailure{PageLedgerStore: f.ledger}
+		s.store = withPageLedger(s.store, ledgerExpansionSealFailure{PageLedgerStore: f.ledger})
 	case "sealed":
 	default:
 		t.Fatalf("unknown image %q", image)

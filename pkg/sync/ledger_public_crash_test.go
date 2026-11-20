@@ -151,7 +151,7 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 		// cut together; the first writes the marker and exits, the rest wait
 		// for the exit rather than racing the write.
 		var crash stdsync.Once
-		s.caps.pageLedger = ledgerPublicCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) {
+		s.store = withPageLedger(s.store, ledgerPublicCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) {
 			if reached != cut {
 				return
 			}
@@ -165,7 +165,7 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 				os.Exit(75)
 			})
 			select {}
-		}}
+		}})
 		require.NoError(t, s.Sync(t.Context()))
 		t.Fatal("crash cut was not reached")
 	}

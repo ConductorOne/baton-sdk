@@ -44,7 +44,7 @@ func TestWriteHookOutcomes(t *testing.T) {
 
 		var seen []c1zstore.WriteHookEvent
 		if install {
-			hooked, ok := store.(c1zstore.WriteHookStore)
+			hooked, ok := store.(*pebbleStore)
 			require.True(t, ok, "the pebble store exposes the write hook")
 			hooked.SetWriteHook(strictWriteHook(func(ev c1zstore.WriteHookEvent) {
 				seen = append(seen, ev)
@@ -90,7 +90,7 @@ func TestWriteHookOutcomes(t *testing.T) {
 
 	t.Run("removing the hook restores the no-hook outcome", func(t *testing.T) {
 		store, seen := newHookStore(t, true)
-		store.(c1zstore.WriteHookStore).SetWriteHook(nil)
+		store.(*pebbleStore).SetWriteHook(nil)
 		require.NoError(t, directWrite(c1zstore.WithOpenPage(ctx), store))
 		require.Empty(t, *seen)
 	})

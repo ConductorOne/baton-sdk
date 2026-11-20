@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,22 @@ type ledgerAttachmentCloseStore struct {
 
 func (s *ledgerAttachmentCloseStore) Close(context.Context) error { s.closes++; return nil }
 
+type ledgerAttachmentCapabilityStore struct {
+	syncBackend
+	close  *ledgerAttachmentCloseStore
+	engine string
+}
+
+func (s ledgerAttachmentCapabilityStore) Metadata() connectorstore.StoreMetadata {
+	metadata := s.syncBackend.Metadata()
+	metadata.Engine = s.engine
+	return metadata
+}
+
+func (s ledgerAttachmentCapabilityStore) Close(ctx context.Context) error {
+	return s.close.Close(ctx)
+}
+
 func TestLedgerPublicRegisteredPathAttachment(t *testing.T) {
 	require.NoError(t, registerLedgerAttachmentDriver())
 	for _, engine := range []string{"pebble", "sqlite", "", "other"} {
@@ -46,10 +63,9 @@ func TestLedgerPublicRegisteredPathAttachment(t *testing.T) {
 			t.Run(label, func(t *testing.T) {
 				f := newLedgerFixture(t)
 				closeStore := &ledgerAttachmentCloseStore{Store: f.store}
-				metadataStore := ledgerMetadataStore{Store: closeStore, engine: engine}
-				var store c1zstore.Store = metadataStore
+				var store c1zstore.Store = ledgerMetadataStore{Store: closeStore, engine: engine}
 				if capability {
-					store = ledgerMetadataCapabilityStore{ledgerMetadataStore: metadataStore, PageLedgerStore: f.ledger}
+					store = ledgerAttachmentCapabilityStore{syncBackend: f.store, close: closeStore, engine: engine}
 				}
 				ctx := context.WithValue(t.Context(), ledgerAttachmentStoreKey{}, store)
 				before := ledgerRawSnapshot(t, f.engine)

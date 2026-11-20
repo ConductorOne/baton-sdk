@@ -144,14 +144,14 @@ func TestLedgerOptionsSnapshotFailureWritesNothing(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	f.audit.enter(ledgerLifecycle)
 	prepareLedgerForTest(t, s, "attempt-a", true)
-	actual := s.caps.pageLedger
-	s.caps.pageLedger = ledgerFailingFactsStore{PageLedgerStore: actual}
+	actual := s.store
+	s.store = withPageLedger(s.store, ledgerFailingFactsStore{PageLedgerStore: actual})
 	require.ErrorIs(t, s.putLedgerReportOptions(t.Context()), errLedgerInjectedFacts)
 	facts, err := f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
 	require.NotContains(t, facts, c1zstore.LedgerFactFirstReportOptions)
 	require.NotContains(t, facts, c1zstore.LedgerFactReportOptions)
-	s.caps.pageLedger = actual
+	s.store = withPageLedger(s.store, actual)
 	require.NoError(t, s.putLedgerReportOptions(t.Context()))
 	facts, err = f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)

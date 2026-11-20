@@ -18,7 +18,7 @@ func TestPebbleStoreGenerateLedgerReport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.c1z")
 	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
-	store.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, _ c1zstore.WriteHookEvent) error {
+	store.(*pebbleStore).SetWriteHook(func(_ context.Context, _ c1zstore.WriteHookEvent) error {
 		return errors.New("report attempted a direct write")
 	})
 	ledger := store.(c1zstore.PageLedgerStore)
@@ -46,7 +46,7 @@ func TestPebbleStoreGenerateLedgerReport(t *testing.T) {
 	require.NoError(t, err)
 	reopened, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
-	reopened.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, _ c1zstore.WriteHookEvent) error {
+	reopened.(*pebbleStore).SetWriteHook(func(_ context.Context, _ c1zstore.WriteHookEvent) error {
 		return errors.New("report attempted a write")
 	})
 	after, err := reopened.(*pebbleStore).GenerateLedgerReport(c1zstore.WithOpenPage(ctx))
@@ -71,7 +71,7 @@ func TestPebbleStoreArchivedReportSurvivesDropAndReopen(t *testing.T) {
 	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	ledger := store.(c1zstore.PageLedgerStore)
-	store.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, ev c1zstore.WriteHookEvent) error {
+	store.(*pebbleStore).SetWriteHook(func(_ context.Context, ev c1zstore.WriteHookEvent) error {
 		if ev.Bypass == "" {
 			return errors.New("unregistered page write")
 		}

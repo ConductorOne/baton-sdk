@@ -21,7 +21,7 @@ func (s *syncer) putLedgerReportOptions(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.caps.pageLedger.PutLedgerFacts(ctx, map[string]string{c1zstore.LedgerFactReportOptions: data})
+	return s.store.PutLedgerFacts(ctx, map[string]string{c1zstore.LedgerFactReportOptions: data})
 }
 
 // recordFirstReportOptions stages the pass's options on the Init page, so the

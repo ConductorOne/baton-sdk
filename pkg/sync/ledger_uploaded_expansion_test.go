@@ -28,7 +28,7 @@ func TestLedgerUploadedUnexpandedSync(t *testing.T) {
 					interrupted := errors.New("interrupted before seal")
 					if ending != "sealed" {
 						if strings.HasPrefix(ending, "prepared") {
-							collecting.caps.pageLedger = ledgerExpansionSealFailure{PageLedgerStore: f.ledger}
+							collecting.store = withPageLedger(collecting.store, ledgerExpansionSealFailure{PageLedgerStore: f.ledger})
 							interrupted = errLedgerInjectedPage
 						} else {
 							collecting.testHooks.ingestHaltHook = func(stage string) error {

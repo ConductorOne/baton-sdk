@@ -30,7 +30,7 @@ func (s *syncer) configureLedgerReport(ctx context.Context) error {
 
 func (s *syncer) finishLedgerReport(ctx context.Context) {
 	logger := ctxzap.Extract(ctx)
-	report, err := s.caps.pageLedger.ArchiveLedgerReport(ctx)
+	report, err := s.store.ArchiveLedgerReport(ctx)
 	if err != nil {
 		logger.Warn("failed to access ledger report", zap.Error(err))
 		return

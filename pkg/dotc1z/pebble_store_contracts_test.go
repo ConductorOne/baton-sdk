@@ -12,7 +12,6 @@ import (
 var _ c1zstore.Store = (*pebbleStore)(nil)
 var _ c1zstore.PageLedgerStore = (*pebbleStore)(nil)
 var _ c1zstore.GrantGenerationDigestReader = (*pebbleStore)(nil)
-var _ c1zstore.WriteHookStore = (*pebbleStore)(nil)
 var _ connectorstore.Reader = (*pebbleStore)(nil)
 var _ connectorstore.StreamingReader = (*pebbleStore)(nil)
 var _ connectorstore.LatestFinishedSyncIDFetcher = (*pebbleStore)(nil)

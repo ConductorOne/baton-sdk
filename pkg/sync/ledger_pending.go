@@ -38,7 +38,7 @@ func (s *syncer) pendingForAction(action *Action) c1zstore.LedgerWork {
 }
 
 func (s *syncer) refreshPendingWindow(ctx context.Context) error {
-	work, phase, err := s.caps.pageLedger.PendingWork(ctx, 0, maxPeekActionsCount)
+	work, phase, err := s.store.PendingWork(ctx, 0, maxPeekActionsCount)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (s *syncer) refreshPendingWindow(ctx context.Context) error {
 
 func (s *syncer) pendingRefill(ctx context.Context, op ActionOp, after *uint64) ([]*Action, error) {
 	for {
-		work, phase, err := s.caps.pageLedger.PendingWorkAfter(ctx, *after, pendingAdmissionWindow)
+		work, phase, err := s.store.PendingWorkAfter(ctx, *after, pendingAdmissionWindow)
 		if err != nil {
 			return nil, err
 		}

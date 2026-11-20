@@ -180,7 +180,7 @@ func runLegacyCombinedMigration(t *testing.T, path string, workers int, cut stri
 		require.NoError(t, err)
 		s := created.(*syncer)
 		observeLedgerRestore(t, s, f)
-		s.caps.pageLedger = legacyCombinedStore{ledgerPublicCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) {
+		s.store = withPageLedger(s.store, legacyCombinedStore{ledgerPublicCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) {
 			if reached != cut {
 				return
 			}
@@ -191,7 +191,7 @@ func runLegacyCombinedMigration(t *testing.T, path string, workers int, cut stri
 			require.NoError(t, err)
 			require.NoError(t, writeLedgerTestFile(path+".cut", marker, 0600))
 			os.Exit(79)
-		}}}
+		}}})
 		require.NoError(t, s.Sync(t.Context()))
 		require.Empty(t, cut, "crash point was not reached")
 		require.Empty(t, c.remaining, "unfinished connector pages were skipped")

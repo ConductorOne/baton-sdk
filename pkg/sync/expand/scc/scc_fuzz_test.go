@@ -337,7 +337,7 @@ func decodeVarint(data []byte, i *int) (uint64, bool) {
 	}
 }
 
-// generateAdjFromBytes builds an adjacency from a byte stream with caps.
+// generateAdjFromBytes builds an adjacency from a byte stream with a size cap.
 func generateAdjFromBytes(data []byte, maxN, maxM int) map[int]map[int]int {
 	if len(data) == 0 {
 		return map[int]map[int]int{0: {}}

@@ -8,7 +8,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/sync/progresslog"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -139,7 +138,7 @@ func TestLedgerEntitlementCommitFailureRetry(t *testing.T) {
 	require.EqualValues(t, 2, counters.ConnectorCalls["list-entitlements"].Count)
 }
 
-type ledgerEntitlementPlannerStore struct{ c1zstore.Store }
+type ledgerEntitlementPlannerStore struct{ syncBackend }
 
 func (s ledgerEntitlementPlannerStore) ListResources(_ context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
 	next := ""
@@ -153,7 +152,7 @@ func TestLedgerEntitlementPlannerCommitAndReplay(t *testing.T) {
 	marker, err := anypb.New(&v2.TypeScopedEntitlements{})
 	require.NoError(t, err)
 	require.NoError(t, f.store.PutResourceTypes(t.Context(), v2.ResourceType_builder{Id: "selected", Annotations: []*anypb.Any{marker}}.Build()))
-	s.store = ledgerEntitlementPlannerStore{Store: f.store}
+	s.store = ledgerEntitlementPlannerStore{syncBackend: f.store}
 	s.run = newRunState()
 	s.run.pushAction(t.Context(), Action{Op: SyncEntitlementsOp})
 	action := s.run.current()
@@ -194,7 +193,7 @@ func TestLedgerEntitlementReplay(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
-	s.store, s.caps = f.store, resolveStoreCaps(f.store)
+	s.store = f.store
 	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "reopened-entitlements")
 	require.NoError(t, err)
 	s.run = newRunState()
@@ -245,9 +244,9 @@ func TestLedgerEntitlementReadFailures(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			s, f, _ := entitlementPageFixture(t, false)
 			if kind == "resource" {
-				s.store = ledgerResourceReadFailure{Store: f.store}
+				s.store = ledgerResourceReadFailure{syncBackend: f.store}
 			} else {
-				s.store = ledgerTypeReadFailure{Store: f.store}
+				s.store = ledgerTypeReadFailure{syncBackend: f.store}
 			}
 			seedLedgerTestRun(t, s, nil)
 			before := ledgerRawSnapshot(t, f.engine)

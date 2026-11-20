@@ -11,10 +11,7 @@ import (
 )
 
 type ledgerExpansionHandoffFailure struct {
-	c1zstore.Store
-	c1zstore.PageLedgerStore
-	EntitlementGraphStore
-	c1zstore.GrantGenerationDigestReader
+	syncBackend
 	fail  string
 	binds int
 }
@@ -24,13 +21,13 @@ func (s *ledgerExpansionHandoffFailure) SetCurrentSync(ctx context.Context, id s
 	if s.fail == "rebind" && s.binds == 2 {
 		return errLedgerInjectedPage
 	}
-	return s.Store.SetCurrentSync(ctx, id)
+	return s.syncBackend.SetCurrentSync(ctx, id)
 }
 func (s *ledgerExpansionHandoffFailure) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
 	if s.fail == "seal" {
 		return errLedgerInjectedPage
 	}
-	return s.PageLedgerStore.Seal(ctx, stats)
+	return s.syncBackend.Seal(ctx, stats)
 }
 
 func TestLedgerExpansionRequestAcrossSealFailure(t *testing.T) {
@@ -41,13 +38,12 @@ func TestLedgerExpansionRequestAcrossSealFailure(t *testing.T) {
 			f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "handoff.c1z"), false)
 			first, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants(), WithLedgerDebug(true), WithRetainLedgerTokens(true))
 			require.NoError(t, err)
-			first.(*syncer).caps.pageLedger = ledgerExpansionSealFailure{PageLedgerStore: f.ledger}
+			first.(*syncer).store = withPageLedger(first.(*syncer).store, ledgerExpansionSealFailure{PageLedgerStore: f.ledger})
 			require.ErrorIs(t, first.Sync(ctx), errLedgerInjectedPage)
 			id := first.(*syncer).syncID
 			require.NoError(t, f.store.Close(ctx))
 			f = openLedgerFixtureAt(t, f.path, false)
-			wrapper := &ledgerExpansionHandoffFailure{Store: f.store, PageLedgerStore: f.ledger, fail: cut,
-				EntitlementGraphStore: f.store.EntitlementGraphStore, GrantGenerationDigestReader: f.store.GrantGenerationDigestReader}
+			wrapper := &ledgerExpansionHandoffFailure{syncBackend: f.store, fail: cut}
 			host, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()},
 				WithConnectorStore(wrapper), WithSyncID(id), WithOnlyExpandGrants(), WithPreserveEntitlementGraph())
 			require.NoError(t, err)

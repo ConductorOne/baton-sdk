@@ -106,7 +106,7 @@ func TestLedgerResourceTypeFailureRetryAndReplay(t *testing.T) {
 	require.EqualValues(t, 14, counters.StepDurationsMs["rate_limit_wait"])
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
-	s.store, s.caps = f.store, resolveStoreCaps(f.store)
+	s.store = f.store
 	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "reopened-attempt")
 	require.NoError(t, err)
 	s.run = newRunState()
@@ -147,7 +147,7 @@ func TestLedgerResourceTypeErrors(t *testing.T) {
 	})
 }
 
-type ledgerTypeReadFailure struct{ c1zstore.Store }
+type ledgerTypeReadFailure struct{ syncBackend }
 
 func (s ledgerTypeReadFailure) GetResourceType(context.Context, *reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest) (*reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse, error) {
 	return nil, errLedgerInjectedPage
@@ -155,7 +155,7 @@ func (s ledgerTypeReadFailure) GetResourceType(context.Context, *reader_v2.Resou
 
 func TestLedgerResourceTypeReadFailure(t *testing.T) {
 	s, f, _ := resourceTypePageFixture(t)
-	s.store = ledgerTypeReadFailure{Store: f.store}
+	s.store = ledgerTypeReadFailure{syncBackend: f.store}
 	f.audit.enter(ledgerHandler)
 	require.ErrorIs(t, runResourceTypePages(t, s), errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
@@ -201,7 +201,7 @@ func TestLedgerResourceTypeSelection(t *testing.T) {
 }
 
 type ledgerTypeReadAudit struct {
-	c1zstore.Store
+	syncBackend
 	syncIDs []string
 }
 
@@ -213,14 +213,14 @@ func (s *ledgerTypeReadAudit) GetResourceType(
 		return nil, err
 	}
 	s.syncIDs = append(s.syncIDs, id)
-	return s.Store.GetResourceType(ctx, req)
+	return s.syncBackend.GetResourceType(ctx, req)
 }
 
 func TestLedgerResourceTypeSelectedSync(t *testing.T) {
 	s, f, _ := resourceTypePageFixture(t)
 	s.injectSyncIDAnnotation = true
 	s.syncID = f.engine.CurrentSyncID()
-	reader := &ledgerTypeReadAudit{Store: f.store}
+	reader := &ledgerTypeReadAudit{syncBackend: f.store}
 	s.store = reader
 	f.audit.enter(ledgerHandler)
 	require.NoError(t, runResourceTypePages(t, s))

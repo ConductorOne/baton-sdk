@@ -277,9 +277,6 @@ type IngestInvariantsPolicy struct {
 // store handles and the policy.
 type ingestInvariantsPass struct {
 	store connectorstore.Reader
-	// facts is the optional pebble inspection surface; nil degrades
-	// every requiresStore invariant (SQLite artifacts are never
-	// scanned).
 	facts dotc1z.IngestInvariantStore
 	p     *IngestInvariantsPolicy
 }
@@ -304,9 +301,6 @@ type ingestInvariant struct {
 	// runsOnAllSyncTypes: false gates the check to full syncs (complete
 	// keyspace); true runs it on partial syncs too.
 	runsOnAllSyncTypes bool
-	// requiresStore: the check needs the pebble inspection surface
-	// (dotc1z.IngestInvariantStore) and degrades to a no-op without it.
-	requiresStore bool
 	// failFastOnly: the check ONLY runs under FailFast (I4's
 	// full-resource-scan cost is a bad trade for a default-mode
 	// warning).
@@ -375,28 +369,24 @@ var ingestInvariants = []ingestInvariant{
 	},
 	{
 		id:               "I7",
-		requiresStore:    true,
 		failFastPromotes: true,
 		haltStage:        "invariants-I7-complete",
 		check:            (*ingestInvariantsPass).checkEntitlementResourceReferences,
 	},
 	{
 		id:               "I3",
-		requiresStore:    true,
 		failFastPromotes: true,
 		haltStage:        "invariants-I3-complete",
 		check:            (*ingestInvariantsPass).checkGrantResourceReferences,
 	},
 	{
 		id:               "I8",
-		requiresStore:    true,
 		failFastPromotes: true,
 		haltStage:        "invariants-I8-complete",
 		check:            (*ingestInvariantsPass).checkGrantEntitlementReferences,
 	},
 	{
 		id:               "I9",
-		requiresStore:    true,
 		failFastPromotes: true,
 		check:            (*ingestInvariantsPass).checkGrantPrincipalReferences,
 	},
@@ -502,22 +492,15 @@ func runIngestInvariants(
 	if policy.SyncType == "" {
 		return nil, fmt.Errorf("ingest invariants: policy.SyncType is required (the zero value would silently skip the full-keyspace invariants; pass the sync's actual type)")
 	}
-	pass := &ingestInvariantsPass{store: store, p: &policy}
-	pass.facts = resolveReaderCaps(store).ingestFacts
-	var skippedNoStore []string
+	facts, ok := store.(dotc1z.IngestInvariantStore)
+	if !ok {
+		return nil, fmt.Errorf("ingest invariants: store does not implement ingest invariant inspection")
+	}
+	pass := &ingestInvariantsPass{store: store, p: &policy, facts: facts}
 	coverage := make([]string, 0, len(ingestInvariants))
 	for i := range ingestInvariants {
 		inv := &ingestInvariants[i]
 		if !inv.runsOnAllSyncTypes && policy.SyncType != connectorstore.SyncTypeFull {
-			continue
-		}
-		if inv.requiresStore && pass.facts == nil {
-			// Engine without the inspection surface (SQLite): the
-			// referential invariants degrade by design, but the
-			// downgrade must be visible — a sealed artifact that was
-			// never referentially validated should not be
-			// indistinguishable from one that passed.
-			skippedNoStore = append(skippedNoStore, inv.id)
 			continue
 		}
 		if inv.failFastOnly && !policy.FailFast {
@@ -536,68 +519,7 @@ func runIngestInvariants(
 		}
 		coverage = append(coverage, inv.id)
 	}
-	if len(skippedNoStore) > 0 {
-		logSkippedReferentialInvariants(ctx, store, policy.ActiveSyncID, skippedNoStore)
-		if policy.onRetainedInvalid != nil && !policy.CompactionMerge {
-			policy.onRetainedInvalid()
-		}
-	}
 	return coverage, nil
-}
-
-// logSkippedReferentialInvariants makes the SQLite degradation visible.
-// The level depends on exposure: when the store carries TYPE-SCOPED
-// listing annotations, the skipped checks include exactly the ones the
-// annotation registry promises for that feature (I7/I8 — whole-type
-// listings are the shape referential mistakes hide in), so the line
-// escalates to a warning. Plain stores keep the informational line.
-// A failed probe also warns: unknown exposure must not read quieter
-// than known-benign.
-func logSkippedReferentialInvariants(ctx context.Context, store connectorstore.Reader, activeSyncID string, skipped []string) {
-	l := ctxzap.Extract(ctx)
-	typeScoped, err := storeCarriesTypeScopedTypes(ctx, store, activeSyncID)
-	switch {
-	case err != nil:
-		l.Warn("ingest invariants: store engine lacks the inspection surface; referential invariants were not evaluated (type-scoped exposure unknown: probe failed)",
-			zap.Strings("skipped_invariants", skipped),
-			zap.Error(err),
-		)
-	case typeScoped:
-		l.Warn("ingest invariants: store engine lacks the inspection surface; referential invariants were not evaluated, "+
-			"and the store carries TYPE-SCOPED listing annotations whose registered checks (I7/I8) are among them",
-			zap.Strings("skipped_invariants", skipped),
-		)
-	default:
-		l.Info("ingest invariants: store engine lacks the inspection surface; referential invariants were not evaluated",
-			zap.Strings("skipped_invariants", skipped),
-		)
-	}
-}
-
-// storeCarriesTypeScopedTypes reports whether any stored resource type
-// carries a type-scoped listing annotation (TypeScopedEntitlements or
-// TypeScopedGrants).
-func storeCarriesTypeScopedTypes(ctx context.Context, store connectorstore.Reader, activeSyncID string) (bool, error) {
-	pageToken := ""
-	for {
-		resp, err := store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
-			PageToken:    pageToken,
-			ActiveSyncId: activeSyncID,
-		}.Build())
-		if err != nil {
-			return false, fmt.Errorf("listing resource types: %w", err)
-		}
-		for _, rt := range resp.GetList() {
-			for _, a := range rt.GetAnnotations() {
-				if a.MessageIs((*v2.TypeScopedEntitlements)(nil)) || a.MessageIs((*v2.TypeScopedGrants)(nil)) {
-					return true, nil
-				}
-			}
-		}
-		if pageToken = resp.GetNextPageToken(); pageToken == "" {
-			return false, nil
-		}
-	}
 }
 
 // runIngestionInvariants is the syncer's call into the pass: policy
@@ -612,12 +534,10 @@ func storeCarriesTypeScopedTypes(ctx context.Context, store connectorstore.Reade
 // unfinished artifact the resume machinery will rewrite.
 func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	s.pendingInvariantVerification = nil
-	if verificationWriter := s.caps.ingestVerification; verificationWriter != nil {
-		// Invalidate any proof inherited from an earlier pass before
-		// re-evaluating. A failed rerun must leave the sync unverified.
-		if err := verificationWriter.ClearIngestInvariantVerification(ctx, s.syncID); err != nil {
-			return fmt.Errorf("ingest invariants: clear prior verification: %w", err)
-		}
+	// Invalidate any proof inherited from an earlier pass before
+	// re-evaluating. A failed rerun must leave the sync unverified.
+	if err := s.store.ClearIngestInvariantVerification(ctx, s.syncID); err != nil {
+		return fmt.Errorf("ingest invariants: clear prior verification: %w", err)
 	}
 	policy := IngestInvariantsPolicy{
 		ActiveSyncID:      s.getActiveSyncID(),
@@ -632,7 +552,7 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 		},
 	}
 	policy.scheduledChild = func(ctx context.Context, child, parentType, parent string) (bool, error) {
-		return s.caps.pageLedger.HasScheduledWork(ctx, "resource:"+childScheduleKey(child, parentType, parent))
+		return s.store.HasScheduledWork(ctx, "resource:"+childScheduleKey(child, parentType, parent))
 	}
 	// Leaving the predicate nil is how the policy says "no scheduler
 	// evidence, skip I10". The nil check has to be here: a bound method
@@ -670,15 +590,7 @@ func (s *syncer) persistIngestInvariantVerification(ctx context.Context) error {
 	}
 	verification := *s.pendingInvariantVerification
 	s.pendingInvariantVerification = nil
-	verificationWriter := s.caps.ingestVerification
-	if verificationWriter == nil {
-		// SyncMeta predates verification metadata and is implemented outside
-		// this repository. Preserve its established behavior; the absent
-		// marker truthfully distinguishes it from built-in verified stores.
-		ctxzap.Extract(ctx).Warn("ingest invariants: store cannot persist verification metadata")
-		return nil
-	}
-	return verificationWriter.MarkIngestInvariantsVerified(ctx, s.syncID, verification)
+	return s.store.MarkIngestInvariantsVerified(ctx, s.syncID, verification)
 }
 
 // exclusionGroupTracker is the pure validation core behind invariant I5:

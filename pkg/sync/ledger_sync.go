@@ -23,7 +23,7 @@ func WithRetainLedgerTokens(retain bool) SyncOpt {
 func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSync bool, targetedResources []*v2.Resource) error {
 	l := ctxzap.Extract(ctx)
 	syncID := s.syncID
-	s.caps.pageLedger.SetRetainLedgerTokens(s.cfg.retainLedgerTokens)
+	s.store.SetRetainLedgerTokens(s.cfg.retainLedgerTokens)
 	phase, err := s.prepareLedgerState(ctx, rand.Text(), newSync)
 	if err != nil {
 		return s.returnSyncError(l, span, err)
@@ -42,8 +42,8 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	}
 	// A prior verification cannot outlive the first page that changes records.
 	// An attempt with nothing to run writes nothing.
-	if writer := s.caps.ingestVerification; writer != nil && s.run.current() != nil {
-		if err := writer.ClearIngestInvariantVerification(ctx, syncID); err != nil {
+	if s.run.current() != nil {
+		if err := s.store.ClearIngestInvariantVerification(ctx, syncID); err != nil {
 			return s.returnSyncError(l, span, fmt.Errorf("clear prior ingest invariant verification: %w", err))
 		}
 	}
@@ -75,10 +75,8 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 			s.graph.restore(graph)
 		}
 		s.graph.clearTransientState()
-		if s.caps.entitlementGraph != nil && s.caps.grantDigest != nil {
-			graphToPersist = s.graph.peek()
-			s.graph.clear()
-		}
+		graphToPersist = s.graph.peek()
+		s.graph.clear()
 	} else {
 		s.graph.clear()
 	}
@@ -159,19 +157,19 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 	if err := s.sessionBinding.bind(ctx, s.cfg.sessionStoreBinder, syncID, s.store, s.recordSessionOp); err != nil {
 		return err
 	}
-	s.caps.pageLedger.SetRetainLedgerTokens(s.cfg.retainLedgerTokens)
+	s.store.SetRetainLedgerTokens(s.cfg.retainLedgerTokens)
 	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
-	if err := s.caps.pageLedger.BeginCollecting(ctx, []c1zstore.LedgerWork{seed}, nil); err != nil {
+	if err := s.store.BeginCollecting(ctx, []c1zstore.LedgerWork{seed}, nil); err != nil {
 		return err
 	}
-	work, _, err := s.caps.pageLedger.PendingWork(ctx, 0, 1)
+	work, _, err := s.store.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return err
 	}
 	if len(work) != 1 {
 		return errors.New("skip sync has no initial pending work")
 	}
-	s.ledger, err = newLedgerRuntime(s.caps.pageLedger, rand.Text(), 1)
+	s.ledger, err = newLedgerRuntime(s.store, rand.Text(), 1)
 	if err != nil {
 		return err
 	}

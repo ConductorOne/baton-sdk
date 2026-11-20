@@ -215,7 +215,7 @@ func TestLedgerGrantReplay(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
-	s.store, s.caps = f.store, resolveStoreCaps(f.store)
+	s.store = f.store
 	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "reopened-grants")
 	require.NoError(t, err)
 	seedLedgerTestRun(t, s, nil)
@@ -259,7 +259,7 @@ func TestLedgerGrantPlanner(t *testing.T) {
 	marker, err := anypb.New(&v2.TypeScopedGrants{})
 	require.NoError(t, err)
 	require.NoError(t, f.store.PutResourceTypes(t.Context(), v2.ResourceType_builder{Id: "selected", Annotations: []*anypb.Any{marker}}.Build()))
-	s.store = ledgerEntitlementPlannerStore{Store: f.store}
+	s.store = ledgerEntitlementPlannerStore{syncBackend: f.store}
 	s.run = newRunState()
 	s.run.pushAction(t.Context(), Action{Op: SyncGrantsOp})
 	action := s.run.current()

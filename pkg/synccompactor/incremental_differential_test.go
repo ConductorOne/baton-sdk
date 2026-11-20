@@ -143,7 +143,9 @@ func buildRandomDifferentialFixtures(
 	}
 	require.NoError(t, base.PutGrants(ctx, grants...))
 	require.NoError(t, baseGraph.FixCycles(ctx))
-	require.NoError(t, expand.NewExpander(sdksync.NewExpanderStore(base), baseGraph).Run(ctx))
+	expanderStore, err := sdksync.NewExpanderStore(base)
+	require.NoError(t, err)
+	require.NoError(t, expand.NewExpander(expanderStore, baseGraph).Run(ctx))
 	baseGraph.Loaded = true
 	baseGraph.MarkExpansionComplete()
 	require.NoError(t, base.EndSync(ctx))

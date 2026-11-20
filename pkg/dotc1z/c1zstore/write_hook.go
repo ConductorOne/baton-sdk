@@ -37,8 +37,3 @@ type WriteHookEvent struct {
 
 // A non-nil error fails the write.
 type WriteHook func(ctx context.Context, ev WriteHookEvent) error
-
-type WriteHookStore interface {
-	// nil removes it.
-	SetWriteHook(hook WriteHook)
-}

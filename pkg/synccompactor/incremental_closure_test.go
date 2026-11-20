@@ -144,7 +144,9 @@ func buildFilterChangeFixtures(
 		ruleGrantFilter(entC, groupB, "ent-b", baseFilter),
 	))
 	require.NoError(t, graph.FixCycles(ctx))
-	require.NoError(t, expand.NewExpander(sdksync.NewExpanderStore(base), graph).Run(ctx))
+	expanderStore, err := sdksync.NewExpanderStore(base)
+	require.NoError(t, err)
+	require.NoError(t, expand.NewExpander(expanderStore, graph).Run(ctx))
 	graph.Loaded = true
 	graph.MarkExpansionComplete()
 	require.NoError(t, base.EndSync(ctx))

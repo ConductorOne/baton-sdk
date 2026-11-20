@@ -75,17 +75,20 @@ type EntitlementGraphStore interface {
 	DeleteEntitlementGraphBlob(ctx context.Context) error
 }
 
+type storedGraphReader interface {
+	GetEntitlementGraphBlob(ctx context.Context) ([]byte, error)
+	GrantGenerationDigest(ctx context.Context) (c1zstore.GrantGenerationDigest, bool, error)
+}
+
 // GraphFromStore loads the entitlement graph persisted in the c1z sidecar for
 // syncID. Returns nil (no error) when the store lacks the capability, no graph
 // was preserved, or the stored graph belongs to a different sync.
 func GraphFromStore(ctx context.Context, store c1zstore.Store, syncID string) (*expand.EntitlementGraph, error) {
-	// Exported entry point: callers hand us a bare store, so this is one of
-	// the two places allowed to resolve capabilities (see store_caps.go).
-	caps := resolveReaderCaps(store)
-	if caps.entitlementGraph == nil {
+	reader, ok := store.(storedGraphReader)
+	if !ok {
 		return nil, nil
 	}
-	data, err := caps.entitlementGraph.GetEntitlementGraphBlob(ctx)
+	data, err := reader.GetEntitlementGraphBlob(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -99,10 +102,7 @@ func GraphFromStore(ctx context.Context, store c1zstore.Store, syncID string) (*
 	if boundDigest == nil {
 		return nil, nil
 	}
-	if caps.grantDigest == nil {
-		return nil, nil
-	}
-	currentDigest, found, err := caps.grantDigest.GrantGenerationDigest(ctx)
+	currentDigest, found, err := reader.GrantGenerationDigest(ctx)
 	if err != nil {
 		return nil, err
 	}
