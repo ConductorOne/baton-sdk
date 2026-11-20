@@ -1250,6 +1250,16 @@ func externalMatchCutScenarios(t *testing.T) []externalMatchCutScenario {
 			},
 		},
 		{
+			name:   "non-own winner on p1 is deleted after the stand-in it beat",
+			groups: map[string]string{"p1": "eng", "p2": "ops", "p3": "eng"},
+			rows: []externalMatchCutRow{
+				{principal: "a0", match: externalMatchCutDept("eng"), label: "C"},
+				{principal: "a1", match: externalMatchCutID("p1"), label: "S"},
+				{principal: "p1", match: externalMatchCutID("p2"), label: "p1"},
+			},
+			want: []string{`p1 label="S"`, `p2 label="p1"`, `p3 label="C"`},
+		},
+		{
 			name:   "carriers that match nothing",
 			groups: eng2,
 			rows: []externalMatchCutRow{
@@ -1343,6 +1353,17 @@ func TestExternalMatchWarnsOnOverlapOrderingCannotFix(t *testing.T) {
 			sc: externalMatchCutScenario{
 				groups: eng2,
 				rows:   []externalMatchCutRow{{principal: "a0", match: externalMatchCutDept("eng"), label: "stand-in"}},
+			},
+		},
+		{
+			name: "non-own winner on p1 is deleted after the stand-in it beat",
+			sc: externalMatchCutScenario{
+				groups: map[string]string{"p1": "eng", "p2": "ops", "p3": "eng"},
+				rows: []externalMatchCutRow{
+					{principal: "a0", match: externalMatchCutDept("eng"), label: "C"},
+					{principal: "a1", match: externalMatchCutID("p1"), label: "S"},
+					{principal: "p1", match: externalMatchCutID("p2"), label: "p1"},
+				},
 			},
 		},
 	}

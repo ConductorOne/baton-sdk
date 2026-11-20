@@ -2523,6 +2523,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			if ok && heldDeferred(key, entry) {
 				continue
 			}
+			if ok && !entry.own && inLateDelete[entry.sourceIndex] {
+				continue
+			}
 			for _, idx := range losers {
 				if inLateDelete[idx] {
 					markExposed(idx)
