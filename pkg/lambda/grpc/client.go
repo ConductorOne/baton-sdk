@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -97,6 +98,11 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 		return nil, fmt.Errorf("lambda_transport: failed to unmarshal response: %w", err)
 	}
 
+	// Without a request ID the last REPORT line is accepted; the SDK's
+	// response middleware supplies one on every real invoke.
+	requestID, _ := awsmiddleware.GetRequestIDMetadata(invokeResp.ResultMetadata)
+	resp.invokeReport = invokeReportFromLogResult(invokeResp.LogResult, requestID)
+
 	return resp, err
 }
 
@@ -183,13 +189,25 @@ func (c *clientConn) Invoke(ctx context.Context, method string, args any, reply 
 	for _, opt := range opts {
 		switch o := opt.(type) {
 		case grpc.HeaderCallOption:
-			for k, v := range tresp.Headers() {
-				o.HeaderAddr.Append(k, v...)
+			// Replace rather than merge into the caller's MD, as grpc-go does;
+			// appending to a caller's nil MD panics.
+			header := tresp.Headers()
+			if header == nil {
+				header = metadata.MD{}
 			}
+			header.Delete(LambdaInvokeReportMetadataKey)
+			if tresp.invokeReport != nil {
+				if v, err := tresp.invokeReport.metadataValue(); err == nil {
+					header.Set(LambdaInvokeReportMetadataKey, v)
+				}
+			}
+			*o.HeaderAddr = header
 		case grpc.TrailerCallOption:
-			for k, v := range tresp.Trailers() {
-				o.TrailerAddr.Append(k, v...)
+			trailer := tresp.Trailers()
+			if trailer == nil {
+				trailer = metadata.MD{}
 			}
+			*o.TrailerAddr = trailer
 		}
 	}
 
