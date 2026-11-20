@@ -87,6 +87,12 @@ func TestChaosConnectorResourcesAndEntitlementsFaultMatrix(t *testing.T) {
 
 	for _, target := range targets {
 		for _, fault := range faults {
+			if target.name == "resources" && fault.name == "warn-and-drop" {
+				fault.name = "not-found-cold-resume"
+				fault.pageToken = ""
+				fault.wantComplete = false
+				fault.wantCode = codes.NotFound
+			}
 			for _, transport := range chaosFaultTransports() {
 				t.Run(target.name+"/"+fault.name+"/"+transport.String(), func(t *testing.T) {
 					runCollectionFaultCase(t, target, fault, transport)
