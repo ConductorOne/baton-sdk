@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package c1.connectorapi.rtun.v1;
+
+import "c1/connectorapi/rtun/v1/rtun.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connectorapi/rtun/v1";
+
+// ReverseDialer allows callers to establish connections to clients via the gateway.
+// The gateway bridges caller streams to rtun sessions on the owner server.
+service ReverseDialerService {
+  rpc Open(stream ReverseDialerServiceOpenRequest) returns (stream ReverseDialerServiceOpenResponse);
+}
+
+// ReverseDialerServiceOpenRequest is sent from caller to gateway for the Open RPC.
+message ReverseDialerServiceOpenRequest {
+  oneof kind {
+    OpenRequest open_req = 1; // initiate a connection (first message, or concurrent opens)
+    Frame frame = 10; // data/control frames (reuses rtun Frame)
+  }
+}
+
+// ReverseDialerServiceOpenResponse is sent from gateway to caller for the Open RPC.
+message ReverseDialerServiceOpenResponse {
+  oneof kind {
+    OpenResponse open_resp = 1; // handshake result
+    Frame frame = 10; // data/control frames (reuses rtun Frame)
+  }
+}
+
+// OpenRequest initiates a reverse connection to a client.
+// The caller proposes a gSID (gateway SID) for this connection to support concurrent opens.
+message OpenRequest {
+  uint32 gsid = 1; // caller-proposed SID for this connection (must be unique per stream)
+  string client_id = 2; // target client (must be URL-safe)
+  uint32 port = 3; // target port on the client
+}
+
+// OpenResponse indicates the result of an OpenRequest.
+message OpenResponse {
+  uint32 gsid = 1; // echoed from OpenRequest
+  oneof result {
+    NotFound not_found = 2; // gateway doesn't own this client; caller should re-resolve
+    Opened opened = 3; // success; use the gSID for subsequent frames
+  }
+}
+
+message NotFound {}
+message Opened {}
