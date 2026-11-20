@@ -148,6 +148,18 @@ message Task {
 
   message ListTicketSchemasTask {
     repeated google.protobuf.Any annotations = 1;
+    // When false, the handler unrolls up to 100 schemas into one response,
+    // drops the rest, and ignores page_token and page_size.
+    // When true, the handler returns one bounded batch and a next_page_token.
+    bool paginate = 2;
+    // Opaque token from the previous paged response. Empty requests the first batch.
+    string page_token = 3 [(validate.rules).string = {
+      ignore_empty: true
+      min_bytes: 1
+      max_bytes: 16384
+    }];
+    // Maximum schemas per batch when paginate is true. Zero selects the default.
+    uint32 page_size = 4;
   }
 
   message GetTicketTask {
