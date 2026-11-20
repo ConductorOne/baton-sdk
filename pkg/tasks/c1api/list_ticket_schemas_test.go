@@ -320,11 +320,14 @@ func TestListTicketSchemasPaged(t *testing.T) {
 		}
 	})
 
-	t.Run("offset past the connector page is non-retryable", func(t *testing.T) {
+	t.Run("offset past a shrunken connector page continues with the next page", func(t *testing.T) {
 		token, err := encodeTicketSchemaCursor(ticketSchemaCursor{ConnectorPageToken: "p30", Offset: 31})
 		require.NoError(t, err)
-		_, err = runTicketSchemasTask(pagedClient(all, 30), v1.Task_ListTicketSchemasTask_builder{Paginate: true, PageToken: token}.Build())
-		require.ErrorIs(t, err, ErrTaskNonRetryable)
+		h, err := runTicketSchemasTask(pagedClient(all, 30), v1.Task_ListTicketSchemasTask_builder{Paginate: true, PageToken: token, PageSize: 1000}.Build())
+		require.NoError(t, err)
+		resp := requirePagedMarker(t, h)
+		require.Equal(t, wantIDs[60:], schemaIDs(resp.GetList()))
+		require.Empty(t, resp.GetNextPageToken())
 	})
 
 	t.Run("connector repeating its page token is non-retryable", func(t *testing.T) {

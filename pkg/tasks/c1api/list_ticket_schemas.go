@@ -214,9 +214,10 @@ func (c *listTicketSchemasTaskHandler) handlePaged(ctx context.Context, t *v1.Ta
 
 		list := schemas.GetList()
 		if cursor.Offset > len(list) {
-			err = fmt.Errorf("ticket schema page token offset %d exceeds connector page length %d", cursor.Offset, len(list))
-			l.Error("failed listing ticket schemas", zap.Error(err))
-			return c.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
+			// The connector page shrank since the cursor was issued; continue with the next page.
+			l.Warn("ticket schema page token offset exceeds connector page length",
+				zap.Int("offset", cursor.Offset), zap.Int("page_length", len(list)))
+			cursor.Offset = len(list)
 		}
 
 		full := false
