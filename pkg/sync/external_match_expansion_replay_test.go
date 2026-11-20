@@ -119,7 +119,7 @@ func TestExternalMatchExpansionResumeMatchesUninterruptedRun(t *testing.T) {
 						} else {
 							cut.deleteLimit = cutAfter
 						}
-						s.setStore(cut)
+						s.setStore(withLedgerCaps(t, cut, dst))
 						err := s.SyncExternalResourcesUsersAndGroups(ctx)
 						if err == nil {
 							return
@@ -363,7 +363,7 @@ func newExpansionReplaySyncer(t *testing.T, tc expansionReplayCase, grants []*v2
 
 	run := newRunState()
 	run.setFact(factHasExternalResourceGrants)
-	s := &syncer{run: run, stats: newRunStats(), graph: newExpansionGraph(), externalResourceReader: ext}
+	s := &syncer{syncID: externalMatchTestSyncID, run: run, stats: newRunStats(), graph: newExpansionGraph(), externalResourceReader: ext}
 	s.setStore(dst)
 	return s, dst
 }

@@ -9,8 +9,43 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
+
+type externalMatchMemoryFacts struct {
+	c1zstore.PageLedgerStore
+	facts map[string]string
+}
+
+func (m *externalMatchMemoryFacts) LedgerFacts(context.Context) (map[string]string, error) {
+	if m.facts == nil {
+		return map[string]string{}, nil
+	}
+	out := make(map[string]string, len(m.facts))
+	for k, v := range m.facts {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (m *externalMatchMemoryFacts) PutLedgerFacts(_ context.Context, facts map[string]string) error {
+	if m.facts == nil {
+		m.facts = make(map[string]string, len(facts))
+	}
+	for k, v := range facts {
+		m.facts[k] = v
+	}
+	return nil
+}
+
+func withExternalMatchFactLedger(double c1zstore.Store) c1zstore.Store {
+	return promoteLedgeredDeletes(&ledgeredStore{
+		Store:           double,
+		PageLedgerStore: &externalMatchMemoryFacts{},
+		meta:            connectorstore.StoreMetadata{Engine: string(c1zstore.EnginePebble)},
+	}, double)
+}
 
 // batchDeleteRouteStore records which delete surface the apply phase of
 // processGrantsWithExternalPrincipals reached. The embedded nil Store is
@@ -106,7 +141,7 @@ func newExternalMatchSyncer(store c1zstore.Store) *syncer {
 	run := newRunState()
 	run.setFact(factHasExternalResourceGrants)
 	s := &syncer{run: run, stats: newRunStats(), graph: newExpansionGraph()}
-	s.setStore(withTripwireLedgerCaps(store))
+	s.setStore(withExternalMatchFactLedger(store))
 	return s
 }
 

@@ -10,10 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -71,10 +68,12 @@ func newExternalMatchRerunSyncer(t *testing.T, f externalMatchRerunFixture) (*sy
 
 	run := newRunState()
 	run.setFact(factHasExternalResourceGrants)
-	s := &syncer{run: run, stats: newRunStats(), graph: newExpansionGraph(), externalResourceReader: ext}
+	s := &syncer{syncID: externalMatchTestSyncID, run: run, stats: newRunStats(), graph: newExpansionGraph(), externalResourceReader: ext}
 	s.setStore(dst)
 	return s, dst
 }
+
+const externalMatchTestSyncID = "sync-external-match"
 
 func externalMatchRerunGroup(t *testing.T, id string) *v2.Resource {
 	t.Helper()
@@ -207,7 +206,7 @@ func TestExternalMatchProfileFanoutCutBetweenPutChunks(t *testing.T) {
 			putChunk := 1
 			s.testHooks.externalMatchGrantPutChunk = &putChunk
 			cut := &externalMatchPutCutStore{Store: dst, failAt: 2}
-			s.setStore(cut)
+			s.setStore(withLedgerCaps(t, cut, dst))
 			err := s.SyncExternalResourcesUsersAndGroups(ctx)
 			require.ErrorIs(t, err, errExternalMatchPutCut)
 			require.Equal(t, []int{1, 1}, cut.recorded, "premise: the first chunk committed, the second was cut")
@@ -282,7 +281,7 @@ func TestExternalMatchMatchAllRerunPutCount(t *testing.T) {
 	}
 	s, dst := newExternalMatchRerunSyncer(t, f)
 	counting := &externalMatchPutCutStore{Store: dst}
-	s.setStore(counting)
+	s.setStore(withLedgerCaps(t, counting, dst))
 
 	require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
 	first := 0
@@ -395,7 +394,7 @@ func TestExternalMatchTwoPlainCarriersCutBetweenPutChunks(t *testing.T) {
 			putChunk := 1
 			s.testHooks.externalMatchGrantPutChunk = &putChunk
 			cut := &externalMatchPutCutStore{Store: dst, failAt: 2}
-			s.setStore(cut)
+			s.setStore(withLedgerCaps(t, cut, dst))
 			require.ErrorIs(t, s.SyncExternalResourcesUsersAndGroups(ctx), errExternalMatchPutCut)
 			require.Equal(t, []int{1, 1}, cut.recorded, "premise: the first chunk committed, the second was cut")
 			_, afterCut := expansionReplaySnapshot(t, dst)
@@ -651,7 +650,7 @@ func TestExternalMatchSelfCarrierFanoutCutBetweenPutChunks(t *testing.T) {
 		putChunk := 1
 		s.testHooks.externalMatchGrantPutChunk = &putChunk
 		cut := &externalMatchPutCutStore{Store: dst, failAt: 2}
-		s.setStore(cut)
+		s.setStore(withLedgerCaps(t, cut, dst))
 		require.ErrorIs(t, s.SyncExternalResourcesUsersAndGroups(ctx), errExternalMatchPutCut)
 		require.Equal(t, []int{1, 1}, cut.recorded, "premise: the first chunk committed, the second was cut")
 		_, afterCut := externalMatchAnnotatedLines(t, dst)
@@ -892,9 +891,17 @@ var errExternalMatchCut = errors.New("external match: injected cut")
 
 type externalMatchCutStore struct {
 	c1zstore.Store
+	c1zstore.PageLedgerStore
 	failAt          int
 	perGrantDeletes bool
 	ops             []string
+}
+
+func (s *externalMatchCutStore) PutLedgerFacts(ctx context.Context, facts map[string]string) error {
+	if err := s.step("marker[" + facts[externalMatchProgressFact] + "]"); err != nil {
+		return err
+	}
+	return s.PageLedgerStore.PutLedgerFacts(ctx, facts)
 }
 
 func externalMatchCutPrincipals(grants []*v2.Grant) string {
@@ -1043,7 +1050,7 @@ func newExternalMatchCutRun(t *testing.T, sc externalMatchCutScenario, ext c1zst
 
 	run := newRunState()
 	run.setFact(factHasExternalResourceGrants)
-	s := &syncer{run: run, stats: newRunStats(), graph: newExpansionGraph(), externalResourceReader: ext}
+	s := &syncer{syncID: externalMatchTestSyncID, run: run, stats: newRunStats(), graph: newExpansionGraph(), externalResourceReader: ext}
 	s.setStore(dst)
 	return s, dst
 }
@@ -1054,7 +1061,12 @@ func externalMatchCutSweep(t *testing.T, sc externalMatchCutScenario, mode exter
 	ext := newExternalMatchCutExternal(t, sc)
 
 	arm := func(s *syncer, dst c1zstore.Store, failAt int) *externalMatchCutStore {
-		cut := &externalMatchCutStore{Store: dst, failAt: failAt, perGrantDeletes: mode.perGrantDeletes}
+		cut := &externalMatchCutStore{
+			Store:           dst,
+			PageLedgerStore: dst.(c1zstore.PageLedgerStore),
+			failAt:          failAt,
+			perGrantDeletes: mode.perGrantDeletes,
+		}
 		if mode.putChunk > 0 {
 			putChunk := mode.putChunk
 			s.testHooks.externalMatchGrantPutChunk = &putChunk
@@ -1174,29 +1186,26 @@ func externalMatchCutScenarios(t *testing.T) []externalMatchCutScenario {
 			},
 		},
 		{
-			name:           "two carriers on matched groups, each matching both",
-			wholeCallsOnly: true,
-			groups:         eng2,
+			name:   "two carriers on matched groups, each matching both",
+			groups: eng2,
 			rows: []externalMatchCutRow{
 				{principal: "p1", match: externalMatchCutDept("eng"), label: "r1"},
 				{principal: "p2", match: externalMatchCutDept("eng"), label: "r2"},
 			},
 		},
 		{
-			name:           "previous-SDK profile rows, p1 holds more slugs than p2",
-			wholeCallsOnly: true,
-			groups:         eng2,
-			slugs:          map[string][]string{"p1": {"member", "admin"}, "p2": {"member"}},
+			name:   "previous-SDK profile rows, p1 holds more slugs than p2",
+			groups: eng2,
+			slugs:  map[string][]string{"p1": {"member", "admin"}, "p2": {"member"}},
 			rows: []externalMatchCutRow{
 				{principal: "p1", match: externalMatchCutDept("eng"), expansion: []string{"group:p1:member", "group:p1:admin"}},
 				{principal: "p2", match: externalMatchCutDept("eng"), expansion: []string{"group:p2:member"}},
 			},
 		},
 		{
-			name:           "previous-SDK profile rows beside their carrier, carrier scanned first",
-			wholeCallsOnly: true,
-			groups:         eng2,
-			slugs:          map[string][]string{"p1": {"member", "admin"}, "p2": {"member"}},
+			name:   "previous-SDK profile rows beside their carrier, carrier scanned first",
+			groups: eng2,
+			slugs:  map[string][]string{"p1": {"member", "admin"}, "p2": {"member"}},
 			rows: []externalMatchCutRow{
 				{principal: "a0", match: externalMatchCutDept("eng"), expansion: externalMatchEntitlementBIDs(t, "group", "a0", "member", "admin")},
 				{principal: "p1", match: externalMatchCutDept("eng"), expansion: []string{"group:p1:member", "group:p1:admin"}},
@@ -1204,10 +1213,9 @@ func externalMatchCutScenarios(t *testing.T) []externalMatchCutScenario {
 			},
 		},
 		{
-			name:           "previous-SDK profile rows beside their carrier, carrier scanned last",
-			wholeCallsOnly: true,
-			groups:         eng2,
-			slugs:          map[string][]string{"p1": {"member", "admin"}, "p2": {"member"}},
+			name:   "previous-SDK profile rows beside their carrier, carrier scanned last",
+			groups: eng2,
+			slugs:  map[string][]string{"p1": {"member", "admin"}, "p2": {"member"}},
 			rows: []externalMatchCutRow{
 				{principal: "p1", match: externalMatchCutDept("eng"), expansion: []string{"group:p1:member", "group:p1:admin"}},
 				{principal: "p2", match: externalMatchCutDept("eng"), expansion: []string{"group:p2:member"}},
@@ -1270,117 +1278,35 @@ func externalMatchCutScenarios(t *testing.T) []externalMatchCutScenario {
 	}
 }
 
-const externalMatchOverlapWarning = "external principal matching: connector grants for the same entitlement overlap; a sync interrupted during this step may keep a different one of them on resume"
-
-func TestExternalMatchWarnsOnOverlapOrderingCannotFix(t *testing.T) {
-	eng2 := map[string]string{"p1": "eng", "p2": "eng"}
-	team := v2.ExternalResourceMatch_builder{Key: "team", Value: "t", ResourceType: v2.ResourceType_TRAIT_GROUP}.Build()
-	cases := []struct {
-		name string
-		sc   externalMatchCutScenario
-		want int
-	}{
-		{
-			name: "carrier on p2 and a later stand-in, each matching p2 and p3",
-			sc: externalMatchCutScenario{
-				groups: map[string]string{"p2": "eng", "p3": "eng"},
-				rows: []externalMatchCutRow{
-					{principal: "p2", match: externalMatchCutDept("eng"), label: "p2"},
-					{principal: "zz", match: externalMatchCutDept("eng"), label: "zz"},
-				},
-			},
-			want: 1,
-		},
-		{
-			name: "stand-in for p2 and p3, then a carrier on p2 naming p3",
-			sc: externalMatchCutScenario{
-				groups: map[string]string{"p2": "eng", "p3": "eng"},
-				rows: []externalMatchCutRow{
-					{principal: "a0", match: externalMatchCutDept("eng"), label: "a0"},
-					{principal: "p2", match: externalMatchCutID("p3"), label: "p2"},
-				},
-			},
-			want: 1,
-		},
-		{
-			name: "stand-in matching p2 and p3, then a carrier on p1 matching p1 and p2",
-			sc: externalMatchCutScenario{
-				groups: map[string]string{"p1": "", "p2": "eng", "p3": "eng"},
-				profile: map[string]map[string]any{
-					"p1": {"team": "t"},
-					"p2": {"team": "t"},
-				},
-				rows: []externalMatchCutRow{
-					{principal: "a0", match: externalMatchCutDept("eng"), label: "stand-in"},
-					{principal: "p1", match: team, label: "L"},
-				},
-			},
-			want: 1,
-		},
-		{
-			name: "stand-in matching p1 and p2; p1 row names itself, p2 row matches nothing",
-			sc: externalMatchCutScenario{
-				groups: eng2,
-				rows: []externalMatchCutRow{
-					{principal: "a0", match: externalMatchCutDept("eng"), label: "stand-in"},
-					{principal: "p1", match: externalMatchCutID("p1"), label: "own"},
-					{principal: "p2", match: externalMatchCutID("absent"), label: "x"},
-				},
-			},
-		},
-		{
-			name: "carrier on p1 naming itself, then a stand-in matching p1 and p2",
-			sc: externalMatchCutScenario{
-				groups: eng2,
-				rows: []externalMatchCutRow{
-					{principal: "p1", match: externalMatchCutID("p1"), label: "own"},
-					{principal: "zz", match: externalMatchCutDept("eng"), label: "stand-in"},
-				},
-			},
-		},
-		{
-			name: "two stand-ins for one principal",
-			sc: externalMatchCutScenario{
-				groups: eng2,
-				rows: []externalMatchCutRow{
-					{principal: "a1", match: externalMatchCutID("p1"), label: "first"},
-					{principal: "a2", match: externalMatchCutID("p1"), label: "second"},
-				},
-			},
-		},
-		{
-			name: "one stand-in matching two principals",
-			sc: externalMatchCutScenario{
-				groups: eng2,
-				rows:   []externalMatchCutRow{{principal: "a0", match: externalMatchCutDept("eng"), label: "stand-in"}},
-			},
-		},
-		{
-			name: "non-own winner on p1 is deleted after the stand-in it beat",
-			sc: externalMatchCutScenario{
-				groups: map[string]string{"p1": "eng", "p2": "ops", "p3": "eng"},
-				rows: []externalMatchCutRow{
-					{principal: "a0", match: externalMatchCutDept("eng"), label: "C"},
-					{principal: "a1", match: externalMatchCutID("p1"), label: "S"},
-					{principal: "p1", match: externalMatchCutID("p2"), label: "p1"},
-				},
-			},
+func TestExternalMatchIgnoresMarkerFromAnotherSync(t *testing.T) {
+	sc := externalMatchCutScenario{
+		groups: map[string]string{"p1": "eng", "p2": "eng"},
+		rows: []externalMatchCutRow{
+			{principal: "a0", match: externalMatchCutID("p1"), label: "A"},
+			{principal: "p1", match: externalMatchCutID("p2"), label: "B"},
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			core, logs := observer.New(zap.WarnLevel)
-			ctx := ctxzap.ToContext(t.Context(), zap.New(core))
-			ext := newExternalMatchCutExternal(t, tc.sc)
-			s, _ := newExternalMatchCutRun(t, tc.sc, ext)
+	ctx := t.Context()
+	ext := newExternalMatchCutExternal(t, sc)
+	ref, refDst := newExternalMatchCutRun(t, sc, ext)
+	require.NoError(t, ref.SyncExternalResourcesUsersAndGroups(ctx))
+	want := externalMatchCutSnapshot(t, refDst)
+	require.Equal(t, []string{`p1 label="A"`, `p2 label="B"`}, want)
+
+	for _, value := range []string{
+		externalMatchProgressWritesDone("other-sync"),
+		externalMatchProgressWritesDone(""),
+		externalMatchProgressIdle,
+	} {
+		t.Run(value, func(t *testing.T) {
+			s, dst := newExternalMatchCutRun(t, sc, ext)
+			require.NotEmpty(t, s.syncID)
+			require.NotEqual(t, value, externalMatchProgressWritesDone(s.syncID))
+			require.NoError(t, dst.(c1zstore.PageLedgerStore).PutLedgerFacts(ctx, map[string]string{
+				externalMatchProgressFact: value,
+			}))
 			require.NoError(t, s.SyncExternalResourcesUsersAndGroups(ctx))
-			got := logs.FilterMessage(externalMatchOverlapWarning).All()
-			if tc.want == 0 {
-				require.Empty(t, got)
-				return
-			}
-			require.Len(t, got, 1)
-			require.EqualValues(t, tc.want, got[0].ContextMap()["overlapping_grants"])
+			require.Equal(t, want, externalMatchCutSnapshot(t, dst))
 		})
 	}
 }
