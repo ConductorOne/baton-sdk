@@ -256,7 +256,41 @@ func TestRequest_MarshalJSON_SizeGuardFallsBackToLegacy(t *testing.T) {
 }
 
 func TestDecodeWireFrame_UnsupportedVersion(t *testing.T) {
+	payload := []byte(`{"v": 3, "frame": "AA=="}`)
+	framed, originalErr := decodeWireFrame(payload, &pbtransport.Request{})
+	require.True(t, framed)
+	require.ErrorContains(t, originalErr, "unsupported wire frame version 3")
+	require.Equal(t, codes.Unknown, status.Code(originalErr))
 	rt := &Request{}
-	err := rt.UnmarshalJSON([]byte(`{"v": 3, "frame": "AA=="}`))
-	require.ErrorContains(t, err, "unsupported wire frame version 3")
+	err := rt.UnmarshalJSON(payload)
+	require.EqualError(t, err, "invalid transport request: unsupported wire frame version 3")
+	require.ErrorIs(t, err, ErrInvalidTransportRequest)
+	require.Equal(t, status.Code(originalErr), status.Code(err))
+}
+
+func TestTransportDecodeErrorsAreClassifiableSentinels(t *testing.T) {
+	for _, payload := range []string{`{"v": 3, "frame": "AA=="}`, `{"v": 2, "frame": "AA=="}`, `{"method":`, `["marker-secret"]`} {
+		requestErr := (&Request{}).UnmarshalJSON([]byte(payload))
+		require.ErrorIs(t, requestErr, ErrInvalidTransportRequest)
+		require.NotErrorIs(t, requestErr, ErrInvalidTransportResponse)
+		if payload == `{"v": 3, "frame": "AA=="}` {
+			require.EqualError(t, requestErr, "invalid transport request: unsupported wire frame version 3")
+		} else {
+			require.EqualError(t, requestErr, "invalid transport request")
+		}
+
+		responseErr := (&Response{}).UnmarshalJSON([]byte(payload))
+		require.ErrorIs(t, responseErr, ErrInvalidTransportResponse)
+		require.NotErrorIs(t, responseErr, ErrInvalidTransportRequest)
+		if payload == `{"v": 3, "frame": "AA=="}` {
+			require.EqualError(t, responseErr, "invalid transport response: unsupported wire frame version 3")
+		} else {
+			require.EqualError(t, responseErr, "invalid transport response")
+		}
+	}
+
+	// encoding/json is how the Lambda runtime and the client transport reach
+	// these decoders, so the sentinel has to survive that path too.
+	require.ErrorIs(t, json.Unmarshal([]byte(`{"v": 3, "frame": "AA=="}`), &Request{}), ErrInvalidTransportRequest)
+	require.ErrorIs(t, json.Unmarshal([]byte(`{"v": 3, "frame": "AA=="}`), &Response{}), ErrInvalidTransportResponse)
 }

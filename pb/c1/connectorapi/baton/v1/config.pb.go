@@ -94,8 +94,10 @@ type GetConnectorConfigResponse struct {
 	// sealed policy records. Absent for connectors without them; runtimes that
 	// require an envelope treat absence as deny-all.
 	ServedPolicyEnvelope *ServedPolicyEnvelope `protobuf:"bytes,4,opt,name=served_policy_envelope,json=servedPolicyEnvelope,proto3" json:"served_policy_envelope,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Platform execution environment this credential is authorized to serve.
+	ExpectedExecutionScope *string `protobuf:"bytes,5,opt,name=expected_execution_scope,json=expectedExecutionScope,proto3,oneof" json:"expected_execution_scope,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *GetConnectorConfigResponse) Reset() {
@@ -151,6 +153,13 @@ func (x *GetConnectorConfigResponse) GetServedPolicyEnvelope() *ServedPolicyEnve
 	return nil
 }
 
+func (x *GetConnectorConfigResponse) GetExpectedExecutionScope() string {
+	if x != nil && x.ExpectedExecutionScope != nil {
+		return *x.ExpectedExecutionScope
+	}
+	return ""
+}
+
 func (x *GetConnectorConfigResponse) SetConfig(v []byte) {
 	if v == nil {
 		v = []byte{}
@@ -168,6 +177,10 @@ func (x *GetConnectorConfigResponse) SetConfigVersion(v string) {
 
 func (x *GetConnectorConfigResponse) SetServedPolicyEnvelope(v *ServedPolicyEnvelope) {
 	x.ServedPolicyEnvelope = v
+}
+
+func (x *GetConnectorConfigResponse) SetExpectedExecutionScope(v string) {
+	x.ExpectedExecutionScope = &v
 }
 
 func (x *GetConnectorConfigResponse) HasLastUpdated() bool {
@@ -191,6 +204,13 @@ func (x *GetConnectorConfigResponse) HasServedPolicyEnvelope() bool {
 	return x.ServedPolicyEnvelope != nil
 }
 
+func (x *GetConnectorConfigResponse) HasExpectedExecutionScope() bool {
+	if x == nil {
+		return false
+	}
+	return x.ExpectedExecutionScope != nil
+}
+
 func (x *GetConnectorConfigResponse) ClearLastUpdated() {
 	x.LastUpdated = nil
 }
@@ -201,6 +221,10 @@ func (x *GetConnectorConfigResponse) ClearConfigVersion() {
 
 func (x *GetConnectorConfigResponse) ClearServedPolicyEnvelope() {
 	x.ServedPolicyEnvelope = nil
+}
+
+func (x *GetConnectorConfigResponse) ClearExpectedExecutionScope() {
+	x.ExpectedExecutionScope = nil
 }
 
 type GetConnectorConfigResponse_builder struct {
@@ -218,6 +242,8 @@ type GetConnectorConfigResponse_builder struct {
 	// sealed policy records. Absent for connectors without them; runtimes that
 	// require an envelope treat absence as deny-all.
 	ServedPolicyEnvelope *ServedPolicyEnvelope
+	// Platform execution environment this credential is authorized to serve.
+	ExpectedExecutionScope *string
 }
 
 func (b0 GetConnectorConfigResponse_builder) Build() *GetConnectorConfigResponse {
@@ -228,6 +254,7 @@ func (b0 GetConnectorConfigResponse_builder) Build() *GetConnectorConfigResponse
 	x.LastUpdated = b.LastUpdated
 	x.ConfigVersion = b.ConfigVersion
 	x.ServedPolicyEnvelope = b.ServedPolicyEnvelope
+	x.ExpectedExecutionScope = b.ExpectedExecutionScope
 	return m0
 }
 
@@ -513,13 +540,15 @@ const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	"\n" +
 	"%c1/connectorapi/baton/v1/config.proto\x12\x18c1.connectorapi.baton.v1\x1a+c1/connectorapi/baton/v1/servedpolicy.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"H\n" +
 	"\x19GetConnectorConfigRequest\x12+\n" +
-	"\x11requested_version\x18\x01 \x01(\tR\x10requestedVersion\"\x98\x02\n" +
+	"\x11requested_version\x18\x01 \x01(\tR\x10requestedVersion\"\xf4\x02\n" +
 	"\x1aGetConnectorConfigResponse\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12=\n" +
 	"\flast_updated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\x12*\n" +
 	"\x0econfig_version\x18\x03 \x01(\tH\x00R\rconfigVersion\x88\x01\x01\x12d\n" +
-	"\x16served_policy_envelope\x18\x04 \x01(\v2..c1.connectorapi.baton.v1.ServedPolicyEnvelopeR\x14servedPolicyEnvelopeB\x11\n" +
-	"\x0f_config_version\"6\n" +
+	"\x16served_policy_envelope\x18\x04 \x01(\v2..c1.connectorapi.baton.v1.ServedPolicyEnvelopeR\x14servedPolicyEnvelope\x12=\n" +
+	"\x18expected_execution_scope\x18\x05 \x01(\tH\x01R\x16expectedExecutionScope\x88\x01\x01B\x11\n" +
+	"\x0f_config_versionB\x1b\n" +
+	"\x19_expected_execution_scope\"6\n" +
 	"\fSignedHeader\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x03(\tR\x05value\"\xb2\x01\n" +

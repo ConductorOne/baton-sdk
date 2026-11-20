@@ -17,15 +17,27 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+
+	pbtransport "github.com/conductorone/baton-sdk/pb/c1/transport/v1"
 )
 
 type lambdaTransport struct {
 	lambdaClient *lambda.Client
 	functionName string
+	identity     *InvokeIdentity
 }
 
 func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Response, error) {
-	payload, frameOnly, err := req.marshalPayload()
+	wireRequest := req
+	if l.identity != nil {
+		wireRequest = &Request{msg: pbtransport.Request_builder{
+			Method: req.msg.GetMethod(), Req: req.msg.GetReq(), Headers: req.msg.GetHeaders(),
+			InvokeIdentity: pbtransport.InvokeIdentity_builder{
+				ClientId: l.identity.ClientID, ClientSecret: l.identity.ClientSecret,
+			}.Build(),
+		}.Build()}
+	}
+	payload, frameOnly, err := wireRequest.marshalPayload()
 	if err != nil {
 		return nil, fmt.Errorf("lambda_transport: failed to marshal frame: %w", err)
 	}
@@ -34,7 +46,7 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 			"lambda_transport: request has no legacy encoding, sending v2 frame only; a connector on a pre-frame SDK cannot process this call",
 			zap.String("method", req.Method()),
 			zap.String("function_name", l.functionName),
-			zap.NamedError("legacy_encoding_error", frameOnly),
+			zap.String("legacy_encoding_error", "request type cannot be encoded as legacy JSON"),
 		)
 	}
 
@@ -42,6 +54,9 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 		LogType:      types.LogTypeTail,
 		FunctionName: aws.String(l.functionName),
 		Payload:      payload,
+	}
+	if l.identity != nil {
+		input.TenantId = aws.String(l.identity.ExecutionScope)
 	}
 
 	// Invoke the Lambda function.
@@ -85,12 +100,31 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 	return resp, err
 }
 
+// ExecutionScope selects the platform-isolated environment; it is not an OAuth scope.
+type InvokeIdentity struct {
+	ExecutionScope string
+	ClientID       string
+	ClientSecret   string
+}
+
+type ClientTransportOption func(*lambdaTransport)
+
+func WithInvokeIdentity(identity InvokeIdentity) ClientTransportOption {
+	return func(transport *lambdaTransport) {
+		transport.identity = &identity
+	}
+}
+
 // NewLambdaClientTransport returns a new client transport that invokes a lambda function.
-func NewLambdaClientTransport(ctx context.Context, client *lambda.Client, functionName string) (ClientTransport, error) {
-	return &lambdaTransport{
-		lambdaClient: client,
-		functionName: functionName,
-	}, nil
+func NewLambdaClientTransport(ctx context.Context, client *lambda.Client, functionName string, opts ...ClientTransportOption) (ClientTransport, error) {
+	transport := &lambdaTransport{lambdaClient: client, functionName: functionName}
+	for _, opt := range opts {
+		opt(transport)
+	}
+	if identity := transport.identity; identity != nil && (identity.ExecutionScope == "" || identity.ClientID == "" || identity.ClientSecret == "") {
+		return nil, fmt.Errorf("lambda_transport: invoke identity requires execution scope, client ID and client secret")
+	}
+	return transport, nil
 }
 
 type ClientTransport interface {

@@ -42,6 +42,14 @@ type wireFrame struct {
 	Frame []byte `json:"frame"`
 }
 
+type unsupportedWireVersionError struct {
+	version int
+}
+
+func (e *unsupportedWireVersionError) Error() string {
+	return fmt.Sprintf("transport: unsupported wire frame version %d", e.version)
+}
+
 // decodeWireFrame reports whether raw carries a v2 wire frame and, if so,
 // decodes it into msg. A false return means raw is a legacy payload: either
 // it isn't shaped like a frame, or it doesn't parse as JSON at all — the
@@ -52,7 +60,7 @@ func decodeWireFrame(raw []byte, msg proto.Message) (bool, error) {
 		return false, nil //nolint:nilerr // not a v2 frame; the legacy path owns error reporting
 	}
 	if wf.V != transportWireVersion {
-		return true, fmt.Errorf("transport: unsupported wire frame version %d", wf.V)
+		return true, &unsupportedWireVersionError{version: wf.V}
 	}
 	return true, proto.Unmarshal(wf.Frame, msg)
 }

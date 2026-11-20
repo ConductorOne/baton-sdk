@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
@@ -18,6 +19,16 @@ import (
 )
 
 const annotationsFieldName = "annotations"
+
+// ErrInvalidTransportRequest and ErrInvalidTransportResponse classify decode
+// failures with errors.Is. Unsupported versions include the version number;
+// other decode errors are withheld because they can quote payload content.
+var (
+	// ErrInvalidTransportRequest is returned by Request.UnmarshalJSON.
+	ErrInvalidTransportRequest = errors.New("invalid transport request")
+	// ErrInvalidTransportResponse is returned by Response.UnmarshalJSON.
+	ErrInvalidTransportResponse = errors.New("invalid transport response")
+)
 
 /*
 unmarshalTransportJSON unmarshals transport JSON into msg. It reports whether
@@ -200,7 +211,11 @@ func (f *Request) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Request{}
 	wireV2, err := unmarshalTransportJSON(b, f.msg)
 	if err != nil {
-		return err
+		var versionErr *unsupportedWireVersionError
+		if errors.As(err, &versionErr) {
+			return fmt.Errorf("%w: unsupported wire frame version %d", ErrInvalidTransportRequest, versionErr.version)
+		}
+		return ErrInvalidTransportRequest
 	}
 	f.wireV2 = wireV2
 	return nil
@@ -265,6 +280,11 @@ func (f *Request) Headers() metadata.MD {
 	return UnmarshalMetadata(f.msg.GetHeaders())
 }
 
+// InvokeIdentity is separate from Headers and is never incoming gRPC metadata.
+func (f *Request) InvokeIdentity() *pbtransport.InvokeIdentity {
+	return f.msg.GetInvokeIdentity()
+}
+
 func NewRequest(method string, req proto.Message, headers metadata.MD) (*Request, error) {
 	reqAny, err := anypb.New(req)
 	if err != nil {
@@ -303,7 +323,11 @@ func (f *Response) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Response{}
 	wireV2, err := unmarshalTransportJSON(b, f.msg)
 	if err != nil {
-		return err
+		var versionErr *unsupportedWireVersionError
+		if errors.As(err, &versionErr) {
+			return fmt.Errorf("%w: unsupported wire frame version %d", ErrInvalidTransportResponse, versionErr.version)
+		}
+		return ErrInvalidTransportResponse
 	}
 	f.wireV2 = wireV2
 	return nil

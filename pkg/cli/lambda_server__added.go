@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -74,9 +75,11 @@ var lambdaConnectorReloadMinInterval = 5 * time.Second
 var lambdaConnectorReloadGlobalFloor = 1 * time.Second
 
 type lambdaConnectorGeneration struct {
-	version   string
-	connector types.ConnectorServer
-	logging   lambdaLogLevelConfig
+	version      string
+	connector    types.ConnectorServer
+	logging      lambdaLogLevelConfig
+	cancel       context.CancelFunc
+	identityMode bool
 }
 
 type lambdaLogLevelConfig struct {
@@ -100,10 +103,11 @@ type lambdaConnectorCloser interface {
 }
 
 type lambdaConnectorReloader struct {
-	mu      sync.Mutex
-	server  *c1_lambda_grpc.Server
-	current *lambdaConnectorGeneration
-	build   func(context.Context, string) (*lambdaConnectorGeneration, error)
+	mu           sync.Mutex
+	server       *c1_lambda_grpc.Server
+	current      *lambdaConnectorGeneration
+	build        func(context.Context, string) (*lambdaConnectorGeneration, error)
+	identityMode bool
 
 	// lastRebuildAt/lastRebuildRequestedVersion back the reload rate-cap. When
 	// the server persistently serves a config_version different from the
@@ -145,6 +149,11 @@ func (r *lambdaConnectorReloader) Handler(ctx context.Context, req *c1_lambda_gr
 			if !panicked {
 				return
 			}
+			if r.identityMode {
+				resp, err = c1_lambda_grpc.ErrorResponse(ugrpc.RecoveredPanicErrorRedacted(ctx, ugrpc.RecoverySiteLambdaHandler,
+					"lambda-run: connector generation panic", status.Error(codes.Unavailable, "lambda-run: connector generation failed"))), nil
+				return
+			}
 			// Internal, deliberately not the Unavailable that reload's error exits
 			// return: an error from reload is an anticipated failure (config fetch,
 			// decrypt, validation) that a retry can plausibly clear, while a panic
@@ -168,6 +177,18 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 
 	if requestedVersion != "" {
 		if err := r.reloadIfNeeded(ctx, requestedVersion); err != nil {
+			if r.identityMode {
+				// The error is withheld from the caller and from the log because it
+				// can quote configuration or request content. Its gRPC code is safe
+				// and tells a failing configuration call from a local failure.
+				versions := []zap.Field{zap.String("requested_version", requestedVersion), zap.String("current_version", r.currentVersion()), zap.String("stage", lambdaBuildErrorStage(err))}
+				if errors.Is(err, errLambdaExecutionScope) {
+					ctxzap.Extract(ctx).Error("lambda-run: execution scope mismatch on reload; serving previous generation", versions...)
+					return c1_lambda_grpc.ErrorResponse(status.Error(codes.FailedPrecondition, "lambda-run: execution scope mismatch")), nil
+				}
+				ctxzap.Extract(ctx).Error("lambda-run: failed to reload connector config; serving previous generation", append(versions, zap.Stringer("cause_code", status.Code(err)))...)
+				return c1_lambda_grpc.ErrorResponse(status.Error(codes.Unavailable, "lambda-run: failed to reload connector config")), nil
+			}
 			return c1_lambda_grpc.ErrorResponse(status.Errorf(codes.Unavailable, "lambda-run: failed to reload connector config: %v", err)), nil
 		}
 	}
@@ -177,6 +198,16 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 	}
 
 	return r.server.Handler(ctx, req)
+}
+
+func (r *lambdaConnectorReloader) currentVersion() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.current == nil {
+		return ""
+	}
+	return r.current.version
 }
 
 func (r *lambdaConnectorReloader) applyCurrentLogLevel(now time.Time) error {
@@ -246,6 +277,12 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 		return err
 	}
 	previous := r.current
+	swapped := false
+	defer func() {
+		if !swapped {
+			closeIdentityGeneration(ctx, next)
+		}
+	}()
 	replaced, drained, err := r.server.ReplaceServiceImplementation(previous.connector, next.connector)
 	if err != nil {
 		return err
@@ -255,6 +292,7 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	}
 
 	r.current = next
+	swapped = true
 	r.lastRebuildAt = time.Now()
 	r.lastRebuildRequestedVersion = requestedVersion
 	if err := applyLambdaLogLevel(next.logging, time.Now()); err != nil {
@@ -270,6 +308,9 @@ func closeConnectorGenerationAfterDrain(ctx context.Context, generation *lambdaC
 		return
 	}
 
+	if generation.cancel != nil {
+		defer generation.cancel()
+	}
 	drainTimer := time.NewTimer(drainTimeout)
 	defer drainTimer.Stop()
 
@@ -283,7 +324,11 @@ func closeConnectorGenerationAfterDrain(ctx context.Context, generation *lambdaC
 	defer cancel()
 
 	if err := closeLambdaConnectorGeneration(closeCtx, generation.connector); err != nil {
-		zap.L().Warn("error closing stale lambda connector generation", zap.String("config_version", generation.version), zap.Error(err))
+		if generation.identityMode {
+			zap.L().Warn("error closing stale lambda connector generation")
+		} else {
+			zap.L().Warn("error closing stale lambda connector generation", zap.String("config_version", generation.version), zap.Error(err))
+		}
 	}
 }
 
@@ -340,6 +385,21 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 	if err != nil {
 		return err
 	}
+	lambdaCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if err := v.BindPFlags(cmd.Flags()); err != nil {
+			return err
+		}
+		if v.GetBool(field.LambdaServerPerInvokeIdentityField.GetName()) {
+			// Cobra validates required-flag annotations after PreRunE. Identity
+			// mode supplies credentials per invoke instead of through these flags.
+			for _, f := range lambdaSchema.Fields {
+				if f.Required {
+					delete(cmd.Flags().Lookup(f.GetName()).Annotations, cobra.BashCompOneRequiredFlag)
+				}
+			}
+		}
+		return nil
+	}
 
 	lambdaCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		err := v.BindPFlags(cmd.Flags())
@@ -391,6 +451,18 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			}
 		}()
 
+		if v.GetBool(field.LambdaServerPerInvokeIdentityField.GetName()) {
+			handler, err := newLambdaInvokeIdentityHandler(runCtx, v.GetString(field.LambdaServerAllowedHostSuffixField.GetName()),
+				lambdaIdentityRuntimeFactory(v, connectorSchema, getconnector, sessionStoreEnabled))
+			if err != nil {
+				return err
+			}
+			handler.setStartupLogLevel(startupLogLevel)
+			// StartWithOptions exits the process; deferred cleanup cannot run.
+			aws_lambda.StartWithOptions(handler.Handler, aws_lambda.WithContext(runCtx))
+			return nil
+		}
+
 		if err := field.Validate(lambdaSchema, v); err != nil {
 			return err
 		}
@@ -405,14 +477,6 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to create DPoP client: %w", err)
 		}
 
-		// Create connector config service client using the DPoP client
-		configClient := v1.NewConnectorConfigServiceClient(grpcClient)
-
-		ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
-		if !ok {
-			return fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
-		}
-
 		clientSecret := v.GetString("lambda-client-secret")
 		if clientSecret != "" {
 			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
@@ -422,117 +486,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
-		// parse content directly for lambdas, don't read from file
-		readFromPath := false
-		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
-
-		sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
-		var sessionStoreConstructor sessions.SessionStoreConstructor
-		if sessionStoreEnabled {
-			sessionStoreConstructor = createSessionCacheConstructor(grpcClient)
-		} else {
-			sessionStoreConstructor = func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
-				return &session.NoOpSessionStore{}, nil
-			}
-		}
-
-		buildConnectorGeneration := func(ctx context.Context, requestedVersion string) (*lambdaConnectorGeneration, error) {
-			// Get configuration, convert it to viper flag values, then proceed.
-			config, err := configClient.GetConnectorConfig(ctx, &v1.GetConnectorConfigRequest{
-				RequestedVersion: requestedVersion,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("lambda-run: failed to get connector config: %w", err)
-			}
-
-			decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, config.GetConfig())
-			if err != nil {
-				return nil, fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
-			}
-
-			configStruct := structpb.Struct{}
-			err = json.Unmarshal(decrypted, &configStruct)
-			if err != nil {
-				return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
-			}
-
-			connectorConfig := configStruct.AsMap()
-			effectiveConfig := effectiveLambdaConfig(v, connectorConfig, connectorSchema)
-			logLevelConfig, err := lambdaLogLevelConfigFromViper(effectiveConfig)
-			if err != nil {
-				return nil, err
-			}
-
-			t, err := makeLambdaConnectorConfiguration[T](v, effectiveConfig, connectorConfig, decodeOpts)
-			if err != nil {
-				return nil, fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
-			}
-
-			var (
-				fieldOptions  []field.Option
-				schemaFields  []field.SchemaField
-				authMethodStr string
-			)
-			authMethodStr = effectiveConfig.GetString("auth-method")
-			if authMethodStr != "" {
-				fieldOptions = append(fieldOptions, field.WithAuthMethod(authMethodStr))
-			}
-			schemaFieldsMap := connectorSchema.FieldGroupFields(authMethodStr)
-			for _, field := range schemaFieldsMap {
-				schemaFields = append(schemaFields, field)
-			}
-
-			if len(schemaFields) == 0 {
-				schemaFields = connectorSchema.Fields
-			}
-
-			if err := field.Validate(connectorSchema, t, fieldOptions...); err != nil {
-				return nil, fmt.Errorf("failed to validate config: %w", err)
-			}
-
-			policy, version := egressPolicyAndGenerationVersion(ctx, requestedVersion, config)
-			ops := RunTimeOpts{
-				SessionStore: NewLazyCachingSessionStore(sessionStoreConstructor, func(otterOptions *otter.Options[string, []byte]) {
-					if sessionStoreMaximumSize <= 0 {
-						otterOptions.MaximumWeight = 0
-					} else {
-						otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
-					}
-				}),
-				SelectedAuthMethod:  authMethodStr,
-				SyncResourceTypeIDs: effectiveConfig.GetStringSlice("sync-resource-types"),
-				EgressPolicy:        policy,
-			}
-
-			if hasOauthField(schemaFields) {
-				ops.TokenSource = &lambdaTokenSource{
-					ctx:    runCtx,
-					webKey: webKey,
-					client: configClient,
-				}
-			}
-			// Apply the connector's configured log level before constructing it so
-			// construction-time logs honor the requested level. Only do this for
-			// reloads; the initial build relies on the startup log level and the
-			// post-build apply below.
-			if requestedVersion != "" {
-				if err := applyLambdaLogLevel(logLevelConfig, time.Now()); err != nil {
-					return nil, err
-				}
-			}
-
-			c, err := getconnector(runCtx, t, ops)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get connector: %w", err)
-			}
-
-			return &lambdaConnectorGeneration{
-				version:   version,
-				connector: c,
-				logging:   logLevelConfig,
-			}, nil
-		}
-
+		buildConnectorGeneration := newLambdaGenerationBuilder(runCtx, v, connectorSchema, getconnector, sessionStoreEnabled, grpcClient, webKey, false, "")
 		initialGeneration, err := buildConnectorGeneration(runCtx, "")
 		if err != nil {
 			return err
@@ -584,6 +538,171 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 	}
 
 	return nil
+}
+
+func newLambdaGenerationBuilder[T field.Configurable](
+	runCtx context.Context,
+	v *viper.Viper,
+	connectorSchema field.Configuration,
+	getconnector GetConnectorFunc2[T],
+	sessionStoreEnabled bool,
+	grpcClient grpc.ClientConnInterface,
+	webKey *jose.JSONWebKey,
+	identityMode bool,
+	expectedScope string,
+) func(context.Context, string) (*lambdaConnectorGeneration, error) {
+	configClient := v1.NewConnectorConfigServiceClient(grpcClient)
+	// parse content directly for lambdas, don't read from file
+	readFromPath := false
+	decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+
+	sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
+	var sessionStoreConstructor sessions.SessionStoreConstructor
+	if sessionStoreEnabled {
+		sessionStoreConstructor = createSessionCacheConstructor(grpcClient)
+	} else {
+		sessionStoreConstructor = func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
+			return &session.NoOpSessionStore{}, nil
+		}
+	}
+
+	buildConnectorGeneration := func(ctx context.Context, requestedVersion string) (*lambdaConnectorGeneration, error) {
+		if webKey == nil {
+			return nil, &lambdaBuildStageError{stage: "decrypt", err: fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")}
+		}
+		ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
+		if !ok {
+			return nil, &lambdaBuildStageError{stage: "decrypt", err: fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")}
+		}
+		// Get configuration, convert it to viper flag values, then proceed.
+		config, err := configClient.GetConnectorConfig(ctx, &v1.GetConnectorConfigRequest{
+			RequestedVersion: requestedVersion,
+		})
+		if err != nil {
+			return nil, &lambdaBuildStageError{stage: "fetch", err: fmt.Errorf("lambda-run: failed to get connector config: %w", err)}
+		}
+		if identityMode && (!config.HasExpectedExecutionScope() || config.GetExpectedExecutionScope() != expectedScope) {
+			return nil, &lambdaBuildStageError{stage: "scope", err: errLambdaExecutionScope}
+		}
+
+		decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, config.GetConfig())
+		if err != nil {
+			return nil, &lambdaBuildStageError{stage: "decrypt", err: fmt.Errorf("lambda-run: failed to decrypt config: %w", err)}
+		}
+
+		configStruct := structpb.Struct{}
+		err = json.Unmarshal(decrypted, &configStruct)
+		if err != nil {
+			return nil, &lambdaBuildStageError{stage: "unmarshal", err: fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)}
+		}
+
+		connectorConfig := configStruct.AsMap()
+		effectiveConfig := effectiveLambdaConfig(v, connectorConfig, connectorSchema)
+		logLevelConfig, err := lambdaLogLevelConfigFromViper(effectiveConfig)
+		if err != nil {
+			return nil, &lambdaBuildStageError{stage: "validate", err: err}
+		}
+
+		t, err := makeLambdaConnectorConfiguration[T](v, effectiveConfig, connectorConfig, decodeOpts)
+		if err != nil {
+			return nil, &lambdaBuildStageError{stage: "validate", err: fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)}
+		}
+
+		var (
+			fieldOptions  []field.Option
+			schemaFields  []field.SchemaField
+			authMethodStr string
+		)
+		authMethodStr = effectiveConfig.GetString("auth-method")
+		if authMethodStr != "" {
+			fieldOptions = append(fieldOptions, field.WithAuthMethod(authMethodStr))
+		}
+		schemaFieldsMap := connectorSchema.FieldGroupFields(authMethodStr)
+		for _, field := range schemaFieldsMap {
+			schemaFields = append(schemaFields, field)
+		}
+
+		if len(schemaFields) == 0 {
+			schemaFields = connectorSchema.Fields
+		}
+
+		if err := field.Validate(connectorSchema, t, fieldOptions...); err != nil {
+			return nil, &lambdaBuildStageError{stage: "validate", err: fmt.Errorf("failed to validate config: %w", err)}
+		}
+
+		policy, version := egressPolicyAndGenerationVersion(ctx, requestedVersion, config)
+		ops := RunTimeOpts{
+			SessionStore: NewLazyCachingSessionStore(sessionStoreConstructor, func(otterOptions *otter.Options[string, []byte]) {
+				if sessionStoreMaximumSize <= 0 {
+					otterOptions.MaximumWeight = 0
+				} else {
+					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
+				}
+			}),
+			SelectedAuthMethod:  authMethodStr,
+			SyncResourceTypeIDs: effectiveConfig.GetStringSlice("sync-resource-types"),
+			EgressPolicy:        policy,
+		}
+
+		if hasOauthField(schemaFields) {
+			ops.TokenSource = &lambdaTokenSource{
+				ctx:    runCtx,
+				webKey: webKey,
+				client: configClient,
+			}
+		}
+		// Apply the connector's configured log level before constructing it so
+		// construction-time logs honor the requested level. Only do this for
+		// reloads; the initial build relies on the startup log level and the
+		// post-build apply below.
+		if requestedVersion != "" {
+			if err := applyLambdaLogLevel(logLevelConfig, time.Now()); err != nil {
+				return nil, &lambdaBuildStageError{stage: "validate", err: err}
+			}
+		}
+
+		constructionCtx := runCtx
+		if identityMode {
+			constructionCtx = ctx
+		}
+		c, err := getconnector(constructionCtx, t, ops)
+		if err != nil {
+			if identityMode && c != nil {
+				closeIdentityGeneration(ctx, &lambdaConnectorGeneration{connector: c, identityMode: identityMode})
+			}
+			return nil, &lambdaBuildStageError{stage: "construct", err: fmt.Errorf("failed to get connector: %w", err)}
+		}
+		if identityMode && c == nil {
+			return nil, &lambdaBuildStageError{stage: "construct", err: fmt.Errorf("connector construction returned no server")}
+		}
+
+		return &lambdaConnectorGeneration{
+			version:      version,
+			connector:    c,
+			logging:      logLevelConfig,
+			identityMode: identityMode,
+		}, nil
+	}
+	return buildConnectorGeneration
+}
+
+type lambdaBuildStageError struct {
+	stage string
+	err   error
+}
+
+func (e *lambdaBuildStageError) Error() string { return e.err.Error() }
+func (e *lambdaBuildStageError) Unwrap() error { return e.err }
+
+func lambdaBuildErrorStage(err error) string {
+	var staged *lambdaBuildStageError
+	if errors.As(err, &staged) {
+		return staged.stage
+	}
+	if errors.Is(err, errLambdaExecutionScope) {
+		return "scope"
+	}
+	return "unknown"
 }
 
 // lambdaUnaryInterceptorChain builds the interceptor chain the lambda transport

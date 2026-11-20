@@ -225,6 +225,10 @@ func (m *GetConnectorConfigResponse) validate(all bool) error {
 		// no validation rules for ConfigVersion
 	}
 
+	if m.ExpectedExecutionScope != nil {
+		// no validation rules for ExpectedExecutionScope
+	}
+
 	if len(errors) > 0 {
 		return GetConnectorConfigResponseMultiError(errors)
 	}
