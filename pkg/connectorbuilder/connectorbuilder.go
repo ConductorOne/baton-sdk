@@ -405,7 +405,7 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 		}
 
 		if _, exists := b.accountManagers[resourceTypeID]; exists {
-			caps = append(caps, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
+			caps = append(caps, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING, v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1)
 		}
 
 		if _, exists := b.resourceManagers[resourceTypeID]; exists {
@@ -420,6 +420,9 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 
 		if _, exists := b.credentialIssuers[resourceTypeID]; exists {
 			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ISSUE, v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1)
+			if !slices.Contains(caps, v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1) {
+				caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1)
+			}
 		}
 
 		// Extend the capabilities with the resource type specificcapabilities

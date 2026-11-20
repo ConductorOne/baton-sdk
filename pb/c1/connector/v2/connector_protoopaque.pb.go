@@ -46,6 +46,10 @@ const (
 	// The connector can mint new credentials for an existing identity via
 	// CredentialManagerService.IssueCredential.
 	Capability_CAPABILITY_CREDENTIAL_ISSUE Capability = 14
+	// CreateAccount and IssueCredential accept an EncryptionConfig with a native
+	// age recipient: age1... (X25519) or age1pq1... (hybrid ML-KEM768-X25519).
+	// This names the native age provider, not age in general.
+	Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1 Capability = 15
 	// IssueCredential supports the baton/jwe/v1 X-Wing recipient with one config
 	// and one plaintext value. This names that one suite, not JWE in general;
 	// another suite needs its own capability value.
@@ -70,6 +74,7 @@ var (
 		12: "CAPABILITY_EVENT_FEED_V2",
 		13: "CAPABILITY_SERVICE_MODE_TARGETED_SYNC",
 		14: "CAPABILITY_CREDENTIAL_ISSUE",
+		15: "CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1",
 		16: "CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1",
 	}
 	Capability_value = map[string]int32{
@@ -88,6 +93,7 @@ var (
 		"CAPABILITY_EVENT_FEED_V2":                      12,
 		"CAPABILITY_SERVICE_MODE_TARGETED_SYNC":         13,
 		"CAPABILITY_CREDENTIAL_ISSUE":                   14,
+		"CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1":       15,
 		"CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1": 16,
 	}
 )
@@ -2814,7 +2820,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\rdefault_value\x18\x01 \x03(\v2J.c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntryR\fdefaultValue\x1av\n" +
 	"\x11DefaultValueEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12K\n" +
-	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\x85\x04\n" +
+	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\xb2\x04\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12\x18\n" +
@@ -2832,7 +2838,8 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x18CAPABILITY_TARGETED_SYNC\x10\v\x12\x1c\n" +
 	"\x18CAPABILITY_EVENT_FEED_V2\x10\f\x12)\n" +
 	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r\x12\x1f\n" +
-	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e\x121\n" +
+	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e\x12+\n" +
+	"'CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1\x10\x0f\x121\n" +
 	"-CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1\x10\x10*\xf6\x03\n" +
 	" CapabilityDetailCredentialOption\x123\n" +
 	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED\x10\x00\x123\n" +

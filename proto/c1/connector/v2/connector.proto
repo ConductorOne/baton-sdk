@@ -72,6 +72,10 @@ enum Capability {
   // The connector can mint new credentials for an existing identity via
   // CredentialManagerService.IssueCredential.
   CAPABILITY_CREDENTIAL_ISSUE = 14;
+  // CreateAccount and IssueCredential accept an EncryptionConfig with a native
+  // age recipient: age1... (X25519) or age1pq1... (hybrid ML-KEM768-X25519).
+  // This names the native age provider, not age in general.
+  CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1 = 15;
   // IssueCredential supports the baton/jwe/v1 X-Wing recipient with one config
   // and one plaintext value. This names that one suite, not JWE in general;
   // another suite needs its own capability value.

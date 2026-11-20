@@ -429,3 +429,40 @@ func TestJWEAuthenticatedDataSurvivesProtoRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestAgeEncryptionCapabilityAdvertisement(t *testing.T) {
+	ctx := context.Background()
+
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+		newTestAccountManager("user"),
+		newTestCredentialIssuer("service_account"),
+		newTestCredentialSecretDeleter(),
+		newTestResourceSyncer("plain"),
+	}))
+	require.NoError(t, err)
+
+	caps, err := connector.(*builder).GetCapabilities(ctx)
+	require.NoError(t, err)
+
+	byType := make(map[string][]v2.Capability)
+	for _, capability := range caps.GetResourceTypeCapabilities() {
+		byType[capability.GetResourceType().GetId()] = capability.GetCapabilities()
+	}
+
+	require.Contains(t, byType["user"], v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
+	require.Contains(t, byType["user"], v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1)
+	require.Contains(t, byType["service_account"], v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1)
+	require.NotContains(t, byType["plain"], v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1)
+	require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1)
+}
+
+func TestAgeEncryptionCapabilityAbsentWithoutEncryptingResourceTypes(t *testing.T) {
+	ctx := context.Background()
+
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{newTestResourceSyncer("plain")}))
+	require.NoError(t, err)
+
+	caps, err := connector.(*builder).GetCapabilities(ctx)
+	require.NoError(t, err)
+	require.NotContains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_AGE_V1)
+}
