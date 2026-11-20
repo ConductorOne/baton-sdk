@@ -165,6 +165,37 @@ func (m *BatonActionSchema) validate(all bool) error {
 
 	// no validation rules for Description
 
+	_BatonActionSchema_ActionType_Unique := make(map[ActionType]struct{}, len(m.GetActionType()))
+
+	for idx, item := range m.GetActionType() {
+		_, _ = idx, item
+
+		if _, exists := _BatonActionSchema_ActionType_Unique[item]; exists {
+			err := BatonActionSchemaValidationError{
+				field:  fmt.Sprintf("ActionType[%v]", idx),
+				reason: "repeated value must contain unique items",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		} else {
+			_BatonActionSchema_ActionType_Unique[item] = struct{}{}
+		}
+
+		if _, ok := ActionType_name[int32(item)]; !ok {
+			err := BatonActionSchemaValidationError{
+				field:  fmt.Sprintf("ActionType[%v]", idx),
+				reason: "value must be one of the defined enum values",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	// no validation rules for ResourceTypeId
 
 	if len(errors) > 0 {
