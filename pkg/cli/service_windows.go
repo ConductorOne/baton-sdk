@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -176,8 +178,54 @@ func (c *eventLogCore) clone() *eventLogCore {
 
 type eventLogKey struct{}
 
+// eventLogSink adapts the Windows event log to io.Writer for log rotation
+// diagnostics. Those cannot go through zap (rotation runs inside a zap write),
+// and their os.Stderr default is discarded for a service, so failed rotations
+// and prunes would otherwise be silent on the one platform this feature targets.
+type eventLogSink struct {
+	elog debug.Log
+}
+
+func (s *eventLogSink) Write(p []byte) (int, error) {
+	if err := s.elog.Error(1, strings.TrimRight(string(p), "\r\n")); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+var (
+	eventLogMu     sync.Mutex
+	eventLogName   string
+	eventLogHandle *eventlog.Log
+)
+
+// openEventLog returns a process-wide event log handle for name. eventlog.Open
+// hands back a Win32 handle that nothing here ever closes, and this is reached
+// more than once per service run, so each call would otherwise leak one.
+func openEventLog(name string) (*eventlog.Log, error) {
+	eventLogMu.Lock()
+	defer eventLogMu.Unlock()
+	if eventLogHandle != nil && eventLogName == name {
+		return eventLogHandle, nil
+	}
+	elog, err := eventlog.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if eventLogHandle != nil {
+		_ = eventLogHandle.Close()
+	}
+	eventLogName, eventLogHandle = name, elog
+	return elog, nil
+}
+
 func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option) (context.Context, error) {
 	logToEventLog, _ := ctx.Value(eventLogEnabledKey{}).(bool)
+	// Only relevant to the service's own default baton.log below; relayed
+	// via the context (rather than read from viper directly) because this
+	// function is also called from batonService.Execute, which only has
+	// the context to work with. See logRotationContextKey in commands.go.
+	rotation, _ := ctx.Value(logRotationContextKey{}).(logging.RotationConfig)
 
 	if isService() {
 		defaultLoggingOpts := []logging.Option{
@@ -192,19 +240,29 @@ func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option)
 	}
 
 	if logToEventLog {
-		elog, err := eventlog.Open(name)
+		elog, err := openEventLog(name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open event log: %w", err)
 		}
 
 		// Put the event log on the context so we can reuse it in runService.
 		ctx = context.WithValue(ctx, eventLogKey{}, elog)
-		return logging.InitWithCore(ctx, func(cfg zap.Config) zapcore.Core {
+		rotation.ErrSink = &eventLogSink{elog: elog}
+		return logging.InitWithCoreAndRotation(ctx, func(cfg zap.Config) zapcore.Core {
 			return newEventLogCore(elog, cfg)
-		}, loggingOpts...)
+		}, rotation, loggingOpts...)
 	}
 
-	return logging.Init(ctx, loggingOpts...)
+	// Only when rotation is on, so the default (rotation off) opens no extra
+	// handle. Best effort: fall back to the stderr default if the source won't
+	// open, rather than failing startup for a diagnostic channel.
+	if isService() && rotation.MaxSizeMB > 0 {
+		if elog, err := openEventLog(name); err == nil {
+			rotation.ErrSink = &eventLogSink{elog: elog}
+		}
+	}
+
+	return logging.InitWithRotation(ctx, rotation, loggingOpts...)
 }
 
 func startCmd(name string) *cobra.Command {
@@ -588,12 +646,12 @@ type batonService struct {
 }
 
 func (s *batonService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
-	ctx, err := initLogger(s.ctx, s.name, logging.WithLogFormat(logging.LogFormatConsole), logging.WithLogLevel("info"))
-	if err != nil {
-		s.elog.Error(1, fmt.Sprintf("Failed to initialize logger. %v", err))
-		return false, 1
-	}
-	l := ctxzap.Extract(ctx)
+	// Reuse the logger the caller already put on s.ctx rather than building a
+	// second one. A re-Init here sees different options - it never learns the
+	// operator's --log-path - so with rotation on it retires the rotator the
+	// connector's logger, which keeps using the outer context, is still teeing
+	// to, and every later write fails with os.ErrClosed.
+	l := ctxzap.Extract(s.ctx)
 	l.Info("Executing service.")
 	changes <- svc.Status{State: svc.StartPending}
 	s.elog.Info(1, fmt.Sprintf("Starting %s service.", s.name))
@@ -636,7 +694,7 @@ func runService(ctx context.Context, name string) (context.Context, error) {
 	elog, ok := ctx.Value(eventLogKey{}).(debug.Log)
 	if !ok {
 		var err error
-		elog, err = eventlog.Open(name)
+		elog, err = openEventLog(name)
 		if err != nil {
 			l.Error("Failed to open event log.", zap.Error(err))
 			return ctx, err
