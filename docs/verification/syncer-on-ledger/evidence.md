@@ -565,3 +565,37 @@ Full run at f2205ce8: `go test ./...` green except `pkg/dotc1z`, `pkg/sync`, `pk
 - Review at b6834d01 (`ledger_lifecycle.go:185`): a durable `SyncExternalResourcesOp` resumed by an invocation without an external source dereferenced the nil reader in `listExternalResourceTypes` (pre-existing on `main`, where the op lives in the token). `SyncExternalResources` now returns an error naming the sync; the pending entry stays for an invocation that has the source. `TestExternalImportWithoutSourceFails`.
 - Review at b6834d01 (`ledger_sync.go:39`, CO-042): `first_options` was written before `parallelSync`, so an attempt that died before its `Init` commit left a record with no plan behind it, and the attempt that then planned the pass under its own flags was not compared (only the `Init` seed was queued) and did not become the record. `first_options` now rides the `Init` page. `TestLedgerCollectionFlagsAreThePlanningAttempts` was red before the change at its first assertion (`first_options` present after a death at the `Init` commit).
 - Review at 45ea871b (`ledger_lifecycle.go`, CO-042 H1): the frontier-only reseed of a legacy stack with collection work (`ledgerSeedPending` with no declaration) planned without the record, so the attempt that seeded it was never the lock. `BeginCollecting` takes `facts map[string]string` and the seed arm carries `first_options` when the file has none. `TestLedgerFrontierSeedArmsCollectionFlagLock` was red before the change at the record assertion.
+
+## SQLite-origin inputs to the ledger
+
+The P4 migration product and the historical-artifact check both start from a
+Pebble file: `newLedgerFixture` opens with `EnginePebble`, and the eb63f1b5
+producer writes Pebble. No cell had a v1 SQLite file as the input, though
+`selectStoreDriver` converts one on any explicit Pebble open and C1 requests
+Pebble for every connector not pinned to SQLite (`ResolveStorageEngine`).
+
+`TestSQLiteCheckpointConvertsToPebbleLedger` (`ledger_sqlite_convert_takeover_test.go`):
+the token-path syncer on a v1 file is stopped by external cancel after 1, 2 or 3
+grant responses; the saved file holds the stop checkpoint. The resumer attaches
+through `WithC1ZPath`+`WithStorageEngine(EnginePebble)` (the syncer performs the
+convert-open) or through an injected converted store, with 1 or 4 workers, against
+a connector that refuses every completed phase and every grant page the token
+recorded as complete. Asserted: the resume binds the SQLite sync ID, runs as a
+ledger, writes no token, requests every page the token left pending, seals with
+an empty token and facts and an archived report, and the four record families
+compare `proto.Equal` with an uninterrupted Pebble run, as do the stats record's
+counts. 12 cells, ~8s. Replacing `rec.SetSyncToken(sync.SyncToken)` in `ToPebble`
+with a no-op fails every cell: a fresh sync starts and the refusing connector is
+asked for resource types.
+
+`TestSQLiteUploadHostExpansion`: an unexpanded v1 upload, then C1's sync-baton
+sequence (read-only open with the connector's engine, `CloneSync`, open the clone
+with the same engine, `SetCurrentSync`, `NeedsExpansion` with the `PendingExpansion`
+fallback, only-expand syncer against a connector that refuses collection,
+`StatsV2`) under `EnginePebble` and `EngineSQLite`. The read-only open is asserted
+not to convert; the Pebble clone open is asserted to convert. Both engines produce
+the same expanded grant set on the live store and on a read-only reopen.
+
+This adds SQLite-origin evidence to C24, C27 and C36 without closing their
+products: one connector shape, external cancel only (no run-duration expiry), no
+expansion graph in the token, a single sync per source file.
