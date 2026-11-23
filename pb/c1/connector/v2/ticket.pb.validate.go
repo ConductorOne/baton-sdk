@@ -2854,6 +2854,8 @@ func (m *TicketsServiceListTicketSchemasResponse) validate(all bool) error {
 
 	}
 
+	// no validation rules for Paged
+
 	if len(errors) > 0 {
 		return TicketsServiceListTicketSchemasResponseMultiError(errors)
 	}

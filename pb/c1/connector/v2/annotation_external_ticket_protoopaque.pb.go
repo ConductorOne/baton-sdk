@@ -150,51 +150,6 @@ func (b0 ExternalTicketRef_builder) Build() *ExternalTicketRef {
 	return m0
 }
 
-// ListTicketSchemasPaged is attached to every response of a ListTicketSchemas task that
-// requested paginate and was served in paged mode.
-type ListTicketSchemasPaged struct {
-	state         protoimpl.MessageState `protogen:"opaque.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListTicketSchemasPaged) Reset() {
-	*x = ListTicketSchemasPaged{}
-	mi := &file_c1_connector_v2_annotation_external_ticket_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListTicketSchemasPaged) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListTicketSchemasPaged) ProtoMessage() {}
-
-func (x *ListTicketSchemasPaged) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_external_ticket_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-type ListTicketSchemasPaged_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-}
-
-func (b0 ListTicketSchemasPaged_builder) Build() *ListTicketSchemasPaged {
-	m0 := &ListTicketSchemasPaged{}
-	b, x := &b0, m0
-	_, _ = b, x
-	return m0
-}
-
 var File_c1_connector_v2_annotation_external_ticket_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_external_ticket_proto_rawDesc = "" +
@@ -204,14 +159,12 @@ const file_c1_connector_v2_annotation_external_ticket_proto_rawDesc = "" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\"u\n" +
 	"\x11ExternalTicketRef\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12P\n" +
-	"%external_ticket_provisioner_config_id\x18\x02 \x01(\tR!externalTicketProvisionerConfigId\"\x18\n" +
-	"\x16ListTicketSchemasPagedB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"%external_ticket_provisioner_config_id\x18\x02 \x01(\tR!externalTicketProvisionerConfigIdB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_external_ticket_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_c1_connector_v2_annotation_external_ticket_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_c1_connector_v2_annotation_external_ticket_proto_goTypes = []any{
 	(*ExternalTicketSettings)(nil), // 0: c1.connector.v2.ExternalTicketSettings
 	(*ExternalTicketRef)(nil),      // 1: c1.connector.v2.ExternalTicketRef
-	(*ListTicketSchemasPaged)(nil), // 2: c1.connector.v2.ListTicketSchemasPaged
 }
 var file_c1_connector_v2_annotation_external_ticket_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -232,7 +185,7 @@ func file_c1_connector_v2_annotation_external_ticket_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_external_ticket_proto_rawDesc), len(file_c1_connector_v2_annotation_external_ticket_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

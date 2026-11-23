@@ -151,8 +151,8 @@ message Task {
     // When false, the handler unrolls up to 100 schemas into one response,
     // drops the rest, and ignores page_token and page_size.
     // When true, the handler returns one bounded batch per task:
-    //   - Every paged response carries the c1.connector.v2.ListTicketSchemasPaged annotation.
-    //     A response without it came from an SDK that ignored paginate and may be truncated.
+    //   - Every paged response sets TicketsServiceListTicketSchemasResponse.paged.
+    //     A response with paged unset came from an SDK that ignored paginate and may be truncated.
     //     BuildInfo.sdk_version from Hello is an optional way to decide whether to request paging.
     //   - A non-empty next_page_token means more may follow, even when the list is empty.
     //     Paging is complete only when next_page_token is empty.
@@ -166,9 +166,13 @@ message Task {
       ignore_empty: true
       max_bytes: 4096
     }];
-    // Maximum schemas per paged batch. Zero selects 100; values above 1000 are clamped to 1000.
+    // Maximum schemas per paged batch: 0 selects 100, otherwise 1 to 1000.
     // A batch is also bounded to about 2 MiB serialized.
-    uint32 page_size = 4;
+    uint32 page_size = 4 [(validate.rules).uint32 = {
+      ignore_empty: true
+      gte: 1
+      lte: 1000
+    }];
   }
 
   message GetTicketTask {

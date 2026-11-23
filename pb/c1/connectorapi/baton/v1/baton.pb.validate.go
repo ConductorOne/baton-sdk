@@ -6395,7 +6395,20 @@ func (m *Task_ListTicketSchemasTask) validate(all bool) error {
 
 	}
 
-	// no validation rules for PageSize
+	if m.GetPageSize() != 0 {
+
+		if val := m.GetPageSize(); val < 1 || val > 1000 {
+			err := Task_ListTicketSchemasTaskValidationError{
+				field:  "PageSize",
+				reason: "value must be inside range [1, 1000]",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
 
 	if len(errors) > 0 {
 		return Task_ListTicketSchemasTaskMultiError(errors)

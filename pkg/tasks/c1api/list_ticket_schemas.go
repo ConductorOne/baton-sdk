@@ -179,7 +179,7 @@ func ticketSchemaPageSize(requested uint32) int {
 // always including at least one schema when one is available. A batch may end inside a
 // connector page; the returned token then resumes at the next schema of that page, so a
 // connector that returns everything in one page is re-fetched for each batch.
-// Every response carries the ListTicketSchemasPaged annotation.
+// Every response sets paged.
 func (c *listTicketSchemasTaskHandler) handlePaged(ctx context.Context, t *v1.Task_ListTicketSchemasTask) error {
 	l := ctxzap.Extract(ctx)
 
@@ -266,15 +266,13 @@ func (c *listTicketSchemasTaskHandler) handlePaged(ctx context.Context, t *v1.Ta
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
-	annos := annotations.Annotations{}
-	annos.Update(&v2.ListTicketSchemasPaged{})
 	resp := v2.TicketsServiceListTicketSchemasResponse_builder{
 		List:          batch,
 		NextPageToken: nextToken,
-		Annotations:   annos,
+		Paged:         true,
 	}.Build()
 
-	return c.helpers.FinishTask(ctx, resp, annos, nil)
+	return c.helpers.FinishTask(ctx, resp, nil, nil)
 }
 
 func newListSchemasTaskHandler(task *v1.Task, helpers listTicketSchemasTaskHelpers) *listTicketSchemasTaskHandler {
