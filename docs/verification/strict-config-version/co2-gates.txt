@@ -1,0 +1,44 @@
+source_sha: 6f59c9a904bb6d96c2f405f4d1290113570c0599
+
+$ go test -race -count=1 ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.070s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.169s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.304s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.019s
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -count=1 ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.637s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.154s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.131s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.014s
+exit_code: 0
+
+$ go build ./...
+exit_code: 0
+
+$ go build -tags baton_lambda_support ./...
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -run 'TestLambdaStrictConfigVersion|TestHandlerWithDispatchGuard|TestDispatchGuardHeldUntilImplementationAcquired' -count=1 -coverprofile=docs/verification/strict-config-version/co2-coverage.txt ./pkg/cli ./pkg/lambda/grpc
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.099s	coverage: 8.1% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.046s	coverage: 26.6% of statements
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -run '^TestLambdaStrictConfigVersionConcurrentReplacement' -count=100 ./pkg/cli
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.399s
+exit_code: 0
+
+$ go test -race -run '^TestDispatchGuardHeldUntilImplementationAcquired$' -count=100 ./pkg/lambda/grpc
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.282s
+exit_code: 0
+
+$ git diff --check
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -count=1 -coverprofile=docs/verification/strict-config-version/co2-coverage.txt ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.683s	coverage: 53.7% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.182s	coverage: 82.2% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.151s	coverage: 78.8% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.017s	coverage: 85.7% of statements
+exit_code: 0
