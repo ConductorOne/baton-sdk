@@ -48,9 +48,10 @@ import (
 )
 
 const (
-	lambdaConnectorConfigVersionHeader = "x-baton-connector-config-version"
-	lambdaConnectorDrainTimeout        = 30 * time.Second
-	lambdaConnectorCloseTimeout        = 10 * time.Second
+	lambdaConnectorConfigVersionHeader       = "x-baton-connector-config-version"
+	lambdaConnectorConfigVersionStrictHeader = "x-baton-connector-config-version-strict"
+	lambdaConnectorDrainTimeout              = 30 * time.Second
+	lambdaConnectorCloseTimeout              = 10 * time.Second
 
 	// Served-policy envelope contract versions this SDK understands. An
 	// envelope outside these resolves to a governed-with-no-hosts (deny-all)
@@ -191,6 +192,10 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 			}
 			return c1_lambda_grpc.ErrorResponse(status.Errorf(codes.Unavailable, "lambda-run: failed to reload connector config: %v", err)), nil
 		}
+	}
+
+	if _, strict := req.Headers()[lambdaConnectorConfigVersionStrictHeader]; strict && r.currentVersion() != requestedVersion {
+		return c1_lambda_grpc.ErrorResponse(status.Error(codes.FailedPrecondition, "lambda-run: connector config version is not ready")), nil
 	}
 
 	if err := r.applyCurrentLogLevel(time.Now()); err != nil {

@@ -30,3 +30,24 @@ Run affected packages with `-race`, with and without `baton_lambda_support`; run
 ## Initial evidence status
 
 V1–V8: not assessed. No deployed behavior claimed.
+
+## Implementation-obligation addendum
+
+The implementation reads header presence after `reloadIfNeeded`, then obtains the generation label through the existing mutex-protected `currentVersion`. It adds no closer, counter, cache, persistent state, retry or ownership transfer. The status is returned as a transport `ErrorResponse`, before log-level application and server dispatch.
+
+| ID | Invariant, premise and instrument |
+| --- | --- |
+| I1 | Compare the generation after reload, not before: V3 observes an actual service replacement and dispatches B; V4 observes a completed rebuild still serving A and refuses. |
+| I2 | Header presence, not a parsed boolean, controls opt-in: V5 includes empty and `false` values through JSON request encoding/decoding. |
+| I3 | A refusal performs no RPC side effect: the registered generated Grant handler records its connector's generation in a separate dispatch list; V1, V2, V4 and V5 compare this list. |
+| I4 | Preserve the serialized gRPC status: every fixture invocation round-trips both request and response JSON and extracts the received status. Reload errors cover legacy and invoke-identity reloader modes. |
+
+Lambda invokes a handler serially per execution environment. This change does not introduce serialization around independently concurrent direct calls to the reloader: a caller must not replace the generation concurrently between the version comparison and server dispatch. Supporting such a caller would require a separate generation-pinned dispatch contract. Existing generation replacement/drain and identity authentication are unchanged.
+
+The implementation-blind plan was committed before further test/API inspection; the assignment required reopening the cited `handle` and reload lines before that plan. This ordering limitation is recorded rather than claiming the plan was written without any implementation context.
+
+## CO1: decoded header presence
+
+Clarification of V5 and I2 at the metadata boundary: `UnmarshalMetadata` drops empty string values, so an empty-valued strict header is absent in `Request.Headers()`. A strict call must send a non-empty header value (callers use `true`); any non-empty value, including `false`, opts in. Raw empty-header detection would require a transport API change and is outside this stage.
+
+The initial empty-value expectation is replaced by a known-answer compatibility assertion that `strict: ""` remains non-strict. The original criterion and initial failed evidence remain recorded. This clarification changes no metadata serialization or dispatch behavior outside the new opt-in. Risk remains HIGH; all existing instruments and gates still apply.
