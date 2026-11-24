@@ -68,12 +68,22 @@ func TestLambdaStrictConfigVersionWarningRateLimit(t *testing.T) {
 			assertStrictWarning(t, entries[0], "B", "A")
 
 			f.reloader.mu.Lock()
+			f.reloader.lastRebuildAt = time.Time{}
+			f.reloader.mu.Unlock()
+			f.servedVersion = "C"
+			require.Equal(t, codes.OK, f.invokeStatusWithContext(t, ctx, metadata.Pairs("x-baton-connector-config-version", "C")).Code())
+			require.Equal(t, []string{"C"}, f.builds)
+			require.Equal(t, []string{"C"}, f.dispatched)
+			assertStrictVersionNotReady(t, f.invokeStatusWithContext(t, ctx, metadata.Pairs("x-baton-connector-config-version", "B", "x-baton-connector-config-version-strict", "true")))
+			require.Len(t, observed.FilterMessage("lambda-run: connector config version is not ready").All(), 1, "a new served/requested pair must not re-arm the warning")
+
+			f.reloader.mu.Lock()
 			f.reloader.lastStrictRefusalLoggedAt = time.Now().Add(-2 * lambdaConnectorReloadMinInterval)
 			f.reloader.mu.Unlock()
 			assertStrictVersionNotReady(t, f.invokeStatusWithContext(t, ctx, metadata.Pairs("x-baton-connector-config-version", "D", "x-baton-connector-config-version-strict", "true")))
 			entries = observed.FilterMessage("lambda-run: connector config version is not ready").All()
 			require.Len(t, entries, 2, "elapsed time must re-arm the warning")
-			assertStrictWarning(t, entries[1], "D", "A")
+			assertStrictWarning(t, entries[1], "D", "C")
 			require.Equal(t, capLoggedAt, f.reloader.lastCapLoggedAt)
 		})
 	}
