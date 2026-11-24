@@ -51,3 +51,17 @@ The implementation-blind plan was committed before further test/API inspection; 
 Clarification of V5 and I2 at the metadata boundary: `UnmarshalMetadata` drops empty string values, so an empty-valued strict header is absent in `Request.Headers()`. A strict call must send a non-empty header value (callers use `true`); any non-empty value, including `false`, opts in. Raw empty-header detection would require a transport API change and is outside this stage.
 
 The initial empty-value expectation is replaced by a known-answer compatibility assertion that `strict: ""` remains non-strict. The original criterion and initial failed evidence remain recorded. This clarification changes no metadata serialization or dispatch behavior outside the new opt-in. Risk remains HIGH; all existing instruments and gates still apply.
+
+## CO2: concurrent invocation dispatch pinning
+
+Correction required by independent review: the vendored Lambda runtime supports concurrent invocation loops when `AWS_LAMBDA_MAX_CONCURRENCY` exceeds one. The serial-only assumption in the implementation-obligation addendum is false and is withdrawn. The original exact-generation contract includes these invocations.
+
+Risk remains HIGH. A strict request must either acquire the checked connector generation for dispatch, retaining its existing in-flight ownership until completion, or refuse with `FailedPrecondition`. A concurrent non-strict invocation may rebuild and replace that generation between the version comparison and dispatch acquisition; this must never send the strict request to the replacement.
+
+| ID | Required coverage and oracle |
+| --- | --- |
+| V9 | Pause strict A after its version check and before implementation acquisition; run a non-strict B invocation that rebuilds and serves B; resume A. Strict A refuses without dispatching on B. Observe both the forced barrier and the B rebuild. |
+| V10 | Pause strict A after implementation acquisition; rebuild to B concurrently. Strict A completes on A, B dispatches on B, and A is not closed before its acquired request finishes. |
+| I5 | Registry comparison and in-flight acquisition occur under the same mutex as replacement; release is owed exactly once on every dispatch exit. Non-strict Handler keeps its existing path. |
+
+Before fixing, execute V9 against the reviewed implementation and retain its failing output. Plant a bypass of generation-pinned acquisition and require the same behavioral failure. Re-run both-mode package race/build gates and retain exact mutation patches, output and changed-branch coverage with this verification record. No deployed concurrent-runtime claim is made.
