@@ -712,6 +712,13 @@ func isWarning(ctx context.Context, err error) bool {
 	return false
 }
 
+func isActionWarning(ctx context.Context, action *Action, err error) bool {
+	if action != nil && action.Op == SyncResourcesOp && (action.ParentResourceTypeID == "" || action.ParentResourceID == "") {
+		return false
+	}
+	return isWarning(ctx, err)
+}
+
 func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	// Sync resuming logic:
 	// If we know our sync ID, set it as the current sync and return (resuming that sync).

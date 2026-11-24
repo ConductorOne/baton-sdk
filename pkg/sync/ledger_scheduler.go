@@ -99,7 +99,7 @@ func (s *syncer) invokeActionPage(
 					return err
 				}
 				ctxzap.Extract(pageCtx).Info("connector invalidated the action's page token; restarting the action", restartLogFields(action, detail)...)
-			case !allowWarning || !isWarning(pageCtx, err):
+			case !allowWarning || !isActionWarning(pageCtx, action, err):
 				handlerFailure = err
 				return err
 			default:

@@ -145,7 +145,7 @@ func TestLedgerExistingSchedulerPreservesIndependentErrors(t *testing.T) {
 
 func TestLedgerExistingSchedulerWarningCommitsAccounting(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
-	action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
+	action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type", ParentResourceTypeID: "parent-type", ParentResourceID: "deleted-parent"})
 	seedLedgerTestRun(t, s, action)
 	warning := status.Error(codes.NotFound, "resource no longer exists")
 	s.testHooks.ledgerHandler = func(context.Context, *ledgerPage, *Action) error { return warning }
