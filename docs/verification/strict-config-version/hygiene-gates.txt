@@ -1,0 +1,33 @@
+source_sha: 88892d584497b0777f6079c7d2ec2396ad00f13d
+Temporary coverage output is recorded as coverage.out; full bytes are not retained. See coverage.md for the changed-range excerpt.
+
+$ go test -race -count=1 ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.069s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.161s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.134s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.015s
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -count=1 ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.643s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.154s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.130s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.013s
+exit_code: 0
+
+$ go build ./...
+exit_code: 0
+
+$ go build -tags baton_lambda_support ./...
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -count=1 -coverprofile=coverage.out ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.664s	coverage: 53.8% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.167s	coverage: 82.2% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.162s	coverage: 78.8% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.016s	coverage: 85.7% of statements
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -run '^TestLambdaStrictConfigVersionConcurrentReplacement' -count=100 ./pkg/cli
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.568s
+exit_code: 0

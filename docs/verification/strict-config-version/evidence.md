@@ -37,7 +37,7 @@ The initial report assumed serial invocation and excluded concurrent replacement
 - PASS: `git diff --check`.
 - BLOCKED: `golangci-lint run --build-tags baton_lambda_support --new-from-rev origin/main --timeout 5m ./pkg/cli/...`. Installed linter was built with Go 1.26 and refuses a module targeting Go 1.27.4 before analysis. This is not a passing lint result.
 
-The initial focused coverage profile reported 18 executions of the strict condition, 6 of the refusal body, and 12 of the dispatch continuation. It exercised the serial branches, not concurrent replacement. The complete corrected affected-package coverage profile is retained under CO2.
+The initial focused coverage profile reported 18 executions of the strict condition, 6 of the refusal body, and 12 of the dispatch continuation. It exercised the serial branches, not concurrent replacement. The latest changed-range coverage excerpt is retained in `coverage.md`; duplicate whole-package profiles were removed.
 
 ## Initial planted violations
 
@@ -89,9 +89,9 @@ The two CLI interleavings and the blocked-acquisition instrument also pass 100 r
 
 - `co2-gates.txt`: exact source SHA, both-mode affected-package race results, both builds, focused/full coverage commands, 100-repeat concurrency checks and diff check. Every listed command exits zero.
 - `co2-focused-after.txt`: verbose corrected-fixture output at the exact source SHA.
-- `co2-coverage.txt`: complete affected-package race-enabled coverage profile. The guarded acquisition function and both authoritative version-check outcomes execute. The existing unguarded Handler and nil-guard path execute in the full package suite. Changed production branches have no missing instrument; unrelated existing uncovered paths are not whole-package closure claims.
-- `co2-mutations.json`: eleven exact source diffs, source SHA and SHA-256 hashes, commands, complete output, exit codes and distinguishing expected assertions. All eleven fail by their intended behavioral assertion, with no compile/setup failure.
-- `co2-failed-before.json`: exact pre-fix reproduction described above.
+- `coverage.md`: the current changed-range excerpt replaces the two historical whole-package profile dumps. Full package tests still exercise the guarded and unguarded paths; the excerpt is not a whole-package coverage claim.
+- `co2-mutations.json`: eleven exact source diffs, source SHA and SHA-256 hashes, normalized command/output paths, exit codes and distinguishing expected assertions. All eleven fail by their intended behavioral assertion, with no compile/setup failure.
+- `co2-failed-before.json`: the pre-fix reproduction described above, with exact source patch and normalized workspace paths.
 
 The eleven mutations cover the original seven mechanisms plus bypassing guarded acquisition, releasing the external guard before acquisition, omitting its release, and omitting the in-flight reference. Temporary overlay files were removed; original source bytes were checked unchanged after execution. No detached provider or deployed behavior is claimed.
 
@@ -117,12 +117,24 @@ The excluded branch is not reachable with the helper's non-OK status and fixed v
 
 ### Retained CO3 evidence
 
-- `co3-failed-before.json`: exact test patch, source base, command and output before the detail was added. Both early/capped and concurrent refusals failed the one-typed-detail assertion; ordinary preconditions passed.
+- `co3-failed-before.json`: exact test patch and source base, plus workspace-normalized command/output before the detail was added. Both early/capped and concurrent refusals failed the one-typed-detail assertion; ordinary preconditions passed.
 - `co3-focused-after.txt`: all strict-version cases, including the typed detail and ordinary-error cells, pass with race detection.
 - `co3-gates.txt`: exact source SHA and outputs for affected-package race tests with/without Lambda support, both builds, complete affected-package coverage, 100 repeated concurrent-generation cases and diff check. All commands exit zero.
-- `co3-coverage.txt`: the full affected-package coverage profile; helper success is covered, with the defensive fallback disposition above.
-- `co3-mutations.json`: exact diffs, source hashes, commands and output for six rejected violations: stripping ErrorInfo, wrong reason, wrong domain, bypassing the helper on the early exit, bypassing it on the acquisition exit, and incorrectly marking an ordinary execution-scope precondition.
+- `coverage.md`: the current changed-range excerpt includes successful ErrorInfo encoding and the explicitly excluded defensive fallback, without retaining duplicate whole-package profiles.
+- `co3-mutations.json`: exact diffs and source hashes, with workspace-normalized command/output for six rejected violations: stripping ErrorInfo, wrong reason, wrong domain, bypassing the helper on the early exit, bypassing it on the acquisition exit, and incorrectly marking an ordinary execution-scope precondition.
 
 The prior eleven mutation executions remain retained at their recorded CO2 revision; they are not relabelled as executions against CO3. This delta reruns the full package gates and concurrency tests, and adds the six typed-detail mutations. All mutation failures were intended behavioral assertions, not build/setup failures. Temporary overlays were removed and original source bytes were checked unchanged.
 
 Local lint remains blocked by the previously recorded toolchain mismatch. Independent light-delta review and PR CI are pending; no deployed caller-classification or vendor evidence is claimed.
+
+## Final review cleanups
+
+Source/tests: `88892d584497b0777f6079c7d2ec2396ad00f13d`. The strict opt-in now checks the first decoded header value locally for non-emptiness. This is equivalent with the current decoder, while avoiding a dependency on that decoder dropping empty values. The tested dispatch guard is unchanged. Header semantics, the early-refusal rationale and the guard's method-parsing/order/release contract are documented in source; V5 states the same empty-value rule.
+
+`header-value-independence.json` records a bounded dependency perturbation: retaining empty values in metadata decoding still passes the header matrix with the local check. Replacing only that local check with the previous key-presence check makes the empty-value cell fail under the same perturbation. These are fixture overlays, not a transport change or a claim of a bug under the current decoder.
+
+`hygiene-gates.txt` records the final-source affected-package race tests in both modes, both builds, full affected-package coverage generation and 100 concurrent-generation repetitions; all exit zero. `coverage.md` retains only 46 relevant coverage blocks (about 4.6 KB), replacing the two approximately 123 KB whole-package dumps. Full temporary profiles were removed after extracting the reported ranges.
+
+Public evidence paths are repository-relative; temporary overlay paths use `overlay/<name>.json`. Source patches, source/mutant hashes, assertion content and exit codes are unchanged. Output paths are normalized, so retained output is not claimed to be byte-identical to the original machine-specific text. Historical runs retain their original source SHAs rather than being relabelled as final-head executions.
+
+The local lint limitation remains as recorded. All evidence remains local source/fixture proof; CI and human merge approval are separate.
