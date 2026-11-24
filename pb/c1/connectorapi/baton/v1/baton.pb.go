@@ -4250,8 +4250,26 @@ func (b0 Task_BulkGetTicketsTask_builder) Build() *Task_BulkGetTicketsTask {
 }
 
 type Task_ListTicketSchemasTask struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Annotations   []*anypb.Any           `protobuf:"bytes,1,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	state       protoimpl.MessageState `protogen:"hybrid.v1"`
+	Annotations []*anypb.Any           `protobuf:"bytes,1,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	// When false, the handler unrolls up to 100 schemas into one response,
+	// drops the rest, and ignores page_token and page_size.
+	// When true, the handler returns one bounded batch per task:
+	//   - Every paged response sets TicketsServiceListTicketSchemasResponse.paged.
+	//     A response with paged unset came from an SDK that ignored paginate and may be truncated.
+	//     BuildInfo.sdk_version from Hello is an optional way to decide whether to request paging.
+	//   - A non-empty next_page_token means more may follow, even when the list is empty.
+	//     Paging is complete only when next_page_token is empty.
+	//   - If the connector's schemas change between calls, entries may be skipped or repeated.
+	//     Dedupe by schema ID and do not treat one paged listing as a snapshot.
+	Paginate bool `protobuf:"varint,2,opt,name=paginate,proto3" json:"paginate,omitempty"`
+	// Opaque next_page_token from the previous paged response. Empty requests the first batch.
+	// It wraps the connector's page token, so a connector page token over about 3 KB cannot be
+	// carried and fails the task without retry.
+	PageToken string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// Maximum schemas per paged batch: 0 selects 100, otherwise 1 to 1000.
+	// A batch is also bounded to about 2 MiB serialized.
+	PageSize      uint32 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4288,14 +4306,65 @@ func (x *Task_ListTicketSchemasTask) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *Task_ListTicketSchemasTask) GetPaginate() bool {
+	if x != nil {
+		return x.Paginate
+	}
+	return false
+}
+
+func (x *Task_ListTicketSchemasTask) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *Task_ListTicketSchemasTask) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
 func (x *Task_ListTicketSchemasTask) SetAnnotations(v []*anypb.Any) {
 	x.Annotations = v
+}
+
+func (x *Task_ListTicketSchemasTask) SetPaginate(v bool) {
+	x.Paginate = v
+}
+
+func (x *Task_ListTicketSchemasTask) SetPageToken(v string) {
+	x.PageToken = v
+}
+
+func (x *Task_ListTicketSchemasTask) SetPageSize(v uint32) {
+	x.PageSize = v
 }
 
 type Task_ListTicketSchemasTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Annotations []*anypb.Any
+	// When false, the handler unrolls up to 100 schemas into one response,
+	// drops the rest, and ignores page_token and page_size.
+	// When true, the handler returns one bounded batch per task:
+	//   - Every paged response sets TicketsServiceListTicketSchemasResponse.paged.
+	//     A response with paged unset came from an SDK that ignored paginate and may be truncated.
+	//     BuildInfo.sdk_version from Hello is an optional way to decide whether to request paging.
+	//   - A non-empty next_page_token means more may follow, even when the list is empty.
+	//     Paging is complete only when next_page_token is empty.
+	//   - If the connector's schemas change between calls, entries may be skipped or repeated.
+	//     Dedupe by schema ID and do not treat one paged listing as a snapshot.
+	Paginate bool
+	// Opaque next_page_token from the previous paged response. Empty requests the first batch.
+	// It wraps the connector's page token, so a connector page token over about 3 KB cannot be
+	// carried and fails the task without retry.
+	PageToken string
+	// Maximum schemas per paged batch: 0 selects 100, otherwise 1 to 1000.
+	// A batch is also bounded to about 2 MiB serialized.
+	PageSize uint32
 }
 
 func (b0 Task_ListTicketSchemasTask_builder) Build() *Task_ListTicketSchemasTask {
@@ -4303,6 +4372,9 @@ func (b0 Task_ListTicketSchemasTask_builder) Build() *Task_ListTicketSchemasTask
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Annotations = b.Annotations
+	x.Paginate = b.Paginate
+	x.PageToken = b.PageToken
+	x.PageSize = b.PageSize
 	return m0
 }
 
@@ -5628,7 +5700,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xdc1\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xd02\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -5724,9 +5796,13 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\x15BulkCreateTicketsTask\x12X\n" +
 	"\x0fticket_requests\x18\x01 \x03(\v2/.c1.connectorapi.baton.v1.Task.CreateTicketTaskR\x0eticketRequests\x1ak\n" +
 	"\x12BulkGetTicketsTask\x12U\n" +
-	"\x0fticket_requests\x18\x01 \x03(\v2,.c1.connectorapi.baton.v1.Task.GetTicketTaskR\x0eticketRequests\x1aO\n" +
+	"\x0fticket_requests\x18\x01 \x03(\v2,.c1.connectorapi.baton.v1.Task.GetTicketTaskR\x0eticketRequests\x1a\xc2\x01\n" +
 	"\x15ListTicketSchemasTask\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1ad\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12\x1a\n" +
+	"\bpaginate\x18\x02 \x01(\bR\bpaginate\x12*\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tB\v\xfaB\br\x06(\x80 \xd0\x01\x01R\tpageToken\x12)\n" +
+	"\tpage_size\x18\x04 \x01(\rB\f\xfaB\t*\a\x18\xe8\a(\x01@\x01R\bpageSize\x1ad\n" +
 	"\rGetTicketTask\x12\x1b\n" +
 	"\tticket_id\x18\x01 \x01(\tR\bticketId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1ay\n" +

@@ -1838,6 +1838,9 @@ type TicketsServiceListTicketSchemasResponse struct {
 	List          []*TicketSchema        `protobuf:"bytes,1,rep,name=list,proto3" json:"list,omitempty"`
 	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	Annotations   []*anypb.Any           `protobuf:"bytes,3,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	// Set by the SDK on every response to a ListTicketSchemas task that requested paginate,
+	// including the last and empty batches. Connectors do not set it.
+	Paged         bool `protobuf:"varint,4,opt,name=paged,proto3" json:"paged,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1888,6 +1891,13 @@ func (x *TicketsServiceListTicketSchemasResponse) GetAnnotations() []*anypb.Any 
 	return nil
 }
 
+func (x *TicketsServiceListTicketSchemasResponse) GetPaged() bool {
+	if x != nil {
+		return x.Paged
+	}
+	return false
+}
+
 func (x *TicketsServiceListTicketSchemasResponse) SetList(v []*TicketSchema) {
 	x.List = v
 }
@@ -1900,12 +1910,19 @@ func (x *TicketsServiceListTicketSchemasResponse) SetAnnotations(v []*anypb.Any)
 	x.Annotations = v
 }
 
+func (x *TicketsServiceListTicketSchemasResponse) SetPaged(v bool) {
+	x.Paged = v
+}
+
 type TicketsServiceListTicketSchemasResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	List          []*TicketSchema
 	NextPageToken string
 	Annotations   []*anypb.Any
+	// Set by the SDK on every response to a ListTicketSchemas task that requested paginate,
+	// including the last and empty batches. Connectors do not set it.
+	Paged bool
 }
 
 func (b0 TicketsServiceListTicketSchemasResponse_builder) Build() *TicketsServiceListTicketSchemasResponse {
@@ -1915,6 +1932,7 @@ func (b0 TicketsServiceListTicketSchemasResponse_builder) Build() *TicketsServic
 	x.List = b.List
 	x.NextPageToken = b.NextPageToken
 	x.Annotations = b.Annotations
+	x.Paged = b.Paged
 	return m0
 }
 
@@ -3157,12 +3175,13 @@ const file_c1_connector_v2_ticket_proto_rawDesc = "" +
 	"\n" +
 	"page_token\x18\x02 \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80 \xd0\x01\x01R\tpageToken\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xcb\x01\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xe1\x01\n" +
 	"'TicketsServiceListTicketSchemasResponse\x121\n" +
 	"\x04list\x18\x01 \x03(\v2\x1d.c1.connector.v2.TicketSchemaR\x04list\x125\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80 \xd0\x01\x01R\rnextPageToken\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x89\x06\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12\x14\n" +
+	"\x05paged\x18\x04 \x01(\bR\x05paged\"\x89\x06\n" +
 	"\x06Ticket\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12 \n" +

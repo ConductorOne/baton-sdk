@@ -135,6 +135,9 @@ message TicketsServiceListTicketSchemasResponse {
     max_bytes: 4096
   }];
   repeated google.protobuf.Any annotations = 3;
+  // Set by the SDK on every response to a ListTicketSchemas task that requested paginate,
+  // including the last and empty batches. Connectors do not set it.
+  bool paged = 4;
 }
 
 message Ticket {

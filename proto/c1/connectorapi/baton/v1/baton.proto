@@ -148,6 +148,31 @@ message Task {
 
   message ListTicketSchemasTask {
     repeated google.protobuf.Any annotations = 1;
+    // When false, the handler unrolls up to 100 schemas into one response,
+    // drops the rest, and ignores page_token and page_size.
+    // When true, the handler returns one bounded batch per task:
+    //   - Every paged response sets TicketsServiceListTicketSchemasResponse.paged.
+    //     A response with paged unset came from an SDK that ignored paginate and may be truncated.
+    //     BuildInfo.sdk_version from Hello is an optional way to decide whether to request paging.
+    //   - A non-empty next_page_token means more may follow, even when the list is empty.
+    //     Paging is complete only when next_page_token is empty.
+    //   - If the connector's schemas change between calls, entries may be skipped or repeated.
+    //     Dedupe by schema ID and do not treat one paged listing as a snapshot.
+    bool paginate = 2;
+    // Opaque next_page_token from the previous paged response. Empty requests the first batch.
+    // It wraps the connector's page token, so a connector page token over about 3 KB cannot be
+    // carried and fails the task without retry.
+    string page_token = 3 [(validate.rules).string = {
+      ignore_empty: true
+      max_bytes: 4096
+    }];
+    // Maximum schemas per paged batch: 0 selects 100, otherwise 1 to 1000.
+    // A batch is also bounded to about 2 MiB serialized.
+    uint32 page_size = 4 [(validate.rules).uint32 = {
+      ignore_empty: true
+      gte: 1
+      lte: 1000
+    }];
   }
 
   message GetTicketTask {
