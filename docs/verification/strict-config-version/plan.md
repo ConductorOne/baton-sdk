@@ -91,3 +91,7 @@ Risk remains HIGH because a caller's retry classification crosses repositories. 
 | I9 | A single helper owns the SDK refusal and its static detail. Error-detail attachment cannot return an untyped generation refusal on failure; any encoding failure must fail closed without dispatch. |
 
 Plant removal of the detail and wrong reason/domain values, require the detail oracle to reject each, and retain exact mutation diffs/output. Re-run affected package race tests and both builds. This is local serialization/fixture proof, not evidence of a deployed caller decoding the marker.
+
+### CO3 domain resolution
+
+The existing SDK convention is `github.com/conductorone/baton-sdk`, defined by `GrantCancelledErrorDomain` in `pkg/types/grant/cancelled.go`. The confirmed strict-refusal pair is therefore reason `CONNECTOR_CONFIG_VERSION_NOT_READY`, domain `github.com/conductorone/baton-sdk`, replacing the provisional shorter domain above. No shared-domain refactor is needed.

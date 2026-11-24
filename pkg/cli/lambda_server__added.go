@@ -32,6 +32,7 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -201,7 +202,7 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 
 	_, strict := req.Headers()[lambdaConnectorConfigVersionStrictHeader]
 	if strict && r.currentVersion() != requestedVersion {
-		return c1_lambda_grpc.ErrorResponse(status.Error(codes.FailedPrecondition, "lambda-run: connector config version is not ready")), nil
+		return c1_lambda_grpc.ErrorResponse(lambdaConnectorConfigVersionNotReadyError()), nil
 	}
 
 	if err := r.applyCurrentLogLevel(time.Now()); err != nil {
@@ -216,13 +217,24 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 			r.mu.Lock()
 			if r.current == nil || r.current.version != requestedVersion {
 				r.mu.Unlock()
-				return nil, status.Error(codes.FailedPrecondition, "lambda-run: connector config version is not ready")
+				return nil, lambdaConnectorConfigVersionNotReadyError()
 			}
 			return r.mu.Unlock, nil
 		})
 	}
 
 	return r.server.Handler(ctx, req)
+}
+
+func lambdaConnectorConfigVersionNotReadyError() error {
+	st, err := status.New(codes.FailedPrecondition, "lambda-run: connector config version is not ready").WithDetails(&errdetails.ErrorInfo{
+		Reason: "CONNECTOR_CONFIG_VERSION_NOT_READY",
+		Domain: "github.com/conductorone/baton-sdk",
+	})
+	if err != nil {
+		return status.Error(codes.Internal, "lambda-run: failed to encode connector config version status")
+	}
+	return st.Err()
 }
 
 func (r *lambdaConnectorReloader) currentVersion() string {
