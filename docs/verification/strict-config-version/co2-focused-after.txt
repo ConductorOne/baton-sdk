@@ -1,0 +1,118 @@
+source_sha: 6f59c9a904bb6d96c2f405f4d1290113570c0599
+$ go test -race -tags baton_lambda_support -run 'TestLambdaStrictConfigVersion|TestHandlerWithDispatchGuard|TestDispatchGuardHeldUntilImplementationAcquired' -count=1 -v ./pkg/cli ./pkg/lambda/grpc
+=== RUN   TestLambdaStrictConfigVersionCapsAndConvergence
+=== RUN   TestLambdaStrictConfigVersionCapsAndConvergence/global_floor
+=== RUN   TestLambdaStrictConfigVersionCapsAndConvergence/repeated_version
+--- PASS: TestLambdaStrictConfigVersionCapsAndConvergence (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionCapsAndConvergence/global_floor (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionCapsAndConvergence/repeated_version (0.00s)
+=== RUN   TestLambdaStrictConfigVersionRejectsServedSkew
+--- PASS: TestLambdaStrictConfigVersionRejectsServedSkew (0.00s)
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/matching
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/empty_strict_value_is_absent
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/false_strict_value
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/missing_stamp
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/empty_stamp
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/matching_empty_version
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/no_headers
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/non-strict_empty_stamp
+--- PASS: TestLambdaStrictConfigVersionHeaderPresence (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/matching (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/empty_strict_value_is_absent (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/false_strict_value (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/missing_stamp (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/empty_stamp (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/matching_empty_version (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/no_headers (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/non-strict_empty_stamp (0.00s)
+=== RUN   TestLambdaStrictConfigVersionReloadError
+=== RUN   TestLambdaStrictConfigVersionReloadError/legacy/non-strict
+=== RUN   TestLambdaStrictConfigVersionReloadError/legacy/strict
+=== RUN   TestLambdaStrictConfigVersionReloadError/identity/non-strict
+=== RUN   TestLambdaStrictConfigVersionReloadError/identity/strict
+--- PASS: TestLambdaStrictConfigVersionReloadError (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionReloadError/legacy/non-strict (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionReloadError/legacy/strict (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionReloadError/identity/non-strict (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionReloadError/identity/strict (0.00s)
+=== RUN   TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire
+=== RUN   TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire/new_implementation
+=== RUN   TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire/reused_implementation
+--- PASS: TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire/new_implementation (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire/reused_implementation (0.00s)
+=== RUN   TestLambdaStrictConfigVersionConcurrentReplacementAfterAcquire
+--- PASS: TestLambdaStrictConfigVersionConcurrentReplacementAfterAcquire (0.00s)
+=== RUN   TestLambdaStrictConfigVersionWithoutGeneration
+--- PASS: TestLambdaStrictConfigVersionWithoutGeneration (0.00s)
+PASS
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.090s
+=== RUN   TestHandlerWithDispatchGuard
+=== PAUSE TestHandlerWithDispatchGuard
+=== RUN   TestDispatchGuardHeldUntilImplementationAcquired
+=== PAUSE TestDispatchGuardHeldUntilImplementationAcquired
+=== CONT  TestHandlerWithDispatchGuard
+=== CONT  TestDispatchGuardHeldUntilImplementationAcquired
+=== RUN   TestHandlerWithDispatchGuard/legacy_wire/matching
+=== PAUSE TestHandlerWithDispatchGuard/legacy_wire/matching
+=== RUN   TestHandlerWithDispatchGuard/legacy_wire/guard_refusal
+=== PAUSE TestHandlerWithDispatchGuard/legacy_wire/guard_refusal
+=== RUN   TestHandlerWithDispatchGuard/legacy_wire/malformed_method
+=== PAUSE TestHandlerWithDispatchGuard/legacy_wire/malformed_method
+=== RUN   TestHandlerWithDispatchGuard/legacy_wire/unknown_service
+=== PAUSE TestHandlerWithDispatchGuard/legacy_wire/unknown_service
+=== RUN   TestHandlerWithDispatchGuard/legacy_wire/unknown_method
+=== PAUSE TestHandlerWithDispatchGuard/legacy_wire/unknown_method
+=== RUN   TestHandlerWithDispatchGuard/legacy_wire/application_error
+=== PAUSE TestHandlerWithDispatchGuard/legacy_wire/application_error
+=== RUN   TestHandlerWithDispatchGuard/legacy_wire/timeout_decode_error
+=== PAUSE TestHandlerWithDispatchGuard/legacy_wire/timeout_decode_error
+=== RUN   TestHandlerWithDispatchGuard/v2_wire/matching
+=== PAUSE TestHandlerWithDispatchGuard/v2_wire/matching
+=== RUN   TestHandlerWithDispatchGuard/v2_wire/guard_refusal
+=== PAUSE TestHandlerWithDispatchGuard/v2_wire/guard_refusal
+=== RUN   TestHandlerWithDispatchGuard/v2_wire/malformed_method
+=== PAUSE TestHandlerWithDispatchGuard/v2_wire/malformed_method
+=== RUN   TestHandlerWithDispatchGuard/v2_wire/unknown_service
+=== PAUSE TestHandlerWithDispatchGuard/v2_wire/unknown_service
+=== RUN   TestHandlerWithDispatchGuard/v2_wire/unknown_method
+=== PAUSE TestHandlerWithDispatchGuard/v2_wire/unknown_method
+=== RUN   TestHandlerWithDispatchGuard/v2_wire/application_error
+=== PAUSE TestHandlerWithDispatchGuard/v2_wire/application_error
+=== RUN   TestHandlerWithDispatchGuard/v2_wire/timeout_decode_error
+=== PAUSE TestHandlerWithDispatchGuard/v2_wire/timeout_decode_error
+=== CONT  TestHandlerWithDispatchGuard/legacy_wire/matching
+=== CONT  TestHandlerWithDispatchGuard/legacy_wire/unknown_service
+=== CONT  TestHandlerWithDispatchGuard/v2_wire/guard_refusal
+=== CONT  TestHandlerWithDispatchGuard/legacy_wire/guard_refusal
+=== CONT  TestHandlerWithDispatchGuard/legacy_wire/malformed_method
+=== CONT  TestHandlerWithDispatchGuard/v2_wire/unknown_method
+=== CONT  TestHandlerWithDispatchGuard/v2_wire/application_error
+=== CONT  TestHandlerWithDispatchGuard/v2_wire/timeout_decode_error
+=== CONT  TestHandlerWithDispatchGuard/legacy_wire/unknown_method
+=== CONT  TestHandlerWithDispatchGuard/v2_wire/unknown_service
+=== CONT  TestHandlerWithDispatchGuard/legacy_wire/timeout_decode_error
+=== CONT  TestHandlerWithDispatchGuard/v2_wire/malformed_method
+=== CONT  TestHandlerWithDispatchGuard/v2_wire/matching
+=== CONT  TestHandlerWithDispatchGuard/legacy_wire/application_error
+--- PASS: TestHandlerWithDispatchGuard (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/legacy_wire/unknown_service (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/legacy_wire/malformed_method (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/v2_wire/unknown_method (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/legacy_wire/matching (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/v2_wire/application_error (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/v2_wire/timeout_decode_error (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/v2_wire/unknown_service (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/legacy_wire/unknown_method (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/v2_wire/malformed_method (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/legacy_wire/timeout_decode_error (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/legacy_wire/guard_refusal (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/v2_wire/guard_refusal (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/v2_wire/matching (0.00s)
+    --- PASS: TestHandlerWithDispatchGuard/legacy_wire/application_error (0.00s)
+--- PASS: TestDispatchGuardHeldUntilImplementationAcquired (0.00s)
+PASS
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.038s
+
+exit_code: 0

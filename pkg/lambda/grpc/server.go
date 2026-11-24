@@ -240,33 +240,61 @@ func TimeoutForRequest(req *Request) (time.Duration, bool, error) {
 // wire version so v2 invokers get lossless frames and legacy invokers get
 // protojson (see Response.MarshalJSON).
 func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
-	resp, err := s.handle(ctx, req)
+	return s.handler(ctx, req, nil)
+}
+
+// HandlerWithDispatchGuard calls guard before method parsing, including for
+// malformed or unknown methods. The guard's external lock is taken before the
+// server registry lock; callers must preserve that order and use the same
+// external lock for implementation replacement.
+// A non-nil release function runs on every acquisition exit, even when guard
+// returns an error, and before the application handler runs. A nil release is allowed.
+func (s *Server) HandlerWithDispatchGuard(ctx context.Context, req *Request, guard func() (func(), error)) (*Response, error) {
+	return s.handler(ctx, req, guard)
+}
+
+func (s *Server) handler(ctx context.Context, req *Request, guard func() (func(), error)) (*Response, error) {
+	resp, err := s.handle(ctx, req, guard)
 	if resp != nil {
 		resp.wireV2 = req.wireV2
 	}
 	return resp, err
 }
 
-func (s *Server) handle(ctx context.Context, req *Request) (*Response, error) {
+func (s *Server) acquireServiceForRequest(req *Request, guard func() (func(), error)) (any, *grpc.MethodDesc, func(), error) {
+	if guard != nil {
+		release, err := guard()
+		if release != nil {
+			defer release()
+		}
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
 	serviceName, methodName, err := parseMethod(req.Method())
 	if err != nil {
-		return ErrorResponse(err), nil
+		return nil, nil, nil, err
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	service, ok := s.services[serviceName]
 	if !ok {
-		s.mu.Unlock()
-		return ErrorResponse(status.Errorf(codes.Unimplemented, "unknown service %v", serviceName)), nil
+		return nil, nil, nil, status.Errorf(codes.Unimplemented, "unknown service %v", serviceName)
 	}
 	method, ok := service.methods[methodName]
 	if !ok {
-		s.mu.Unlock()
-		return ErrorResponse(status.Errorf(codes.Unimplemented, "unknown method %v for service %v", method, service)), nil
+		return nil, nil, nil, status.Errorf(codes.Unimplemented, "unknown method %v for service %v", method, service)
 	}
 	serviceImpl := service.serviceImpl
-	releaseServiceImpl := s.acquireServiceImplementationLocked(serviceImpl)
-	s.mu.Unlock()
+	return serviceImpl, method, s.acquireServiceImplementationLocked(serviceImpl), nil
+}
+
+func (s *Server) handle(ctx context.Context, req *Request, guard func() (func(), error)) (*Response, error) {
+	serviceImpl, method, releaseServiceImpl, err := s.acquireServiceForRequest(req, guard)
+	if err != nil {
+		return ErrorResponse(err), nil
+	}
 	defer releaseServiceImpl()
 
 	md := MetadataForRequest(req)

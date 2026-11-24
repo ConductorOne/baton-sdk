@@ -1,0 +1,68 @@
+{
+  "source_sha": "88892d584497b0777f6079c7d2ec2396ad00f13d",
+  "path_normalization": "Workspace and temporary overlay paths are normalized; source patches and hashes are unchanged.",
+  "cases": [
+    {
+      "name": "local-check-with-empty-values-retained",
+      "source_sha": "88892d584497b0777f6079c7d2ec2396ad00f13d",
+      "command": [
+        "go",
+        "test",
+        "-overlay",
+        "overlay/local-check-with-empty-values-retained.json",
+        "-race",
+        "-tags",
+        "baton_lambda_support",
+        "-run",
+        "^TestLambdaStrictConfigVersionHeaderPresence$",
+        "-count=1",
+        "./pkg/cli"
+      ],
+      "exit_code": 0,
+      "expected_pass": true,
+      "patches": [
+        {
+          "path": "pkg/lambda/grpc/util.go",
+          "original_sha256": "53730e16ccdd93bdc2b8f4444cf51a686a1cee7e24d184dcbf4d83d0a920881f",
+          "mutated_sha256": "172c8dba47920e0390410b383dc75ffba58741a5865f3a03312e1083de54c87e",
+          "patch": "--- a/pkg/lambda/grpc/util.go\n+++ b/pkg/lambda/grpc/util.go\n@@ -163,9 +163,7 @@\n \t\tvalues := make([]string, 0, len(lv.GetValues()))\n \t\tfor _, sval := range lv.GetValues() {\n \t\t\tval := sval.GetStringValue()\n-\t\t\tif val != \"\" {\n-\t\t\t\tvalues = append(values, val)\n-\t\t\t}\n+\t\t\tvalues = append(values, val)\n \t\t}\n \t\tmd.Append(k, values...)\n \t}\n"
+        }
+      ],
+      "output": "ok  \tgithub.com/conductorone/baton-sdk/pkg/cli\t1.062s\n"
+    },
+    {
+      "name": "key-presence-counterexample-with-empty-values-retained",
+      "source_sha": "88892d584497b0777f6079c7d2ec2396ad00f13d",
+      "command": [
+        "go",
+        "test",
+        "-overlay",
+        "overlay/key-presence-counterexample-with-empty-values-retained.json",
+        "-race",
+        "-tags",
+        "baton_lambda_support",
+        "-run",
+        "^TestLambdaStrictConfigVersionHeaderPresence$",
+        "-count=1",
+        "./pkg/cli"
+      ],
+      "exit_code": 1,
+      "expected_pass": false,
+      "patches": [
+        {
+          "path": "pkg/lambda/grpc/util.go",
+          "original_sha256": "53730e16ccdd93bdc2b8f4444cf51a686a1cee7e24d184dcbf4d83d0a920881f",
+          "mutated_sha256": "172c8dba47920e0390410b383dc75ffba58741a5865f3a03312e1083de54c87e",
+          "patch": "--- a/pkg/lambda/grpc/util.go\n+++ b/pkg/lambda/grpc/util.go\n@@ -163,9 +163,7 @@\n \t\tvalues := make([]string, 0, len(lv.GetValues()))\n \t\tfor _, sval := range lv.GetValues() {\n \t\t\tval := sval.GetStringValue()\n-\t\t\tif val != \"\" {\n-\t\t\t\tvalues = append(values, val)\n-\t\t\t}\n+\t\t\tvalues = append(values, val)\n \t\t}\n \t\tmd.Append(k, values...)\n \t}\n"
+        },
+        {
+          "path": "pkg/cli/lambda_server__added.go",
+          "original_sha256": "d5556035a4b75849d656c0801e4cd86e2f1a248bd56f507a8cd4c61d87c52677",
+          "mutated_sha256": "aa9b8d65bd003627d90f9739e021a84e0b10742900c41c1bcc17aa4ae1878cea",
+          "patch": "--- a/pkg/cli/lambda_server__added.go\n+++ b/pkg/cli/lambda_server__added.go\n@@ -201,8 +201,7 @@\n \t\t}\n \t}\n \n-\tstrictValues := req.Headers().Get(lambdaConnectorConfigVersionStrictHeader)\n-\tstrict := len(strictValues) > 0 && strictValues[0] != \"\"\n+\t_, strict := req.Headers()[lambdaConnectorConfigVersionStrictHeader]\n \t// Avoid changing log level on an already-stale request; the guard rechecks before acquisition.\n \tif strict && r.currentVersion() != requestedVersion {\n \t\treturn c1_lambda_grpc.ErrorResponse(lambdaConnectorConfigVersionNotReadyError()), nil\n"
+        }
+      ],
+      "output": "--- FAIL: TestLambdaStrictConfigVersionHeaderPresence (0.01s)\n    --- FAIL: TestLambdaStrictConfigVersionHeaderPresence/empty_strict_value_is_absent (0.00s)\n        lambda_server_strict_version_test.go:192: \n            \tError Trace:\tpkg/cli/lambda_server_strict_version_test.go:192\n            \tError:      \tNot equal: \n            \t            \texpected: 0x0\n            \t            \tactual  : 0x9\n            \tTest:       \tTestLambdaStrictConfigVersionHeaderPresence/empty_strict_value_is_absent\nFAIL\nFAIL\tgithub.com/conductorone/baton-sdk/pkg/cli\t0.063s\nFAIL\n"
+    }
+  ]
+}

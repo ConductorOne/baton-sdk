@@ -1,0 +1,35 @@
+source_sha: 22c29287cbccbccb088dec636b642567153e9b01
+
+$ go test -race -count=1 ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.065s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.163s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.131s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.015s
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -count=1 ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.640s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.154s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.129s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.014s
+exit_code: 0
+
+$ go build ./...
+exit_code: 0
+
+$ go build -tags baton_lambda_support ./...
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -count=1 -coverprofile=docs/verification/strict-config-version/co3-coverage.txt ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.695s	coverage: 53.8% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.188s	coverage: 82.2% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.149s	coverage: 78.8% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.017s	coverage: 85.7% of statements
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -run '^TestLambdaStrictConfigVersionConcurrentReplacement' -count=100 ./pkg/cli
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.568s
+exit_code: 0
+
+$ git diff --check
+exit_code: 0
