@@ -1,0 +1,59 @@
+source_sha: d8b70bed6246b0d4eb8b54814f9cd98511648bca
+Temporary coverage output is recorded as coverage.out; full bytes are not retained. See coverage.md for the changed-range excerpt.
+
+$ go test -race -count=1 ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.068s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.186s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.304s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.014s
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -count=1 ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.711s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.206s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.175s
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.015s
+exit_code: 0
+
+$ go build ./...
+exit_code: 0
+
+$ go build -tags baton_lambda_support ./...
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -run '^TestLambdaStrictConfigVersionWarning' -count=1 -timeout=30s -v ./pkg/cli
+=== RUN   TestLambdaStrictConfigVersionWarningRateLimit
+=== RUN   TestLambdaStrictConfigVersionWarningRateLimit/legacy
+=== RUN   TestLambdaStrictConfigVersionWarningRateLimit/identity
+--- PASS: TestLambdaStrictConfigVersionWarningRateLimit (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionWarningRateLimit/legacy (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionWarningRateLimit/identity (0.01s)
+=== RUN   TestLambdaStrictConfigVersionWarningAbsentOnOtherPaths
+=== RUN   TestLambdaStrictConfigVersionWarningAbsentOnOtherPaths/legacy
+=== RUN   TestLambdaStrictConfigVersionWarningAbsentOnOtherPaths/identity
+--- PASS: TestLambdaStrictConfigVersionWarningAbsentOnOtherPaths (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionWarningAbsentOnOtherPaths/legacy (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionWarningAbsentOnOtherPaths/identity (0.00s)
+=== RUN   TestLambdaStrictConfigVersionWarningAtGuardExit
+=== RUN   TestLambdaStrictConfigVersionWarningAtGuardExit/legacy
+=== RUN   TestLambdaStrictConfigVersionWarningAtGuardExit/identity
+--- PASS: TestLambdaStrictConfigVersionWarningAtGuardExit (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionWarningAtGuardExit/legacy (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionWarningAtGuardExit/identity (0.00s)
+PASS
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.077s
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -run '^TestLambdaStrictConfigVersion(Warning|ConcurrentReplacement)' -count=100 -timeout=60s ./pkg/cli
+ok  	github.com/conductorone/baton-sdk/pkg/cli	3.702s
+exit_code: 0
+
+$ go test -race -tags baton_lambda_support -count=1 -coverprofile=coverage.out ./pkg/cli ./pkg/lambda/grpc/...
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.729s	coverage: 54.3% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc	1.184s	coverage: 82.2% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/config	1.156s	coverage: 78.8% of statements
+ok  	github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware	1.024s	coverage: 85.7% of statements
+exit_code: 0
+
+$ git diff --check
+exit_code: 0

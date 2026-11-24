@@ -133,8 +133,27 @@ Source/tests: `88892d584497b0777f6079c7d2ec2396ad00f13d`. The strict opt-in now 
 
 `header-value-independence.json` records a bounded dependency perturbation: retaining empty values in metadata decoding still passes the header matrix with the local check. Replacing only that local check with the previous key-presence check makes the empty-value cell fail under the same perturbation. These are fixture overlays, not a transport change or a claim of a bug under the current decoder.
 
-`hygiene-gates.txt` records the final-source affected-package race tests in both modes, both builds, full affected-package coverage generation and 100 concurrent-generation repetitions; all exit zero. `coverage.md` retains only 46 relevant coverage blocks (about 4.6 KB), replacing the two approximately 123 KB whole-package dumps. Full temporary profiles were removed after extracting the reported ranges.
+`hygiene-gates.txt` records that cleanup's affected-package race tests in both modes, both builds, full affected-package coverage generation and 100 concurrent-generation repetitions; all exit zero. The current `coverage.md` retains only relevant changed ranges, replacing the two approximately 123 KB whole-package dumps. Full temporary profiles were removed after extracting the reported ranges.
 
 Public evidence paths are repository-relative; temporary overlay paths use `overlay/<name>.json`. Source patches, source/mutant hashes, assertion content and exit codes are unchanged. Output paths are normalized, so retained output is not claimed to be byte-identical to the original machine-specific text. Historical runs retain their original source SHAs rather than being relabelled as final-head executions.
 
 The local lint limitation remains as recorded. All evidence remains local source/fixture proof; CI and human merge approval are separate.
+
+## Rate-limited strict-refusal warnings
+
+Source/tests: `d8b70bed6246b0d4eb8b54814f9cd98511648bca`. Both strict-refusal exits call the same `strictConfigVersionRefusalLocked` helper while holding `r.mu`. The early path compares and logs in one critical section; the guarded path logs before unlocking and does not re-lock. The helper returns the unchanged typed refusal.
+
+The fixed Warn message is `lambda-run: connector config version is not ready`. Its only explicit fields are `requested_version` and `current_version`. It includes no header collection, request body, payload, metadata or error value. A dedicated `lastStrictRefusalLoggedAt` timestamp limits emission using `lambdaConnectorReloadMinInterval`; it is neither shared with `lastCapLoggedAt` nor reset by a new version pair or successful rebuild.
+
+| Criterion | Instrument and oracle | Status |
+| --- | --- | --- |
+| V13 | `WarningRateLimit`, legacy/identity: alternating requested versions produce one warning; an actual non-strict rebuild changes the served/requested pair without re-arming; backdating only the dedicated timestamp produces the second. Warn level and exact two-field maps are asserted; reload-cap timestamp stays unchanged. | verified to stated cells |
+| V14 | `WarningAbsentOnOtherPaths`, legacy/identity: non-strict skew, unstamped call, matching strict call and same-message vendor precondition produce no strict-refusal warning; timestamp stays zero. Existing status/dispatch fixtures pass unchanged. | verified to stated cells |
+| V15 | `WarningAtGuardExit`, legacy/identity: forced A/B replacement logs requested A/current B, returns the same serialized ErrorInfo status, and a following strict B succeeds. Bounded waits detect deadlock. | verified to stated interleaving |
+| I10 | Every observed warning has a test-only non-blocking mutex probe proving it was emitted while `r.mu` was held. Logging-after-unlock, shared timestamp and rebuild-rearm mutations fail their respective oracles. | verified to stated coverage |
+
+`warning-gates.txt` retains the exact source SHA and normalized output for both-mode affected-package race tests, both builds, verbose observer cases, 100 repeated warning/concurrent-generation cases, complete coverage generation and diff check. All commands exit zero. `coverage.md` is updated in place with the new helper's changed-range counts; no whole-package profile dump is added.
+
+`warning-mutations.json` retains ten rejected behavioral mutations: missing warning, uncapped warnings, shared reload-cap timestamp, no time re-arm, re-arm on rebuild, extra field, wrong level, missing guarded warning, warning after unlock and warning on non-strict calls. Source diffs/hashes are exact and output paths are normalized. An initial omit-warning mutation left an unused local and failed compilation; it is retained separately as an invalid setup attempt, corrected, and excluded from the ten adequacy results.
+
+Temporary overlays/profiles were removed and original source bytes were checked unchanged. The static protobuf encoding-failure and local lint limitations remain as recorded. No deployed log-volume or vendor behavior is claimed.
