@@ -95,3 +95,16 @@ Plant removal of the detail and wrong reason/domain values, require the detail o
 ### CO3 domain resolution
 
 The domain follows the existing `GrantCancelledErrorDomain` convention in `pkg/types/grant/cancelled.go`. The initial shorter-domain proposal was superseded by this confirmed pair. No shared-domain refactor is needed.
+
+## Strict-refusal observability
+
+Both strict-refusal exits emit the same fixed Warn with only `requested_version` and `current_version` fields. The warning is limited by a dedicated `lastStrictRefusalLoggedAt` timestamp and `lambdaConnectorReloadMinInterval`, independent of reload-cap logging and version-pair changes. Code, message, ErrorInfo and dispatch behavior remain unchanged; non-strict calls emit no strict-refusal warning.
+
+| ID | Required coverage and oracle |
+| --- | --- |
+| V13 | Repeated and alternating strict refusals inside the interval emit one warning; backdating only the dedicated timestamp allows a second. Assert Warn level and exactly the two version fields. |
+| V14 | Non-strict calls and ordinary/matching-generation statuses emit no strict-refusal warning. Both legacy and identity modes follow the same rule. |
+| V15 | Force replacement between the early check and guarded acquisition: the guarded refusal logs the checked versions and completes without re-locking/deadlock. A following matching-generation call succeeds. Cover both modes. |
+| I10 | Both comparisons/logging operations run under `r.mu`. The helper requires the caller to hold that lock, never acquires it, and does not reuse or reset `lastCapLoggedAt`. Time alone re-arms warning output. |
+
+Run the new observer fixtures plus all affected race/package gates and both builds. Preserve bounded, path-normalized evidence and extend only the changed-range coverage excerpt, not whole-package profile dumps.
