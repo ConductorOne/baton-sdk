@@ -109,6 +109,7 @@ type lambdaConnectorReloader struct {
 	current      *lambdaConnectorGeneration
 	build        func(context.Context, string) (*lambdaConnectorGeneration, error)
 	identityMode bool
+	testHooks    *lambdaConnectorReloaderTestHooks
 
 	// lastRebuildAt/lastRebuildRequestedVersion back the reload rate-cap. When
 	// the server persistently serves a config_version different from the
@@ -128,6 +129,10 @@ type lambdaConnectorReloader struct {
 	// without this the log would storm. It is compared against lastRebuildAt,
 	// so it needs no reset on the success path.
 	lastCapLoggedAt time.Time
+}
+
+type lambdaConnectorReloaderTestHooks struct {
+	beforeDispatch func(*c1_lambda_grpc.Request)
 }
 
 // Handler is a recovery wrapper around handle. Config reload and log level
@@ -194,12 +199,27 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 		}
 	}
 
-	if _, strict := req.Headers()[lambdaConnectorConfigVersionStrictHeader]; strict && r.currentVersion() != requestedVersion {
+	_, strict := req.Headers()[lambdaConnectorConfigVersionStrictHeader]
+	if strict && r.currentVersion() != requestedVersion {
 		return c1_lambda_grpc.ErrorResponse(status.Error(codes.FailedPrecondition, "lambda-run: connector config version is not ready")), nil
 	}
 
 	if err := r.applyCurrentLogLevel(time.Now()); err != nil {
 		return c1_lambda_grpc.ErrorResponse(status.Errorf(codes.Unavailable, "lambda-run: failed to apply log level: %v", err)), nil
+	}
+
+	if r.testHooks != nil && r.testHooks.beforeDispatch != nil {
+		r.testHooks.beforeDispatch(req)
+	}
+	if strict {
+		return r.server.HandlerWithDispatchGuard(ctx, req, func() (func(), error) {
+			r.mu.Lock()
+			if r.current == nil || r.current.version != requestedVersion {
+				r.mu.Unlock()
+				return nil, status.Error(codes.FailedPrecondition, "lambda-run: connector config version is not ready")
+			}
+			return r.mu.Unlock, nil
+		})
 	}
 
 	return r.server.Handler(ctx, req)

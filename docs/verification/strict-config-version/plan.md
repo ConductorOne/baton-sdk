@@ -65,3 +65,15 @@ Risk remains HIGH. A strict request must either acquire the checked connector ge
 | I5 | Registry comparison and in-flight acquisition occur under the same mutex as replacement; release is owed exactly once on every dispatch exit. Non-strict Handler keeps its existing path. |
 
 Before fixing, execute V9 against the reviewed implementation and retain its failing output. Plant a bypass of generation-pinned acquisition and require the same behavioral failure. Re-run both-mode package race/build gates and retain exact mutation patches, output and changed-branch coverage with this verification record. No deployed concurrent-runtime claim is made.
+
+### CO2 implementation obligations
+
+`HandlerWithDispatchGuard` runs the caller's guard before registry acquisition and releases it only after an in-flight service reference has been acquired, or on an acquisition error. The strict reloader guard takes `r.mu`, rechecks the current version, and returns its unlock operation. Reload already takes `r.mu` before replacing services under the server mutex. This preserves the lock order `r.mu → server.mu` and releases both locks before connector code runs; reload can proceed while an acquired request finishes on its original implementation.
+
+| ID | Invariant and instrument |
+| --- | --- |
+| I6 | The external generation lock remains held while waiting for the registry mutex: `TestDispatchGuardHeldUntilImplementationAcquired` observes that blocked state and probes the external lock. A release-before-acquire mutation must fail this oracle. |
+| I7 | The external guard release runs exactly once on refusal, malformed/unknown method, successful acquisition, timeout decode error and connector error. The in-flight reference is also released on every post-acquisition exit. `TestHandlerWithDispatchGuard` covers those cases and both wire encodings. |
+| I8 | Version identity is not inferred from a connector pointer. V9 covers both distinct and reused implementation pointers under a new generation label. |
+
+The initial version check remains a fast refusal before log-level application. The authoritative check runs inside the dispatch guard. The reloader's test hook pauses only between these two checks and is never populated in production. It owns no resource and transfers no lock.

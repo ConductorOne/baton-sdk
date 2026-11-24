@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 )
@@ -23,11 +25,19 @@ type strictVersionConnector struct {
 	types.ConnectorServer
 	version    string
 	dispatched *[]string
+	closed     chan struct{}
 }
 
 func (c *strictVersionConnector) Grant(context.Context, *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
 	*c.dispatched = append(*c.dispatched, c.version)
 	return &v2.GrantManagerServiceGrantResponse{}, nil
+}
+
+func (c *strictVersionConnector) Close() error {
+	if c.closed != nil {
+		close(c.closed)
+	}
+	return nil
 }
 
 type strictVersionFixture struct {
@@ -203,4 +213,134 @@ func TestLambdaStrictConfigVersionReloadError(t *testing.T) {
 			})
 		}
 	}
+}
+
+type strictVersionInvokeResult struct {
+	response *c1_lambda_grpc.Response
+	err      error
+}
+
+func startStrictVersionInvoke(t *testing.T, r *lambdaConnectorReloader, headers metadata.MD) <-chan strictVersionInvokeResult {
+	t.Helper()
+	req, err := c1_lambda_grpc.NewRequest(v2.GrantManagerService_Grant_FullMethodName, &v2.GrantManagerServiceGrantRequest{}, headers)
+	require.NoError(t, err)
+	results := make(chan strictVersionInvokeResult, 1)
+	go func() {
+		resp, err := r.Handler(context.Background(), req)
+		results <- strictVersionInvokeResult{response: resp, err: err}
+	}()
+	return results
+}
+
+func waitStrictVersionInvoke(t *testing.T, results <-chan strictVersionInvokeResult) codes.Code {
+	t.Helper()
+	select {
+	case result := <-results:
+		require.NoError(t, result.err)
+		require.NotNil(t, result.response)
+		st, err := result.response.Status()
+		require.NoError(t, err)
+		return st.Code()
+	case <-time.After(5 * time.Second):
+		t.Fatal("invocation did not finish")
+		return codes.Unknown
+	}
+}
+
+func waitStrictVersionBarrier(t *testing.T, barrier <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-barrier:
+	case <-time.After(5 * time.Second):
+		t.Fatal("invocation did not reach the barrier")
+	}
+}
+
+func TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire(t *testing.T) {
+	for _, reuse := range []bool{false, true} {
+		name := "new implementation"
+		if reuse {
+			name = "reused implementation"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newStrictVersionFixture(t, "A")
+			f.servedVersion = "B"
+			if reuse {
+				active := f.reloader.current.connector.(*strictVersionConnector)
+				f.reloader.build = func(_ context.Context, requested string) (*lambdaConnectorGeneration, error) {
+					f.builds = append(f.builds, requested)
+					active.version = "B"
+					return &lambdaConnectorGeneration{version: "B", connector: active, logging: lambdaLogLevelConfig{level: "info"}}, nil
+				}
+			}
+			checked, resume := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			release := func() { once.Do(func() { close(resume) }) }
+			defer release()
+			f.reloader.testHooks = &lambdaConnectorReloaderTestHooks{
+				beforeDispatch: func(req *c1_lambda_grpc.Request) {
+					if len(req.Headers().Get("x-baton-connector-config-version-strict")) > 0 {
+						close(checked)
+						<-resume
+					}
+				},
+			}
+			strictA := startStrictVersionInvoke(t, f.reloader, metadata.Pairs("x-baton-connector-config-version", "A", "x-baton-connector-config-version-strict", "true"))
+			waitStrictVersionBarrier(t, checked)
+			require.Empty(t, f.builds)
+			require.Empty(t, f.dispatched)
+			require.Equal(t, codes.OK, f.invoke(t, metadata.Pairs("x-baton-connector-config-version", "B")))
+			require.Equal(t, []string{"B"}, f.builds)
+			require.Equal(t, "B", f.reloader.currentVersion())
+			require.Equal(t, []string{"B"}, f.dispatched)
+			release()
+			strictCode := waitStrictVersionInvoke(t, strictA)
+			require.Equal(t, []string{"B"}, f.dispatched, "strict A must never dispatch on replacement B")
+			require.Equal(t, codes.FailedPrecondition, strictCode)
+		})
+	}
+}
+
+func TestLambdaStrictConfigVersionConcurrentReplacementAfterAcquire(t *testing.T) {
+	f := newStrictVersionFixture(t, "A")
+	f.servedVersion = "B"
+	active := f.reloader.current.connector.(*strictVersionConnector)
+	active.closed = make(chan struct{})
+	acquired, resume := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	release := func() { once.Do(func() { close(resume) }) }
+	defer release()
+	server := c1_lambda_grpc.NewServer(lambdaUnaryInterceptorChain(
+		func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+			if info.Server == active {
+				close(acquired)
+				<-resume
+			}
+			return handler(ctx, req)
+		},
+	))
+	v2.RegisterGrantManagerServiceServer(server, active)
+	f.reloader.server = server
+	strictA := startStrictVersionInvoke(t, f.reloader, metadata.Pairs("x-baton-connector-config-version", "A", "x-baton-connector-config-version-strict", "true"))
+	waitStrictVersionBarrier(t, acquired)
+	require.Equal(t, codes.OK, f.invoke(t, metadata.Pairs("x-baton-connector-config-version", "B")))
+	require.Equal(t, []string{"B"}, f.builds)
+	require.Equal(t, []string{"B"}, f.dispatched)
+	select {
+	case <-active.closed:
+		t.Fatal("acquired generation A closed before its invocation finished")
+	default:
+	}
+	release()
+	require.Equal(t, codes.OK, waitStrictVersionInvoke(t, strictA))
+	require.Equal(t, []string{"B", "A"}, f.dispatched)
+	waitStrictVersionBarrier(t, active.closed)
+}
+
+func TestLambdaStrictConfigVersionWithoutGeneration(t *testing.T) {
+	f := newStrictVersionFixture(t, "A")
+	f.reloader.current = nil
+	require.Equal(t, codes.FailedPrecondition, f.invoke(t, metadata.Pairs("x-baton-connector-config-version-strict", "true")))
+	require.Empty(t, f.builds)
+	require.Empty(t, f.dispatched)
 }
