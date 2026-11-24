@@ -326,6 +326,14 @@ func TestLambdaStrictConfigVersionConcurrentReplacementAfterAcquire(t *testing.T
 	require.Equal(t, codes.OK, f.invoke(t, metadata.Pairs("x-baton-connector-config-version", "B")))
 	require.Equal(t, []string{"B"}, f.builds)
 	require.Equal(t, []string{"B"}, f.dispatched)
+	replaced, drained, err := server.ReplaceServiceImplementation(active, f.reloader.current.connector)
+	require.NoError(t, err)
+	require.Zero(t, replaced, "B has already replaced A")
+	select {
+	case <-drained:
+		t.Fatal("acquired generation A must retain an in-flight reference")
+	default:
+	}
 	select {
 	case <-active.closed:
 		t.Fatal("acquired generation A closed before its invocation finished")
@@ -334,6 +342,7 @@ func TestLambdaStrictConfigVersionConcurrentReplacementAfterAcquire(t *testing.T
 	release()
 	require.Equal(t, codes.OK, waitStrictVersionInvoke(t, strictA))
 	require.Equal(t, []string{"B", "A"}, f.dispatched)
+	waitStrictVersionBarrier(t, drained)
 	waitStrictVersionBarrier(t, active.closed)
 }
 
