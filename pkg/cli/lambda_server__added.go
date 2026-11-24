@@ -49,7 +49,8 @@ import (
 )
 
 const (
-	lambdaConnectorConfigVersionHeader       = "x-baton-connector-config-version"
+	lambdaConnectorConfigVersionHeader = "x-baton-connector-config-version"
+	// A non-empty value opts in; it is not parsed as a boolean.
 	lambdaConnectorConfigVersionStrictHeader = "x-baton-connector-config-version-strict"
 	lambdaConnectorDrainTimeout              = 30 * time.Second
 	lambdaConnectorCloseTimeout              = 10 * time.Second
@@ -200,7 +201,9 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 		}
 	}
 
-	_, strict := req.Headers()[lambdaConnectorConfigVersionStrictHeader]
+	strictValues := req.Headers().Get(lambdaConnectorConfigVersionStrictHeader)
+	strict := len(strictValues) > 0 && strictValues[0] != ""
+	// Avoid changing log level on an already-stale request; the guard rechecks before acquisition.
 	if strict && r.currentVersion() != requestedVersion {
 		return c1_lambda_grpc.ErrorResponse(lambdaConnectorConfigVersionNotReadyError()), nil
 	}

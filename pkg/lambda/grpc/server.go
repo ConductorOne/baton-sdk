@@ -243,10 +243,12 @@ func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
 	return s.handler(ctx, req, nil)
 }
 
-// HandlerWithDispatchGuard holds the lock acquired by guard until the selected
-// implementation has an in-flight reference. The returned release function runs
-// on every acquisition exit, before the application handler runs. The caller
-// must use the same external lock for implementation replacement.
+// HandlerWithDispatchGuard calls guard before method parsing, including for
+// malformed or unknown methods. The guard's external lock is taken before the
+// server registry lock; callers must preserve that order and use the same
+// external lock for implementation replacement.
+// A non-nil release function runs on every acquisition exit, even when guard
+// returns an error, and before the application handler runs. A nil release is allowed.
 func (s *Server) HandlerWithDispatchGuard(ctx context.Context, req *Request, guard func() (func(), error)) (*Response, error) {
 	return s.handler(ctx, req, guard)
 }

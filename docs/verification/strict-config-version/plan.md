@@ -14,7 +14,7 @@ HIGH: a version-dependent dispatch error can produce irreversible external write
 | V2 | Warm generation A after a successful rebuild requested for B that still served A; a repeated strict B request outside the global floor but inside the five-second repeat cap returns `FailedPrecondition`, does not rebuild and does not dispatch. |
 | V3 | After either cap expires, strict B triggers a rebuild, serves B and dispatches exactly once. The connector observes B. |
 | V4 | A successful rebuild that still serves A returns `FailedPrecondition` for strict B, with no dispatch. |
-| V5 | Strict requests stamped with current A dispatch without rebuilding. Empty or non-boolean strict header values still opt in. A missing/empty version stamp follows the same current-versus-stamped comparison. |
+| V5 | Strict requests stamped with current A dispatch without rebuilding. A non-empty strict header value opts in without boolean parsing; an empty value does not. A missing/empty version stamp follows the same current-versus-stamped comparison. |
 | V6 | Non-strict B requests in both capped states continue dispatching A; unstamped non-strict requests remain unchanged. |
 | V7 | A failed reload preserves its existing `Unavailable` response and dispatches nothing, with or without strict opt-in. |
 | V8 | Exercise the actual Handler and registered RPC transport path, asserting response status and connector dispatch counts, not only helper return values. |
@@ -80,7 +80,7 @@ The initial version check remains a fast refusal before log-level application. T
 
 ## CO3: typed configuration-version refusal detail
 
-Additive contract clarification: callers must distinguish SDK configuration-version refusals from connector/vendor `FailedPrecondition` statuses without inferring meaning from the message. Both strict-refusal exits retain `FailedPrecondition` and the fixed message `lambda-run: connector config version is not ready`, and add `google.rpc.ErrorInfo` with reason `CONNECTOR_CONFIG_VERSION_NOT_READY` and domain `baton-sdk` (subject to confirming an existing SDK domain convention).
+Additive contract clarification: callers must distinguish SDK configuration-version refusals from connector/vendor `FailedPrecondition` statuses without inferring meaning from the message. Both strict-refusal exits retain `FailedPrecondition` and the fixed message `lambda-run: connector config version is not ready`, and add `google.rpc.ErrorInfo` with reason `CONNECTOR_CONFIG_VERSION_NOT_READY` and domain `github.com/conductorone/baton-sdk`.
 
 Risk remains HIGH because a caller's retry classification crosses repositories. No caller retry policy or ordinary connector error changes belong in this stage.
 
@@ -94,4 +94,4 @@ Plant removal of the detail and wrong reason/domain values, require the detail o
 
 ### CO3 domain resolution
 
-The existing SDK convention is `github.com/conductorone/baton-sdk`, defined by `GrantCancelledErrorDomain` in `pkg/types/grant/cancelled.go`. The confirmed strict-refusal pair is therefore reason `CONNECTOR_CONFIG_VERSION_NOT_READY`, domain `github.com/conductorone/baton-sdk`, replacing the provisional shorter domain above. No shared-domain refactor is needed.
+The domain follows the existing `GrantCancelledErrorDomain` convention in `pkg/types/grant/cancelled.go`. The initial shorter-domain proposal was superseded by this confirmed pair. No shared-domain refactor is needed.
