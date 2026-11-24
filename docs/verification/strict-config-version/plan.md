@@ -77,3 +77,17 @@ Before fixing, execute V9 against the reviewed implementation and retain its fai
 | I8 | Version identity is not inferred from a connector pointer. V9 covers both distinct and reused implementation pointers under a new generation label. |
 
 The initial version check remains a fast refusal before log-level application. The authoritative check runs inside the dispatch guard. The reloader's test hook pauses only between these two checks and is never populated in production. It owns no resource and transfers no lock.
+
+## CO3: typed configuration-version refusal detail
+
+Additive contract clarification: callers must distinguish SDK configuration-version refusals from connector/vendor `FailedPrecondition` statuses without inferring meaning from the message. Both strict-refusal exits retain `FailedPrecondition` and the fixed message `lambda-run: connector config version is not ready`, and add `google.rpc.ErrorInfo` with reason `CONNECTOR_CONFIG_VERSION_NOT_READY` and domain `baton-sdk` (subject to confirming an existing SDK domain convention).
+
+Risk remains HIGH because a caller's retry classification crosses repositories. No caller retry policy or ordinary connector error changes belong in this stage.
+
+| ID | Required coverage and oracle |
+| --- | --- |
+| V11 | Both the early capped/skew refusal and the authoritative concurrent-acquisition refusal carry exactly the agreed reason/domain pair after response JSON and gRPC status round-trip; code and message remain unchanged. |
+| V12 | An ordinary connector/vendor `FailedPrecondition`, even with the same message, carries no SDK generation marker. Execution-scope mismatch retains its existing status with no generation marker. Existing foreign ErrorInfo is preserved, not rewritten. |
+| I9 | A single helper owns the SDK refusal and its static detail. Error-detail attachment cannot return an untyped generation refusal on failure; any encoding failure must fail closed without dispatch. |
+
+Plant removal of the detail and wrong reason/domain values, require the detail oracle to reject each, and retain exact mutation diffs/output. Re-run affected package race tests and both builds. This is local serialization/fixture proof, not evidence of a deployed caller decoding the marker.
