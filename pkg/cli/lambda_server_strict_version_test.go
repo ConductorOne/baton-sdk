@@ -88,13 +88,18 @@ func (f *strictVersionFixture) invoke(t *testing.T, headers metadata.MD) codes.C
 
 func (f *strictVersionFixture) invokeStatus(t *testing.T, headers metadata.MD) *status.Status {
 	t.Helper()
+	return f.invokeStatusWithContext(t, context.Background(), headers)
+}
+
+func (f *strictVersionFixture) invokeStatusWithContext(t *testing.T, ctx context.Context, headers metadata.MD) *status.Status {
+	t.Helper()
 	req, err := c1_lambda_grpc.NewRequest(v2.GrantManagerService_Grant_FullMethodName, &v2.GrantManagerServiceGrantRequest{}, headers)
 	require.NoError(t, err)
 	payload, err := json.Marshal(req)
 	require.NoError(t, err)
 	var decoded c1_lambda_grpc.Request
 	require.NoError(t, json.Unmarshal(payload, &decoded))
-	resp, err := f.reloader.Handler(context.Background(), &decoded)
+	resp, err := f.reloader.Handler(ctx, &decoded)
 	require.NoError(t, err)
 	return strictVersionResponseStatus(t, resp)
 }
@@ -236,6 +241,11 @@ type strictVersionInvokeResult struct {
 
 func startStrictVersionInvoke(t *testing.T, r *lambdaConnectorReloader, headers metadata.MD) <-chan strictVersionInvokeResult {
 	t.Helper()
+	return startStrictVersionInvokeWithContext(t, context.Background(), r, headers)
+}
+
+func startStrictVersionInvokeWithContext(t *testing.T, ctx context.Context, r *lambdaConnectorReloader, headers metadata.MD) <-chan strictVersionInvokeResult {
+	t.Helper()
 	req, err := c1_lambda_grpc.NewRequest(v2.GrantManagerService_Grant_FullMethodName, &v2.GrantManagerServiceGrantRequest{}, headers)
 	require.NoError(t, err)
 	payload, err := json.Marshal(req)
@@ -244,7 +254,7 @@ func startStrictVersionInvoke(t *testing.T, r *lambdaConnectorReloader, headers 
 	require.NoError(t, json.Unmarshal(payload, &decoded))
 	results := make(chan strictVersionInvokeResult, 1)
 	go func() {
-		resp, err := r.Handler(context.Background(), &decoded)
+		resp, err := r.Handler(ctx, &decoded)
 		results <- strictVersionInvokeResult{response: resp, err: err}
 	}()
 	return results

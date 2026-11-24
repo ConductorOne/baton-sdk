@@ -51,9 +51,10 @@ import (
 const (
 	lambdaConnectorConfigVersionHeader = "x-baton-connector-config-version"
 	// A non-empty value opts in; it is not parsed as a boolean.
-	lambdaConnectorConfigVersionStrictHeader = "x-baton-connector-config-version-strict"
-	lambdaConnectorDrainTimeout              = 30 * time.Second
-	lambdaConnectorCloseTimeout              = 10 * time.Second
+	lambdaConnectorConfigVersionStrictHeader    = "x-baton-connector-config-version-strict"
+	lambdaConnectorConfigVersionNotReadyMessage = "lambda-run: connector config version is not ready"
+	lambdaConnectorDrainTimeout                 = 30 * time.Second
+	lambdaConnectorCloseTimeout                 = 10 * time.Second
 
 	// Served-policy envelope contract versions this SDK understands. An
 	// envelope outside these resolves to a governed-with-no-hosts (deny-all)
@@ -130,7 +131,8 @@ type lambdaConnectorReloader struct {
 	// the persistent-skew steady state the cap fires on every invocation, so
 	// without this the log would storm. It is compared against lastRebuildAt,
 	// so it needs no reset on the success path.
-	lastCapLoggedAt time.Time
+	lastCapLoggedAt           time.Time
+	lastStrictRefusalLoggedAt time.Time
 }
 
 type lambdaConnectorReloaderTestHooks struct {
@@ -204,8 +206,18 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 	strictValues := req.Headers().Get(lambdaConnectorConfigVersionStrictHeader)
 	strict := len(strictValues) > 0 && strictValues[0] != ""
 	// Avoid changing log level on an already-stale request; the guard rechecks before acquisition.
-	if strict && r.currentVersion() != requestedVersion {
-		return c1_lambda_grpc.ErrorResponse(lambdaConnectorConfigVersionNotReadyError()), nil
+	if strict {
+		r.mu.Lock()
+		currentVersion := ""
+		if r.current != nil {
+			currentVersion = r.current.version
+		}
+		if currentVersion != requestedVersion {
+			err := r.strictConfigVersionRefusalLocked(ctx, requestedVersion)
+			r.mu.Unlock()
+			return c1_lambda_grpc.ErrorResponse(err), nil
+		}
+		r.mu.Unlock()
 	}
 
 	if err := r.applyCurrentLogLevel(time.Now()); err != nil {
@@ -219,8 +231,9 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 		return r.server.HandlerWithDispatchGuard(ctx, req, func() (func(), error) {
 			r.mu.Lock()
 			if r.current == nil || r.current.version != requestedVersion {
+				err := r.strictConfigVersionRefusalLocked(ctx, requestedVersion)
 				r.mu.Unlock()
-				return nil, lambdaConnectorConfigVersionNotReadyError()
+				return nil, err
 			}
 			return r.mu.Unlock, nil
 		})
@@ -229,8 +242,24 @@ func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grp
 	return r.server.Handler(ctx, req)
 }
 
+// Caller holds r.mu.
+func (r *lambdaConnectorReloader) strictConfigVersionRefusalLocked(ctx context.Context, requestedVersion string) error {
+	now := time.Now()
+	if r.lastStrictRefusalLoggedAt.IsZero() || now.Sub(r.lastStrictRefusalLoggedAt) >= lambdaConnectorReloadMinInterval {
+		currentVersion := ""
+		if r.current != nil {
+			currentVersion = r.current.version
+		}
+		ctxzap.Extract(ctx).Warn(lambdaConnectorConfigVersionNotReadyMessage,
+			zap.String("requested_version", requestedVersion),
+			zap.String("current_version", currentVersion))
+		r.lastStrictRefusalLoggedAt = now
+	}
+	return lambdaConnectorConfigVersionNotReadyError()
+}
+
 func lambdaConnectorConfigVersionNotReadyError() error {
-	st, err := status.New(codes.FailedPrecondition, "lambda-run: connector config version is not ready").WithDetails(&errdetails.ErrorInfo{
+	st, err := status.New(codes.FailedPrecondition, lambdaConnectorConfigVersionNotReadyMessage).WithDetails(&errdetails.ErrorInfo{
 		Reason: "CONNECTOR_CONFIG_VERSION_NOT_READY",
 		Domain: "github.com/conductorone/baton-sdk",
 	})
