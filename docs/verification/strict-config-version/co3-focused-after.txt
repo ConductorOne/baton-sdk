@@ -1,0 +1,73 @@
+source_sha: 22c29287cbccbccb088dec636b642567153e9b01
+$ go test -race -tags baton_lambda_support -run '^TestLambdaStrictConfigVersion' -count=1 -v ./pkg/cli
+=== RUN   TestLambdaStrictConfigVersionCapsAndConvergence
+=== RUN   TestLambdaStrictConfigVersionCapsAndConvergence/global_floor
+=== RUN   TestLambdaStrictConfigVersionCapsAndConvergence/repeated_version
+--- PASS: TestLambdaStrictConfigVersionCapsAndConvergence (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionCapsAndConvergence/global_floor (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionCapsAndConvergence/repeated_version (0.00s)
+=== RUN   TestLambdaStrictConfigVersionRejectsServedSkew
+--- PASS: TestLambdaStrictConfigVersionRejectsServedSkew (0.00s)
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/matching
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/empty_strict_value_is_absent
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/false_strict_value
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/missing_stamp
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/empty_stamp
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/matching_empty_version
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/no_headers
+=== RUN   TestLambdaStrictConfigVersionHeaderPresence/non-strict_empty_stamp
+--- PASS: TestLambdaStrictConfigVersionHeaderPresence (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/matching (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/empty_strict_value_is_absent (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/false_strict_value (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/missing_stamp (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/empty_stamp (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/matching_empty_version (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/no_headers (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionHeaderPresence/non-strict_empty_stamp (0.00s)
+=== RUN   TestLambdaStrictConfigVersionReloadError
+=== RUN   TestLambdaStrictConfigVersionReloadError/legacy/non-strict
+=== RUN   TestLambdaStrictConfigVersionReloadError/legacy/strict
+=== RUN   TestLambdaStrictConfigVersionReloadError/identity/non-strict
+=== RUN   TestLambdaStrictConfigVersionReloadError/identity/strict
+--- PASS: TestLambdaStrictConfigVersionReloadError (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionReloadError/legacy/non-strict (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionReloadError/legacy/strict (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionReloadError/identity/non-strict (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionReloadError/identity/strict (0.00s)
+=== RUN   TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire
+=== RUN   TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire/new_implementation
+=== RUN   TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire/reused_implementation
+--- PASS: TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire/new_implementation (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionConcurrentReplacementBeforeAcquire/reused_implementation (0.00s)
+=== RUN   TestLambdaStrictConfigVersionConcurrentReplacementAfterAcquire
+--- PASS: TestLambdaStrictConfigVersionConcurrentReplacementAfterAcquire (0.00s)
+=== RUN   TestLambdaStrictConfigVersionWithoutGeneration
+--- PASS: TestLambdaStrictConfigVersionWithoutGeneration (0.00s)
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict/bare_vendor_status
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict/vendor.example/CONNECTOR_CONFIG_VERSION_NOT_READY
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict/github.com/conductorone/baton-sdk/VENDOR_PRECONDITION
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict/execution_scope_mismatch
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/strict
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/strict/bare_vendor_status
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/strict/vendor.example/CONNECTOR_CONFIG_VERSION_NOT_READY
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/strict/github.com/conductorone/baton-sdk/VENDOR_PRECONDITION
+=== RUN   TestLambdaStrictConfigVersionOrdinaryPreconditions/strict/execution_scope_mismatch
+--- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions (0.01s)
+    --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict (0.00s)
+        --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict/bare_vendor_status (0.00s)
+        --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict/vendor.example/CONNECTOR_CONFIG_VERSION_NOT_READY (0.00s)
+        --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict/github.com/conductorone/baton-sdk/VENDOR_PRECONDITION (0.00s)
+        --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/non-strict/execution_scope_mismatch (0.00s)
+    --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/strict (0.00s)
+        --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/strict/bare_vendor_status (0.00s)
+        --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/strict/vendor.example/CONNECTOR_CONFIG_VERSION_NOT_READY (0.00s)
+        --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/strict/github.com/conductorone/baton-sdk/VENDOR_PRECONDITION (0.00s)
+        --- PASS: TestLambdaStrictConfigVersionOrdinaryPreconditions/strict/execution_scope_mismatch (0.00s)
+PASS
+ok  	github.com/conductorone/baton-sdk/pkg/cli	1.083s
+exit_code: 0

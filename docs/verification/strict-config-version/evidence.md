@@ -96,3 +96,33 @@ The two CLI interleavings and the blocked-acquisition instrument also pass 100 r
 The eleven mutations cover the original seven mechanisms plus bypassing guarded acquisition, releasing the external guard before acquisition, omitting its release, and omitting the in-flight reference. Temporary overlay files were removed; original source bytes were checked unchanged after execution. No detached provider or deployed behavior is claimed.
 
 The local lint toolchain blocker remains as recorded above; the correction does not claim a passing local lint run. Independent final-code/evidence re-review and normal PR checks remain separate gates.
+
+## CO3: typed configuration-version refusal
+
+Source/tests: `22c29287cbccbccb088dec636b642567153e9b01`. Both strict-refusal exits now call `lambdaConnectorConfigVersionNotReadyError`. It retains code `FailedPrecondition` and message `lambda-run: connector config version is not ready`, adding one `google.rpc.ErrorInfo` with:
+
+- reason: `CONNECTOR_CONFIG_VERSION_NOT_READY`
+- domain: `github.com/conductorone/baton-sdk`
+- no metadata
+
+The domain follows `GrantCancelledErrorDomain` in `pkg/types/grant/cancelled.go`; the provisional shorter domain is not used. Ordinary vendor and execution-scope preconditions are unchanged. No caller decoder or retry policy is implemented here.
+
+| Criterion | Instrument and oracle | Status |
+| --- | --- | --- |
+| V11 | Cap/skew tests and `ConcurrentReplacementBeforeAcquire` assert exact code, fixed message, one typed ErrorInfo, exact reason/domain and no metadata after JSON response and gRPC status decoding. Concurrent requests now also round-trip request JSON, exercising guarded response framing. | verified to stated local serialization coverage |
+| V12 | `OrdinaryPreconditions`, strict/non-strict × bare same-message vendor status, foreign-domain same-reason detail, same-domain foreign-reason detail, and execution-scope mismatch. Full vendor status protos are preserved; bare/vendor-scope statuses gain no SDK marker. | verified to stated eight cells |
+| I9 | One helper constructs both refusal statuses. Successful static-detail encoding is exercised; failure returns a fixed `Internal` status without dispatch rather than an untyped generation refusal. | verified for fixed valid detail; defensive encoding-failure branch explicitly excluded from fault injection |
+
+The excluded branch is not reachable with the helper's non-OK status and fixed valid generated `ErrorInfo` containing only ASCII strings and no metadata. Vendored `WithDetails` can fail for an OK status or failed `anypb.New` encoding. No new injection API was added solely to corrupt static protobuf encoding. This is source-based branch disposition, not a claim that the fallback was executed.
+
+### Retained CO3 evidence
+
+- `co3-failed-before.json`: exact test patch, source base, command and output before the detail was added. Both early/capped and concurrent refusals failed the one-typed-detail assertion; ordinary preconditions passed.
+- `co3-focused-after.txt`: all strict-version cases, including the typed detail and ordinary-error cells, pass with race detection.
+- `co3-gates.txt`: exact source SHA and outputs for affected-package race tests with/without Lambda support, both builds, complete affected-package coverage, 100 repeated concurrent-generation cases and diff check. All commands exit zero.
+- `co3-coverage.txt`: the full affected-package coverage profile; helper success is covered, with the defensive fallback disposition above.
+- `co3-mutations.json`: exact diffs, source hashes, commands and output for six rejected violations: stripping ErrorInfo, wrong reason, wrong domain, bypassing the helper on the early exit, bypassing it on the acquisition exit, and incorrectly marking an ordinary execution-scope precondition.
+
+The prior eleven mutation executions remain retained at their recorded CO2 revision; they are not relabelled as executions against CO3. This delta reruns the full package gates and concurrency tests, and adds the six typed-detail mutations. All mutation failures were intended behavioral assertions, not build/setup failures. Temporary overlays were removed and original source bytes were checked unchanged.
+
+Local lint remains blocked by the previously recorded toolchain mismatch. Independent light-delta review and PR CI are pending; no deployed caller-classification or vendor evidence is claimed.
