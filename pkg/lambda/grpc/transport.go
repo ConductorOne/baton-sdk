@@ -309,6 +309,10 @@ type Response struct {
 	// wireV2 selects the v2 wire frame encoding. The server sets it from
 	// the request: a frame in the request proves the invoker reads frames.
 	wireV2 bool
+
+	// invokeReport is set by the Lambda client transport from the invoke's
+	// tail log. It is never serialized, so a function cannot supply it.
+	invokeReport *LambdaInvokeReport
 }
 
 // UnmarshalJSON unmarshals the JSON into a Response. v2 wire frames decode

@@ -155,13 +155,17 @@ func (e *LambdaInvokeFailure) GRPCStatus() *status.Status {
 // lambdaReport is the parsed platform REPORT line for one invoke.
 //
 // Memory Size and Max Memory Used are present on every invoke, successful or
-// not. Status and Error Type appear only on failure.
+// not. Status and Error Type appear only on failure. Init Duration (on-demand)
+// or Restore Duration (SnapStart) appears only on the invoke that started a new
+// execution environment.
 type lambdaReport struct {
 	RequestID        string
 	DurationMS       float64
 	BilledDurationMS int
 	MemorySizeMB     int
 	MaxMemoryUsedMB  int
+	InitDurationMS   float64
+	ColdStart        bool
 	Status           string
 	ErrorType        string
 }
@@ -258,18 +262,31 @@ func parseLambdaReportFields(line string) map[string]string {
 // The last occurrence is used because a warm sandbox's tail can include the
 // trailing REPORT of a previous invoke.
 func parseLambdaReportLine(raw string) (lambdaReport, bool) {
-	line := ""
+	return parseLambdaReportLineFor(raw, "")
+}
+
+// parseLambdaReportLineFor is parseLambdaReportLine restricted to the REPORT
+// line of requestID. A REPORT line from a previous invoke on the same sandbox
+// would otherwise be read as this invoke's, which matters for fields such as
+// Init Duration that describe one invoke only. An empty requestID accepts the
+// last REPORT line.
+func parseLambdaReportLineFor(raw string, requestID string) (lambdaReport, bool) {
+	var fields map[string]string
 	for _, candidate := range strings.Split(raw, "\n") {
 		candidate = strings.TrimSpace(candidate)
-		if strings.HasPrefix(candidate, reportLinePrefix) {
-			line = candidate
+		if !strings.HasPrefix(candidate, reportLinePrefix) {
+			continue
 		}
+		candidateFields := parseLambdaReportFields(candidate)
+		if requestID != "" && candidateFields["RequestId"] != requestID {
+			continue
+		}
+		fields = candidateFields
 	}
-	if line == "" {
+	if fields == nil {
 		return lambdaReport{}, false
 	}
 
-	fields := parseLambdaReportFields(line)
 	report := lambdaReport{
 		RequestID: fields["RequestId"],
 		Status:    fields["Status"],
@@ -279,6 +296,12 @@ func parseLambdaReportLine(raw string) (lambdaReport, bool) {
 	report.MaxMemoryUsedMB = parseReportMB(fields["Max Memory Used"])
 	report.BilledDurationMS = int(parseReportMS(fields["Billed Duration"]))
 	report.DurationMS = parseReportMS(fields["Duration"])
+	initDuration, haveInit := fields["Init Duration"]
+	_, haveRestore := fields["Restore Duration"]
+	report.ColdStart = haveInit || haveRestore
+	if haveInit {
+		report.InitDurationMS = parseReportMS(initDuration)
+	}
 
 	return report, true
 }

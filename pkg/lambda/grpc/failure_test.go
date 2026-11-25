@@ -87,6 +87,8 @@ func TestParseLambdaReportLine(t *testing.T) {
 				BilledDurationMS: 20,
 				MemorySizeMB:     512,
 				MaxMemoryUsedMB:  100,
+				InitDurationMS:   300.12,
+				ColdStart:        true,
 			},
 		},
 		{
