@@ -10,13 +10,11 @@ baton-sdk is open source under the Apache 2.0 license. We don't accept external 
 
 We still want to hear from you. Most of the code here is now written by coding agents working alongside our engineers, so a patch is rarely the part we need. What we need is to know what you ran into or what you're missing.
 
-## Ideas and feature requests
+## Ideas, feature requests, and issues
 
 Open an [issue](https://github.com/ConductorOne/baton-sdk/issues/new) or contact C1 support, and describe what you want in your own words, the way you'd explain it to a teammate. A few sentences is enough. Please don't have an AI expand it into a formal proposal. If we agree with the direction, we'll build it.
 
-## Bugs
-
-Open an [issue](https://github.com/ConductorOne/baton-sdk/issues/new) or contact C1 support with what you ran, what you expected, and what happened. If your report leads to a fix, we'll credit you as co-author on the commit.
+If you spot a problem with the Baton SDK, [search if an issue already exists](https://github.com/ConductorOne/baton-sdk/issues). If a related issue doesn't exist, open an [issue](https://github.com/ConductorOne/baton-sdk/issues/new) or contact C1 support with what you ran, what you expected, and what happened.
 
 ## Pull requests
 
